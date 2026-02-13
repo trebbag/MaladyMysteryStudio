@@ -1,0 +1,18 @@
+# deps
+node_modules/
+
+# env
+.env
+
+# builds
+server/dist/
+web/dist/
+
+# runtime outputs
+output/
+
+# misc
+.DS_Store
+
+# logs
+*.log

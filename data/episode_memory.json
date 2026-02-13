@@ -1,0 +1,21 @@
+{
+  "recent": [
+    {
+      "at": "2026-02-10T15:56:14.676Z",
+      "runId": "0-8lKLsdtcUZ",
+      "key": "hospital procedural|busy urgent care in flu season|a misleading device reading|the obvious diagnosis is wrong|a suspiciously pristine chart printout|false reassurance,protocol vs intuition,pattern recognition",
+      "variety": {
+        "genre_wrapper": "hospital procedural",
+        "body_setting": "busy urgent care in flu season",
+        "antagonist_archetype": "a misleading device reading",
+        "twist_type": "the obvious diagnosis is wrong",
+        "signature_gadget": "a suspiciously pristine chart printout",
+        "motifs": [
+          "false reassurance",
+          "protocol vs intuition",
+          "pattern recognition"
+        ]
+      }
+    }
+  ]
+}

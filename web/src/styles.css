@@ -1,0 +1,1004 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f4ee;
+  --bg2: #f0ebe2;
+  --card: rgba(255, 255, 255, 0.9);
+  --card-strong: #ffffff;
+  --text: #1b2430;
+  --muted: #5f6b7a;
+  --accent: #0f766e;
+  --accent-soft: #dff3ef;
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #b91c1c;
+  --border: rgba(21, 37, 58, 0.14);
+  --shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  --radius: 16px;
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 80% -8%, rgba(15, 118, 110, 0.14), transparent 62%),
+    radial-gradient(1000px 520px at -10% 0%, rgba(234, 88, 12, 0.12), transparent 58%),
+    linear-gradient(180deg, var(--bg), var(--bg2));
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
+
+.appShell {
+  min-height: 100vh;
+}
+
+.appHeader {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(14px);
+  background: rgba(247, 244, 238, 0.86);
+  border-bottom: 1px solid var(--border);
+}
+
+.headerWrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.headerBadges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.brand {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+
+.brandLink {
+  text-decoration: none;
+}
+
+.container {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 22px 18px 70px;
+}
+
+.subtle {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.78));
+  box-shadow: var(--shadow);
+}
+
+.panelHeader {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panelBody {
+  padding: 16px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button,
+a.buttonLink {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 118, 110, 0.34);
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.2), rgba(15, 118, 110, 0.08));
+  color: var(--text);
+  padding: 9px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+button:hover,
+a.buttonLink:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 14px rgba(15, 118, 110, 0.16);
+}
+
+button:disabled,
+a.buttonLink:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+a.buttonLink {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.buttonDanger {
+  border-color: rgba(185, 28, 28, 0.35);
+  background: linear-gradient(180deg, rgba(185, 28, 28, 0.22), rgba(185, 28, 28, 0.08));
+}
+
+.buttonDanger:hover {
+  box-shadow: 0 7px 14px rgba(185, 28, 28, 0.18);
+}
+
+input[type="text"],
+input[type="number"],
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 12px;
+  color: var(--text);
+  background: var(--card-strong);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 116px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.badgeOk {
+  color: var(--ok);
+  border-color: rgba(21, 128, 61, 0.34);
+  background: rgba(21, 128, 61, 0.08);
+}
+
+.badgeErr {
+  color: var(--danger);
+  border-color: rgba(185, 28, 28, 0.34);
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.badgeWarn {
+  color: var(--warn);
+  border-color: rgba(180, 83, 9, 0.34);
+  background: rgba(180, 83, 9, 0.08);
+}
+
+.homeGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-areas:
+    "start status"
+    "runs runs"
+    "slo slo";
+  gap: 14px;
+}
+
+.homeStartCard {
+  grid-area: start;
+}
+
+.homeStatusCard {
+  grid-area: status;
+}
+
+.homeRunsCard {
+  grid-area: runs;
+}
+
+.homeSloCard {
+  grid-area: slo;
+}
+
+.topicComposer {
+  margin-bottom: 14px;
+}
+
+.settingsBlock {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.75);
+  padding: 12px;
+}
+
+.settingsBlockHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.settingsRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.statusRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.runRowLink {
+  text-decoration: none;
+}
+
+.runRowItem {
+  align-items: flex-start;
+}
+
+.runRowTopic {
+  font-weight: 700;
+}
+
+.retentionControls {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.64);
+  padding: 10px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.retentionRow {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.retentionAnalytics {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.retentionSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.retentionSummaryCard {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.retentionBuckets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.retentionBucketRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.74rem;
+}
+
+.retentionLargestRuns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.runSizeRow {
+  align-items: center;
+}
+
+.sloGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sloRow {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.sloRow input {
+  width: 120px;
+  min-height: 34px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.listItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.listItemActive {
+  border-color: rgba(15, 118, 110, 0.42);
+  background: rgba(15, 118, 110, 0.11);
+}
+
+.runLayout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.runTitle {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.runActions {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.runWatchdogCard .panelBody {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.runWatchdogRecoveredCard .panelBody {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.runSloCard .panelBody {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.watchdogText {
+  color: #7c2d12;
+  font-size: 0.8rem;
+}
+
+.runMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metaPair {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.metaKey {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.traceRow {
+  grid-column: 1 / -1;
+}
+
+.timelineWrap {
+  overflow: hidden;
+}
+
+.timelineStats {
+  font-size: 0.83rem;
+}
+
+.timelineBarTrack {
+  height: 9px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.timelineBarFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e, #15803d);
+  transition: width 250ms ease;
+}
+
+.timelineBarFillErr {
+  background: linear-gradient(90deg, #b91c1c, #dc2626);
+}
+
+.stepList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stepListGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.step {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.22);
+}
+
+.dotRunning {
+  background: #0f766e;
+  box-shadow: 0 0 0 5px rgba(15, 118, 110, 0.17);
+}
+
+.dotDone {
+  background: #15803d;
+}
+
+.dotErr {
+  background: #b91c1c;
+}
+
+.dotStuck {
+  background: #b45309;
+  box-shadow: 0 0 0 5px rgba(180, 83, 9, 0.2);
+}
+
+.dotRecovered {
+  background: #0369a1;
+  box-shadow: 0 0 0 5px rgba(3, 105, 161, 0.2);
+}
+
+.dotSlow {
+  background: #c2410c;
+  box-shadow: 0 0 0 5px rgba(194, 65, 12, 0.16);
+}
+
+.stepMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stepCode {
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.stepLabel {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepState {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.stepStuck {
+  border-color: rgba(180, 83, 9, 0.36);
+  background: rgba(180, 83, 9, 0.08);
+}
+
+.stepStateWarn {
+  color: #92400e;
+  font-weight: 700;
+}
+
+.stepRecovered {
+  border-color: rgba(3, 105, 161, 0.28);
+  background: rgba(3, 105, 161, 0.07);
+}
+
+.stepSlow {
+  border-color: rgba(194, 65, 12, 0.24);
+  background: rgba(194, 65, 12, 0.06);
+}
+
+.stepStateRecovered {
+  color: #0c4a6e;
+  font-weight: 700;
+}
+
+.stepStateSlow {
+  color: #9a3412;
+  font-weight: 700;
+}
+
+.runContentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 14px;
+}
+
+.runSideColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.artifactFilterBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.artifactRows {
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.artifactGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.artifactGroup {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.54);
+  padding: 8px;
+}
+
+.artifactGroupTitle {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.artifactRowButton {
+  width: 100%;
+  text-align: left;
+  padding: 11px;
+  border-color: var(--border);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+
+.artifactIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(15, 118, 110, 0.1);
+  border: 1px solid rgba(15, 118, 110, 0.2);
+}
+
+.artifactMeta {
+  min-width: 0;
+}
+
+.artifactName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.78rem;
+}
+
+.artifactSubMeta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  gap: 8px;
+  font-size: 0.72rem;
+}
+
+.viewerWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viewerToolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.viewerFileName {
+  font-size: 0.79rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--card);
+  overflow: auto;
+  max-height: 560px;
+}
+
+.viewerMarkdown {
+  line-height: 1.5;
+}
+
+.viewerMarkdown h1,
+.viewerMarkdown h2,
+.viewerMarkdown h3 {
+  margin-top: 0;
+}
+
+.runDiffSection {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.diffBlock {
+  white-space: pre;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diffLine {
+  padding: 0 6px;
+}
+
+.diffFile {
+  color: #475569;
+}
+
+.diffHunk {
+  color: #0f766e;
+}
+
+.diffAdd {
+  background: rgba(21, 128, 61, 0.12);
+  color: #166534;
+}
+
+.diffDel {
+  background: rgba(185, 28, 28, 0.12);
+  color: #991b1b;
+}
+
+.log {
+  height: 260px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #101828;
+}
+
+.logLine {
+  color: rgba(226, 232, 240, 0.94);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.canonicalRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.canonicalRow {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.canonicalValue {
+  margin-top: 3px;
+  font-size: 0.73rem;
+  word-break: break-all;
+}
+
+.constraintStats {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.constraintStat {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.constraintFail {
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.constraintWarn {
+  background: rgba(180, 83, 9, 0.08);
+}
+
+.constraintStatValue {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.summaryTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.summaryTabButton {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.76rem;
+  padding: 8px 10px;
+}
+
+.summaryTabButtonActive {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 1px rgba(11, 99, 176, 0.2);
+  background: rgba(11, 99, 176, 0.08);
+}
+
+.summaryCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summaryCard {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+  padding: 10px;
+}
+
+.summaryCardTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.summaryText {
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.diagnosticsWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagnosticDetails {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+  padding: 8px 10px;
+}
+
+.diagnosticDetails > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.diagnosticList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.diagnosticKv {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  font-size: 0.77rem;
+}
+
+@media (max-width: 1080px) {
+  .homeGrid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "start"
+      "status"
+      "runs"
+      "slo";
+  }
+
+  .settingsRow {
+    grid-template-columns: 1fr;
+  }
+
+  .retentionSummaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sloGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .runMetaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stepListGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .runContentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .split,
+  .runArtifactSplit {
+    grid-template-columns: 1fr;
+  }
+
+  .artifactFilterBar {
+    grid-template-columns: 1fr;
+  }
+
+  .headerWrap {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .container {
+    padding: 14px 10px 34px;
+  }
+
+  .brand {
+    font-size: 1.1rem;
+  }
+
+  .headerBadges {
+    justify-content: flex-start;
+  }
+
+  .step {
+    grid-template-columns: auto 1fr;
+  }
+
+  .stepState {
+    grid-column: 2;
+  }
+
+  .sloGrid {
+    grid-template-columns: 1fr;
+  }
+}

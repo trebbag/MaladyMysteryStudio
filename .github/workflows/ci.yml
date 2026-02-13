@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly soak regression (UTC)
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+    inputs:
+      run_live_smoke:
+        description: "Run optional live smoke stage (requires OPENAI_API_KEY and KB_VECTOR_STORE_ID secrets)"
+        required: false
+        default: false
+        type: boolean
+      run_e2e_soak:
+        description: "Run optional local fake-backend soak e2e stage"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  live_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_smoke == true && secrets.OPENAI_API_KEY != '' && secrets.KB_VECTOR_STORE_ID != '' }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      KB_VECTOR_STORE_ID: ${{ secrets.KB_VECTOR_STORE_ID }}
+      PORT: 5050
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Start app (pilot mode)
+        run: |
+          npm run start > app.log 2>&1 &
+          echo $! > app.pid
+          for i in {1..120}; do
+            if curl -sf "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server did not start in time"
+          cat app.log || true
+          exit 1
+
+      - name: Live smoke test
+        run: npm run smoke:live
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f app.pid ]; then
+            kill "$(cat app.pid)" || true
+          fi
+          cat app.log || true
+
+  e2e_soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: validate
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_e2e_soak == true) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npm --workspace web run e2e:install
+
+      - name: Restore latest soak trend history (best effort)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/soak .ci/soak-prev
+          printf '[]\n' > .ci/soak/soak-trend-history.json
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq not found; skipping previous-history restore"
+            exit 0
+          fi
+          API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=soak-trend-history&per_page=1"
+          ARTIFACTS_JSON="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "${API_URL}" || true)"
+          if [ -z "${ARTIFACTS_JSON}" ]; then
+            echo "No artifact listing returned; skipping previous-history restore"
+            exit 0
+          fi
+          DOWNLOAD_URL="$(printf "%s" "${ARTIFACTS_JSON}" | jq -r '.artifacts[0].archive_download_url // empty')"
+          if [ -n "${DOWNLOAD_URL}" ]; then
+            curl -fsSL -L -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "${DOWNLOAD_URL}" -o /tmp/soak-trend-history.zip || true
+            unzip -o /tmp/soak-trend-history.zip -d .ci/soak-prev >/dev/null 2>&1 || true
+            if [ -f .ci/soak-prev/soak-trend-history.json ]; then
+              cp .ci/soak-prev/soak-trend-history.json .ci/soak/soak-trend-history.json
+            fi
+          fi
+
+      - name: Run soak e2e
+        id: soak
+        continue-on-error: true
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: web/playwright-report
+          PLAYWRIGHT_HTML_OPEN: never
+          PLAYWRIGHT_JSON_OUTPUT_DIR: web/test-results
+          PLAYWRIGHT_JSON_OUTPUT_NAME: soak-results.json
+        run: npm --workspace web run test:e2e:soak -- --reporter=line,html,json
+
+      - name: Build soak trend report
+        if: always()
+        run: |
+          node scripts/build_soak_trend_report.mjs \
+            --results web/test-results/soak-results.json \
+            --history .ci/soak/soak-trend-history.json \
+            --outDir .ci/soak-report \
+            --outcome "${{ steps.soak.outcome }}"
+
+      - name: Upload soak Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-playwright-html-report
+          path: web/playwright-report
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload soak trend history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-trend-history
+          path: .ci/soak-report
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload soak raw json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-json-results
+          path: web/test-results/soak-results.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail job if soak tests failed
+        if: ${{ steps.soak.outcome == 'failure' }}
+        run: |
+          echo "Soak e2e tests failed. See uploaded soak-playwright-html-report and soak-trend-history artifacts."
+          exit 1

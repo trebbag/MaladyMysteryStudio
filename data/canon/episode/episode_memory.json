@@ -1,0 +1,136 @@
+{
+  "recent": [
+    {
+      "at": "2026-02-13T20:49:51.873Z",
+      "runId": "eEH1E9OK0hW1",
+      "key": "courtroom thriller|overnight ED shift|a hidden comorbidity|the patient decompensates during a key decision|a pager that never stops|signal vs noise,protocol vs intuition,protocol vs intuition",
+      "variety": {
+        "genre_wrapper": "courtroom thriller",
+        "body_setting": "overnight ED shift",
+        "antagonist_archetype": "a hidden comorbidity",
+        "twist_type": "the patient decompensates during a key decision",
+        "signature_gadget": "a pager that never stops",
+        "motifs": [
+          "signal vs noise",
+          "protocol vs intuition",
+          "protocol vs intuition"
+        ]
+      },
+      "story_fingerprint": "On an overnight ED shift framed as a courtroom thriller, Detective Cyto Kine and Deputy Pip prosecute “The Sugar Exposure Case,” proving that chronic hyperglycemia—amplified by a hidden comorbidity—quietly sabotages the body’s microvascular backstreets and macrovascular highways, until the patient decompensates mid-decision and forces a protocol-first sprint from surveillance to rescue to long-term prevention. | Courtroom-thriller wrapper inside an overnight ED shift: the ED becomes the “court,” while Cyto and Pip shrink into anatomically accurate 3D body districts (retina, glomerulus, vasa nervorum, coronary/PAD highways, plantar foot) to gather admissible evidence. The signature gadget is a pager that never stops, driving rapid triage and time-stamped HUD ‘exhibits.’ Motifs: signal vs noise; protocol vs intuition. | Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; narrates physiology as infrastructure and courtroom evidence., Deputy Pip — felt field deputy with micro-scanner; action-forward, asks learner questions, triggers clue reveals through curiosity without being incompetent., ED Charge Nurse (supporting) — embodies protocol under pressure; keeps the ‘court’ moving during the night shift., The Patient (adult with diabetes, respected) — initially stable with subtle complaints; later decompensates during a key decision point., Antagonist archetype: a hidden comorbidity — chronic kidney impairment/volume depletion/NSAID exposure (kept ambiguous early) that distorts signals, raises hypoglycemia risk, and accelerates vascular injury., ICD (Internal Calamity Directorate) — faint breadcrumb: a standardized “Basement Membrane” stamp appears in multiple ‘exhibits’ on the HUD, hinting at a larger conspiracy. | If Cyto and Pip misread noisy ED data and skip systematic surveillance, the patient risks preventable blindness (retinopathy), irreversible kidney decline (DKD), limb-threatening infection/Charcot collapse (foot disease), and fatal macrovascular events—while acute hypoglycemia/AKI can trigger immediate harm during the shift. Winning requires triage-first action, correct workup checklists, and a prevention bundle that prioritizes hypoglycemia safety and organ protection.",
+      "cast": [
+        "Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; narrates physiology as infrastructure and courtroom evidence.",
+        "Deputy Pip — felt field deputy with micro-scanner; action-forward, asks learner questions, triggers clue reveals through curiosity without being incompetent.",
+        "ED Charge Nurse (supporting) — embodies protocol under pressure; keeps the ‘court’ moving during the night shift.",
+        "The Patient (adult with diabetes, respected) — initially stable with subtle complaints; later decompensates during a key decision point.",
+        "Antagonist archetype: a hidden comorbidity — chronic kidney impairment/volume depletion/NSAID exposure (kept ambiguous early) that distorts signals, raises hypoglycemia risk, and accelerates vascular injury.",
+        "ICD (Internal Calamity Directorate) — faint breadcrumb: a standardized “Basement Membrane” stamp appears in multiple ‘exhibits’ on the HUD, hinting at a larger conspiracy."
+      ]
+    },
+    {
+      "at": "2026-02-12T18:35:56.315Z",
+      "runId": "_1K3Ykw3JkXG",
+      "key": "medical noir|overnight ED shift|a confusing medication list|the obvious diagnosis is wrong|a battered pocket ultrasound|false reassurance,protocol vs intuition,protocol vs intuition",
+      "variety": {
+        "genre_wrapper": "medical noir",
+        "body_setting": "overnight ED shift",
+        "antagonist_archetype": "a confusing medication list",
+        "twist_type": "the obvious diagnosis is wrong",
+        "signature_gadget": "a battered pocket ultrasound",
+        "motifs": [
+          "false reassurance",
+          "protocol vs intuition",
+          "protocol vs intuition"
+        ]
+      },
+      "story_fingerprint": "On an overnight ED shift, Detective Cyto Kine and Deputy Pip chase a “diabetes complications” case through the body’s microvascular back-alleys—until a confusing medication list frames the wrong culprit, and only a battered pocket ultrasound plus disciplined protocol can reveal what’s really driving the patient’s crisis and long-term risk. | Medical noir wrapped around an overnight ED shift that alternates between macro ED scenes (triage bay, charting station, medication reconciliation chaos) and micro-scale body “city” scenes inside capillary beds, retina, glomerulus, and foot microcirculation. The Mission HUD overlay timestamps the night; body-map transitions jump kidney → eye → foot → ED resuscitation bay. Visual motifs: rain-on-neon reflections in capillary ‘streets,’ thickened ‘walls,’ and subtle ‘leaks’ as permeability cues—no gore, patient respected. | Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as infrastructure and evidence., Deputy Pip — felt field deputy with micro-scanner gadget; action-forward, asks learner questions, spots cognitive traps without being incompetent., ED Charge Nurse — competent, fast; embodies protocol under pressure., Resident/PA in triage — juggling orders, tempted by shortcuts; not villainous., The Patient (adult with diabetes) — respected; presents overnight with concerning symptoms and later a hyperglycemic crisis workup., Antagonist (archetype): A confusing medication list — duplications, omissions, and mismatched doses that create false reassurance and misdirection., ICD (Internal Calamity Directorate) — faint breadcrumb: an oddly standardized med-rec template code that keeps reappearing in the HUD’s ‘CLUE FOUND’ box. | If Cyto and Pip accept the medication list’s false reassurance and anchor on the obvious diagnosis, the team misses the correct diabetes complication pathway (microvascular screening gaps and/or DKA vs HHS distinction), delaying the right workup and first-step treatment—risking preventable vision loss, kidney decline, foot catastrophe, or deterioration during a hyperglycemic crisis. The win condition is structured screening + correct crisis differentiation + protocol-first stabilization, then long-term risk reduction.",
+      "cast": [
+        "Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as infrastructure and evidence.",
+        "Deputy Pip — felt field deputy with micro-scanner gadget; action-forward, asks learner questions, spots cognitive traps without being incompetent.",
+        "ED Charge Nurse — competent, fast; embodies protocol under pressure.",
+        "Resident/PA in triage — juggling orders, tempted by shortcuts; not villainous.",
+        "The Patient (adult with diabetes) — respected; presents overnight with concerning symptoms and later a hyperglycemic crisis workup.",
+        "Antagonist (archetype): A confusing medication list — duplications, omissions, and mismatched doses that create false reassurance and misdirection.",
+        "ICD (Internal Calamity Directorate) — faint breadcrumb: an oddly standardized med-rec template code that keeps reappearing in the HUD’s ‘CLUE FOUND’ box."
+      ]
+    },
+    {
+      "at": "2026-02-11T18:57:59.574Z",
+      "runId": "ZS05BWNWd3r8",
+      "key": "techno-thriller|rural clinic with limited resources|a hidden comorbidity|two conditions are happening at once|a suspiciously pristine chart printout|misdirection,protocol vs intuition,misdirection",
+      "variety": {
+        "genre_wrapper": "techno-thriller",
+        "body_setting": "rural clinic with limited resources",
+        "antagonist_archetype": "a hidden comorbidity",
+        "twist_type": "two conditions are happening at once",
+        "signature_gadget": "a suspiciously pristine chart printout",
+        "motifs": [
+          "misdirection",
+          "protocol vs intuition",
+          "misdirection"
+        ]
+      },
+      "story_fingerprint": "In a resource-limited rural clinic, Detective Cyto Kine and Deputy Pip chase a techno-thriller “signal” of fading perfusion in a febrile child—only to discover a hidden comorbidity is masking sepsis while a second condition unfolds in parallel, forcing an ABCD-first stabilization sprint guided by objective trends, not vibes. | A rural clinic with limited resources: one quiet exam room, a small lab corner, intermittent printer access, and a single “suspiciously pristine chart printout” that keeps appearing at key moments. Macro scenes show the clinic’s constrained reality; micro scenes shrink into the child’s capillary beds, endothelium, and microcirculation—rendered as a neon-lit infrastructure grid where flow, leak, and microthrombi read like a city under cyber-attack. | Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as infrastructure under stress., Deputy Pip — felt field deputy with micro-scanner; action-forward, asks the learner’s questions, spots trend changes and cognitive traps., The Child Patient — respected; initially “just fever,” then subtle perfusion/mentation changes., Caregiver — worried but reassured by normal-looking numbers; provides key history when prompted., Rural Clinic Team (RN/MA/clinician) — competent, juggling constraints; embodies protocol vs intuition tension., Antagonist (archetype): Hidden comorbidity — a quiet baseline vulnerability that misdirects interpretation of vitals/exam., ICD (Internal Calamity Directorate) — faint breadcrumb via an unnaturally perfect printout header/footer code and checklist formatting that feels ‘too clean’ for the clinic printer. | If Cyto and Pip accept the pristine printout’s false reassurance and wait for hypotension, the child’s compensated shock will tip into decompensation before transfer—turning a treatable infection into preventable multi-organ dysfunction. The only way out is disciplined ABCD assessment, minimum objective dataset, rapid reassessment loops, and early treatment/escalation despite limited resources.",
+      "cast": [
+        "Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as infrastructure under stress.",
+        "Deputy Pip — felt field deputy with micro-scanner; action-forward, asks the learner’s questions, spots trend changes and cognitive traps.",
+        "The Child Patient — respected; initially “just fever,” then subtle perfusion/mentation changes.",
+        "Caregiver — worried but reassured by normal-looking numbers; provides key history when prompted.",
+        "Rural Clinic Team (RN/MA/clinician) — competent, juggling constraints; embodies protocol vs intuition tension.",
+        "Antagonist (archetype): Hidden comorbidity — a quiet baseline vulnerability that misdirects interpretation of vitals/exam.",
+        "ICD (Internal Calamity Directorate) — faint breadcrumb via an unnaturally perfect printout header/footer code and checklist formatting that feels ‘too clean’ for the clinic printer."
+      ]
+    },
+    {
+      "at": "2026-02-11T18:46:53.448Z",
+      "runId": "iR6p-LFWSzhJ",
+      "key": "medical noir|ambulance ride with a deteriorating patient|an overconfident consultant|the patient decompensates during a key decision|a battered pocket ultrasound|hidden constraints,protocol vs intuition,protocol vs intuition",
+      "variety": {
+        "genre_wrapper": "medical noir",
+        "body_setting": "ambulance ride with a deteriorating patient",
+        "antagonist_archetype": "an overconfident consultant",
+        "twist_type": "the patient decompensates during a key decision",
+        "signature_gadget": "a battered pocket ultrasound",
+        "motifs": [
+          "hidden constraints",
+          "protocol vs intuition",
+          "protocol vs intuition"
+        ]
+      },
+      "story_fingerprint": "During an ambulance ride from urgent care, Detective Cyto Kine and Deputy Pip race through a medical-noir “four killers” case—until an overconfident consultant pushes a shortcut and the patient decompensates mid-decision, forcing Cyto to prove that protocol beats vibes when chest pain is on the line. | A rain-streaked, siren-lit ambulance interior rendered in Pixar-like 3D, with Cyto and Pip as felt detectives shrinking between macro scenes (stretcher, monitor glow, paramedic hands) and micro scenes inside the thorax (RBCs rushing like traffic, pleura sliding like wet pavement, coronary arteries as narrow alleyways). The Mission HUD overlay ticks like a metronome; body-map transitions jump between chest wall, lungs/pleura, heart/pericardium, and aorta. | Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as city infrastructure., Deputy Pip — felt field deputy with micro-scanner; action-forward, asks the learner’s questions, spots cognitive traps., The Patient (adult, respected) — acute chest pain; initially stable, then deteriorates at the worst moment., Paramedic Team — competent, calm; provides the real-world urgent-care-to-EMS bridge., The Antagonist: an overconfident consultant — remote voice on speakerphone insisting the pain is ‘obviously musculoskeletal’ and urging delay/shortcut., ICD (Internal Calamity Directorate) — faint breadcrumb via a coded transfer form stamp and a suspiciously “too-neat” checklist. | If Cyto and Pip let a single reassuring feature (reproducible tenderness, ‘sharp’ description, a normal-looking first snapshot) override structured triage, they miss a time-sensitive killer (ACS/PE/dissection/pneumothorax) and the patient crashes before definitive care—turning a routine urgent-care chest pain visit into a preventable catastrophe and advancing the ICD’s larger pattern of hidden constraints.",
+      "cast": [
+        "Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates physiology as city infrastructure.",
+        "Deputy Pip — felt field deputy with micro-scanner; action-forward, asks the learner’s questions, spots cognitive traps.",
+        "The Patient (adult, respected) — acute chest pain; initially stable, then deteriorates at the worst moment.",
+        "Paramedic Team — competent, calm; provides the real-world urgent-care-to-EMS bridge.",
+        "The Antagonist: an overconfident consultant — remote voice on speakerphone insisting the pain is ‘obviously musculoskeletal’ and urging delay/shortcut.",
+        "ICD (Internal Calamity Directorate) — faint breadcrumb via a coded transfer form stamp and a suspiciously “too-neat” checklist. "
+      ]
+    },
+    {
+      "at": "2026-02-11T18:33:21.103Z",
+      "runId": "i6ZkWlizpYUV",
+      "key": "classic whodunit|ICU during a storm-induced power flicker|a misleading device reading|the patient decompensates during a key decision|a pager that never stops|false reassurance,false reassurance,countdown clocks",
+      "variety": {
+        "genre_wrapper": "classic whodunit",
+        "body_setting": "ICU during a storm-induced power flicker",
+        "antagonist_archetype": "a misleading device reading",
+        "twist_type": "the patient decompensates during a key decision",
+        "signature_gadget": "a pager that never stops",
+        "motifs": [
+          "false reassurance",
+          "false reassurance",
+          "countdown clocks"
+        ]
+      },
+      "story_fingerprint": "During a storm-flickering ICU consult that bleeds into urgent-care triage, Detective Cyto Kine and Deputy Pip run a classic whodunit where the “killer” isn’t a disease at first—it’s a misleading device reading—until the patient suddenly decompensates mid-decision, forcing a countdown-driven, killers-first chest pain differential and transfer plan. | A storm-induced power flicker rolls through a hospital ICU that’s temporarily acting as overflow triage for urgent-care chest pain calls; monitors blink, hallway lights stutter, and the Mission HUD overlay keeps time like a metronome. Cyto and Pip shrink into the patient’s thorax—anatomically accurate heart, pleura, pericardium, esophagus, and chest wall rendered in Pixar-like 3D—while they remain felt, lit by intermittent emergency lighting and the glow of their HUD visor and micro-scanner. | Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates observations as physiology metaphors., Deputy Pip — felt field deputy with micro-scanner; asks the learner’s questions and pushes the action without being incompetent., The Patient (adult, respected) — acute chest pain presentation; becomes the stakes when physiology turns., ICD (Internal Calamity Directorate) — background conspiracy presence; hinted via anomalous device behavior and paperwork codes., The Antagonist: a misleading device reading — a pulse-ox/monitor value that offers false reassurance at the worst moment., Signature prop: a pager that never stops — relentless alerts that enforce the countdown-clock motif and drive rapid decisions. | If Cyto and Pip let false reassurance steer the workup, a time-sensitive killer (ACS/PE/dissection/pneumothorax/pericarditis-myocarditis) is missed; the patient decompensates during a key decision, and the team must choose the correct urgent-care action—ECG now, probability-based PE pathway, repeat testing/transfer—before the clock runs out.",
+      "cast": [
+        "Detective Cyto Kine — felt noir investigator with HUD visor and evidence vial; narrates observations as physiology metaphors.",
+        "Deputy Pip — felt field deputy with micro-scanner; asks the learner’s questions and pushes the action without being incompetent.",
+        "The Patient (adult, respected) — acute chest pain presentation; becomes the stakes when physiology turns.",
+        "ICD (Internal Calamity Directorate) — background conspiracy presence; hinted via anomalous device behavior and paperwork codes.",
+        "The Antagonist: a misleading device reading — a pulse-ox/monitor value that offers false reassurance at the worst moment.",
+        "Signature prop: a pager that never stops — relentless alerts that enforce the countdown-clock motif and drive rapid decisions."
+      ]
+    }
+  ]
+}

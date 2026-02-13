@@ -1,0 +1,26 @@
+{
+  "name": "malady-mystery-studio",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c green,blue \"npm --workspace server run dev\" \"npm --workspace web run dev\"",
+    "start": "npm run build && npm --workspace server run start",
+    "build": "npm --workspace server run build && npm --workspace web run build",
+    "typecheck": "npm --workspace server run typecheck && npm --workspace web run typecheck",
+    "lint": "npm --workspace server run lint && npm --workspace web run lint",
+    "test": "npm --workspace server run test && npm --workspace web run test",
+    "test:e2e": "npm --workspace web run test:e2e",
+    "test:e2e:soak": "npm --workspace web run test:e2e:soak",
+    "test:coverage": "npm --workspace server run test:coverage && npm --workspace web run test:coverage",
+    "smoke:live": "node scripts/live_smoke_test.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
