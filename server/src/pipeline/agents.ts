@@ -3,6 +3,7 @@ import {
   AssessmentOutputSchema,
   CurriculumOutputSchema,
   EditorOutputSchema,
+  GensparkMasterDocOutputSchema,
   GensparkOutputSchema,
   KbCompilerOutputSchema,
   MedicalNarrativeFlowOutputSchema,
@@ -203,9 +204,26 @@ export const slideArchitectAgent = new Agent({
   instructions: `You are the Slide Architect.
 
 You will receive producer brief, medical atoms, and teaching blueprint.
-Draft a slide_skeleton (slide_id/title/objective/bullets) and a coverage report.
+Draft a slide_skeleton and coverage report with hybrid-first narrative planning.
 
 Rules:
+- Every skeleton row MUST include:
+  - slide_id
+  - title
+  - objective
+  - bullets
+  - slide_mode (hybrid | story_transition)
+  - narrative_phase (intro | body | outro)
+  - story_goal
+- Hybrid-first policy is mandatory:
+  - Most slides must be slide_mode="hybrid".
+  - story_transition is allowed only for action/location transitions and should be limited.
+- No medical-only mode is allowed.
+- Ensure narrative_phase allocation includes exactly:
+  - intro: 3 slides
+  - outro: 2 slides
+  - remaining slides: body
+- Ensure intro/body/outro continuity aligns with clinical teaching progression.
 - Return ONLY valid JSON matching the schema with top-level keys slide_skeleton and coverage.
 - No extra keys.`
 });
@@ -237,6 +255,13 @@ Rules:
 - Use metaphor_map to map medical entities/processes into mystery-world analogs while preserving teaching value.
 - Include multiple action_moments and intrigue_twists tied to medical logic.
 - Integrate the variety pack explicitly.
+- REQUIRED intro contract:
+  - quirky/fun opening where Cyto and Pip are doing detective/personal activities
+  - they receive a new case and must drop everything
+  - they return to office/HQ and use shrinking entry to enter the body investigation space
+- REQUIRED outro callback seed:
+  - after case wrap-up they return to normal size in office/HQ
+  - ending closes the loop with a fun callback to intro.
 - Return ONLY valid JSON matching the schema with top-level key story_seed.
 - No extra keys.`
 });
@@ -262,6 +287,12 @@ Rules:
 - Do not invent conflicting visual language if canonical style constraints are provided.
 - Ensure beat sequencing stays consistent with the medical_narrative_flow progression.
 - beat_sheet items must include: beat, purpose, characters (names), and setting.
+- episode_arc is required and must satisfy:
+  - intro_beats length exactly 3
+  - outro_beats length exactly 2
+  - include entry_to_body_beat, return_to_office_beat, and callback_beat
+- Intro must explicitly include: quirky opening, case acquisition, office return, shrink-entry launch.
+- Outro must explicitly include: return to normal size in office and a callback ending.
 - Return ONLY valid JSON matching the schema with top-level keys story_bible and beat_sheet.
 - No extra keys.`
 });
@@ -337,19 +368,41 @@ Write final_slide_spec for an educational mystery deck with precise image-genera
 Rules:
 - Keep content medically accurate and aligned to medical_narrative_flow.
 - Respect canonical character/story/visual constraints when provided in context.
+- Slide composition policy:
+  - medical-only slides are forbidden.
+  - default every slide to slide_mode="hybrid" unless it is a justified action/location transition.
+  - story_transition slides are allowed only for transitions/action beats and may have empty hud_panel_bullets.
 - Include reusable_visual_primer at the top-level to define recurring assets:
   - character_descriptions
   - recurring_scene_descriptions
   - reusable_visual_elements
   - continuity_rules
+- Include story_arc_contract at top-level:
+  - intro_slide_ids (exactly 3)
+  - outro_slide_ids (exactly 2)
+  - entry_to_body_slide_id
+  - return_to_office_slide_id
+  - callback_slide_id
 - For every slide, include ALL required fields:
+  - slide_mode
+  - medical_visual_mode (dual_hud_panels | in_scene_annotated_visual)
+  - narrative_phase
   - content_md
   - speaker_notes
   - hud_panel_bullets (standalone medical teaching bullets)
   - location_description (specific scene/organ/HQ context)
   - evidence_visual_description (medically accurate visuals and overlays)
   - character_staging (body position, actions, expressions)
+  - scene_description (rich full-scene rendering guidance)
+  - used_assets
+  - used_characters
   - story_and_dialogue (story progression with small dialogue snippets)
+- Hybrid slide requirements:
+  - non-empty hud_panel_bullets
+  - story_and_dialogue must include active scene progression
+  - include panel-2 medical visual OR use in_scene_annotated_visual mode.
+- If medical_visual_mode is dual_hud_panels, include explicit panel-2 medical visual payload in evidence_visual_description.
+- If medical_visual_mode is in_scene_annotated_visual, panel-2 may be absent but in-scene labels must carry the same teaching payload.
 - Return ONLY valid JSON matching the schema with top-level key final_slide_spec.
 - No extra keys.`
 });
@@ -368,6 +421,13 @@ Evaluate for medical accuracy, completeness, clarity, and alignment with produce
 If anything is wrong, set pass=false and produce a patch_list with concrete instructions.
 
 Rules:
+- Hard-fail (pass=false) when any of the following are true:
+  - any medical-only slide pattern is detected
+  - intro/outro contract missing or invalid (intro must be 3 slides; outro must be 2)
+  - required story_arc_contract fields are missing
+  - required per-slide fields are missing
+  - slide_mode-specific requirements are violated
+- Patch instructions must be explicit and reference slide_id/contract field names.
 - Return ONLY valid JSON matching the schema with top-level key qa_report.
 - No extra keys.`
 });
@@ -386,6 +446,7 @@ Apply the patches while preserving structure.
 
 Rules:
 - Preserve reusable_visual_primer and all required per-slide fields.
+- Preserve/repair story_arc_contract and slide_mode/medical_visual_mode/narrative_phase fields.
 - If patch instructions are ambiguous, make the smallest medically safe edit that resolves QA issues.
 - Do not remove required educational detail or canonical consistency constraints.
 - Return ONLY valid JSON matching the schema with top-level key final_slide_spec_patched.
@@ -409,5 +470,28 @@ Produce three deliverables as strings:
 
 Rules:
 - Return ONLY valid JSON matching the schema.
+- No extra keys.`
+});
+
+export const gensparkMasterPolisherAgent = new Agent({
+  name: "Genspark Master Polisher",
+  handoffDescription: "Polishes deterministic master render plan markdown without changing structure.",
+  model: baseModel,
+  modelSettings: baseSettings,
+  tools: [],
+  outputType: GensparkMasterDocOutputSchema,
+  instructions: `You are the Genspark Master Polisher.
+
+You will receive a deterministic markdown document that already contains strict slide block markers and field order.
+
+Rules:
+- Keep all required top headings and their order exactly unchanged.
+- Keep every slide block marker exactly:
+  - <!-- BEGIN_SLIDE:<slide_id> -->
+  - <!-- END_SLIDE:<slide_id> -->
+- Do not remove, add, or reorder slide blocks.
+- Do not rename field labels inside blocks.
+- Improve phrasing clarity only; preserve all factual constraints and references.
+- Return ONLY valid JSON matching schema key genspark_master_render_plan_md.
 - No extra keys.`
 });

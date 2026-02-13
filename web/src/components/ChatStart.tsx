@@ -13,7 +13,7 @@ import {
   updateSloPolicy
 } from "../api";
 
-const STEP_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"] as const;
+const STEP_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"] as const;
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -242,7 +242,7 @@ export default function ChatStart({ health }: ChatStartProps) {
         <div className="panelHeader">
           <div>
             <h2 className="sectionTitle">Start New Episode</h2>
-            <p className="subtle">Launch KB0 to O and monitor every handoff in real time.</p>
+            <p className="subtle">Launch KB0 to P and monitor every handoff in real time.</p>
           </div>
         </div>
 

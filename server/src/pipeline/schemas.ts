@@ -17,6 +17,10 @@ export const MEDICAL_NARRATIVE_SECTIONS = [
   "patient_counseling_prevention"
 ] as const;
 
+export const SlideModeSchema = z.enum(["hybrid", "story_transition"]);
+export const NarrativePhaseSchema = z.enum(["intro", "body", "outro"]);
+export const MedicalVisualModeSchema = z.enum(["dual_hud_panels", "in_scene_annotated_visual"]);
+
 const MedicalSectionCoverageSchema = z.object({
   section: z.string().min(1),
   medical_takeaways: z.array(z.string().min(1)).min(1),
@@ -141,7 +145,10 @@ export const SlideArchitectOutputSchema = z.object({
       slide_id: z.string().min(1),
       title: z.string().min(1),
       objective: z.string().min(1),
-      bullets: z.array(z.string().min(1))
+      bullets: z.array(z.string().min(1)),
+      slide_mode: SlideModeSchema,
+      narrative_phase: NarrativePhaseSchema,
+      story_goal: z.string().min(1)
     })
   ),
   coverage: z.object({
@@ -196,6 +203,14 @@ export const ShowrunnerOutputSchema = z.object({
     ),
     story_constraints_used: z.array(z.string().min(1)),
     visual_constraints_used: z.array(z.string().min(1))
+  }),
+  episode_arc: z.object({
+    intro_beats: z.array(z.string().min(1)).length(3),
+    body_beats: z.array(z.string().min(1)).min(1),
+    outro_beats: z.array(z.string().min(1)).length(2),
+    entry_to_body_beat: z.string().min(1),
+    return_to_office_beat: z.string().min(1),
+    callback_beat: z.string().min(1)
   }),
   beat_sheet: z.array(
     z.object({
@@ -258,22 +273,56 @@ const ReusableVisualPrimerSchema = z.object({
   continuity_rules: z.array(z.string().min(1)).min(1)
 });
 
-const SlideSceneSpecSchema = z.object({
-  slide_id: z.string().min(1),
-  title: z.string().min(1),
-  content_md: z.string().min(1),
-  speaker_notes: z.string().min(1),
-  hud_panel_bullets: z.array(z.string().min(1)).min(1),
-  location_description: z.string().min(1),
-  evidence_visual_description: z.string().min(1),
-  character_staging: z.string().min(1),
-  story_and_dialogue: z.string().min(1)
+// NOTE: Avoid discriminated unions here.
+// OpenAI's response_format JSON schema currently rejects `oneOf`, which Zod unions generate.
+// We enforce mode-specific constraints via runtime refinement instead.
+const SlideSceneSpecSchema = z
+  .object({
+    slide_id: z.string().min(1),
+    title: z.string().min(1),
+    slide_mode: SlideModeSchema,
+    medical_visual_mode: MedicalVisualModeSchema,
+    content_md: z.string().min(1),
+    speaker_notes: z.string().min(1),
+    narrative_phase: NarrativePhaseSchema,
+    hud_panel_bullets: z.array(z.string().min(1)),
+    location_description: z.string().min(1),
+    evidence_visual_description: z.string().min(1),
+    character_staging: z.string().min(1),
+    scene_description: z.string().min(1),
+    used_assets: z.array(z.string().min(1)).min(1),
+    used_characters: z.array(z.string().min(1)).min(1),
+    story_and_dialogue: z.string().min(1)
+  })
+  .superRefine((slide, ctx) => {
+    const hudCount = slide.hud_panel_bullets.length;
+    if (slide.slide_mode === "hybrid" && hudCount === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `hybrid slides must have non-empty hud_panel_bullets (slide_id=${slide.slide_id}).`
+      });
+    }
+    if (slide.slide_mode === "story_transition" && hudCount > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `story_transition slides must not include hud_panel_bullets (slide_id=${slide.slide_id}).`
+      });
+    }
+  });
+
+const StoryArcContractSchema = z.object({
+  intro_slide_ids: z.array(z.string().min(1)).length(3),
+  outro_slide_ids: z.array(z.string().min(1)).length(2),
+  entry_to_body_slide_id: z.string().min(1),
+  return_to_office_slide_id: z.string().min(1),
+  callback_slide_id: z.string().min(1)
 });
 
 export const SlideWriterOutputSchema = z.object({
   final_slide_spec: z.object({
     title: z.string().min(1),
     reusable_visual_primer: ReusableVisualPrimerSchema,
+    story_arc_contract: StoryArcContractSchema,
     slides: z.array(SlideSceneSpecSchema),
     sources: z.array(z.string().min(1))
   })
@@ -297,6 +346,7 @@ export const PatchOutputSchema = z.object({
   final_slide_spec_patched: z.object({
     title: z.string().min(1),
     reusable_visual_primer: ReusableVisualPrimerSchema,
+    story_arc_contract: StoryArcContractSchema,
     slides: z.array(SlideSceneSpecSchema),
     sources: z.array(z.string().min(1))
   })
@@ -306,6 +356,10 @@ export const GensparkOutputSchema = z.object({
   genspark_asset_bible_md: z.string().min(1),
   genspark_slide_guide_md: z.string().min(1),
   genspark_build_script_txt: z.string().min(1)
+});
+
+export const GensparkMasterDocOutputSchema = z.object({
+  genspark_master_render_plan_md: z.string().min(1)
 });
 
 export type KbCompilerOutput = z.infer<typeof KbCompilerOutputSchema>;
@@ -325,3 +379,4 @@ export type SlideWriterOutput = z.infer<typeof SlideWriterOutputSchema>;
 export type QaOutput = z.infer<typeof QaOutputSchema>;
 export type PatchOutput = z.infer<typeof PatchOutputSchema>;
 export type GensparkOutput = z.infer<typeof GensparkOutputSchema>;
+export type GensparkMasterDocOutput = z.infer<typeof GensparkMasterDocOutputSchema>;

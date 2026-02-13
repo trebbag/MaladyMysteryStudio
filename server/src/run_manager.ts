@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { nanoid } from "nanoid";
+import { randomBytes } from "node:crypto";
 import {
   ensureDir,
   nowIso,
@@ -9,6 +9,7 @@ import {
   runFinalDirAbs,
   runIntermediateDirAbs,
   runOutputDirAbs,
+  slug,
   tryReadJsonFile,
   writeJsonFile
 } from "./pipeline/utils.js";
@@ -31,7 +32,8 @@ export const STEP_ORDER = [
   "L",
   "M",
   "N",
-  "O"
+  "O",
+  "P"
 ] as const;
 
 export type StepName = (typeof STEP_ORDER)[number];
@@ -118,6 +120,20 @@ export type CleanupRunsResult = {
   reclaimedBytes: number;
   deletedRuns: RunStorageRecord[];
 };
+
+const RUN_ID_SLUG_MAX = 48;
+const RUN_ID_SUFFIX_LEN = 8;
+const RUN_ID_MAX_ATTEMPTS = 10;
+const RUN_ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+function randomRunSuffix(length: number): string {
+  const bytes = randomBytes(length);
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += RUN_ID_SUFFIX_ALPHABET[bytes[i] % RUN_ID_SUFFIX_ALPHABET.length];
+  }
+  return out;
+}
 
 export class RunManager {
   private runs = new Map<string, RunInternal>();
@@ -252,8 +268,26 @@ export class RunManager {
     return this.runs.get(runId) ?? null;
   }
 
+  private async runIdExists(runId: string): Promise<boolean> {
+    if (this.runs.has(runId)) return true;
+    const onDisk = await fs
+      .stat(runOutputDirAbs(runId))
+      .then((st) => st.isDirectory())
+      .catch(() => false);
+    return onDisk;
+  }
+
+  private async nextRunId(topic: string): Promise<string> {
+    const topicSlug = (slug(topic).slice(0, RUN_ID_SLUG_MAX).replace(/^-+|-+$/g, "") || "untitled").toLowerCase();
+    for (let attempt = 0; attempt < RUN_ID_MAX_ATTEMPTS; attempt++) {
+      const runId = `${topicSlug}-${randomRunSuffix(RUN_ID_SUFFIX_LEN)}`;
+      if (!(await this.runIdExists(runId))) return runId;
+    }
+    throw new Error("Unable to allocate unique runId after retries");
+  }
+
   async createRun(topic: string, settings?: RunSettings, derivedFrom?: RunDerivedFrom): Promise<RunStatus> {
-    const runId = nanoid(12);
+    const runId = await this.nextRunId(topic);
     const startedAt = nowIso();
     const outputFolder = path.join("output", runId);
 

@@ -23,7 +23,7 @@ describe("RunManager", () => {
     const runs = new RunManager();
     const run = await runs.createRun("topic 1", { durationMinutes: 20 });
 
-    expect(run.runId).toHaveLength(12);
+    expect(run.runId).toMatch(/^topic-1-[a-z0-9]{8}$/);
     expect(run.topic).toBe("topic 1");
     expect(run.settings).toMatchObject({ durationMinutes: 20 });
     expect(run.outputFolder).toBe(`output/${run.runId}`);
@@ -41,6 +41,21 @@ describe("RunManager", () => {
       expect(onDisk.steps[s].status).toBe("queued");
       expect(onDisk.steps[s].artifacts).toEqual([]);
     }
+  });
+
+  it("createRun uses prompt-derived slug ids with unique suffixes", async () => {
+    const runs = new RunManager();
+    const topic = "This is a Very Long Topic Name That Should Be Truncated and Still Stay Readable in Output Folders";
+    const r1 = await runs.createRun(topic);
+    const r2 = await runs.createRun(topic);
+
+    expect(r1.runId).toMatch(/^[a-z0-9-]+-[a-z0-9]{8}$/);
+    expect(r2.runId).toMatch(/^[a-z0-9-]+-[a-z0-9]{8}$/);
+    expect(r1.runId).not.toBe(r2.runId);
+
+    const slugPart = r1.runId.slice(0, -9); // remove "-xxxxxxxx"
+    expect(slugPart.length).toBeLessThanOrEqual(48);
+    expect(r2.runId.startsWith(`${slugPart}-`)).toBe(true);
   });
 
   it("emits step + artifact events to subscribers", async () => {

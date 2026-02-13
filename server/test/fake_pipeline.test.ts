@@ -74,6 +74,7 @@ describe("runFakeStudioPipeline", () => {
     expect(status?.traceId).toBe(`trace_fake_${run.runId}`);
     expect(status?.steps.KB0.status).toBe("done");
     expect(status?.steps.O.status).toBe("done");
+    expect(status?.steps.P.status).toBe("done");
     expect(status?.canonicalSources?.foundAny).toBe(true);
     expect(status?.constraintAdherence?.status).toBe("pass");
 
@@ -95,6 +96,8 @@ describe("runFakeStudioPipeline", () => {
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_ASSET_BIBLE.md"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_SLIDE_GUIDE.md"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_BUILD_SCRIPT.txt"))).resolves.toBeTruthy();
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN_BASE.md"))).resolves.toBeTruthy();
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "constraint_adherence_report.json"))).resolves.toBeTruthy();
 
     const adherence = await readJsonFile<{ status: string; failures: string[]; warnings: string[] }>(
@@ -122,11 +125,13 @@ describe("runFakeStudioPipeline", () => {
     const status = runs.getRun(run.runId);
     expect(status?.steps.KB0.status).toBe("queued");
     expect(status?.steps.O.status).toBe("done");
+    expect(status?.steps.P.status).toBe("done");
 
     await expect(fs.stat(artifactAbsPath(run.runId, "final_slide_spec_patched.json"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "reusable_visual_primer.json"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "qa_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_ASSET_BIBLE.md"))).resolves.toBeTruthy();
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"))).resolves.toBeTruthy();
   });
 
   it("throws for invalid startFrom values", async () => {
@@ -259,5 +264,6 @@ describe("runFakeStudioPipeline", () => {
     const status = runs.getRun(run.runId);
     expect(status?.canonicalSources?.foundAny).toBe(false);
     expect(status?.steps.O.status).toBe("done");
+    expect(status?.steps.P.status).toBe("done");
   });
 });

@@ -32,6 +32,16 @@ type ConstraintReport = {
     required_style_rules_checked: number;
     required_style_rule_hits: number;
     forbidden_style_hits: string[];
+    slide_mode_counts?: {
+      hybrid: number;
+      story_transition: number;
+    };
+    intro_outro_contract_status?: {
+      status: "pass" | "fail";
+      issues: string[];
+    };
+    medical_only_violations?: string[];
+    master_doc_validation_status?: "not_checked" | "pass" | "warn" | "fail";
     semantic_similarity?: {
       closest_run_id: string;
       score: number;
@@ -68,11 +78,11 @@ type ReusableVisualPrimer = {
   };
 };
 
-type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O";
+type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
 type ArtifactFolderFilter = "all" | "root" | "intermediate" | "final";
 type SummaryTab = "narrative" | "visual";
 
-const STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"];
+const STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
 const DEFAULT_STUCK_THRESHOLD_SECONDS = 90;
 const STUCK_THRESHOLD_MIN_SECONDS = 10;
 const STUCK_THRESHOLD_MAX_SECONDS = 1200;

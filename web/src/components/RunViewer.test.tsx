@@ -48,7 +48,7 @@ class FakeEventSource {
   }
 }
 
-const STEP_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"] as const;
+const STEP_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"] as const;
 
 function makeSteps(status: "queued" | "running" | "done" | "error" = "queued") {
   const steps: Record<string, { name: string; status: "queued" | "running" | "done" | "error"; artifacts: string[] }> = {};
@@ -784,6 +784,7 @@ describe("RunViewer", () => {
     const user = userEvent.setup();
     vi.mocked(listArtifacts).mockResolvedValueOnce([
       { name: "run.json", size: 3, mtimeMs: 6, folder: "root" },
+      { name: "GENSPARK_MASTER_RENDER_PLAN.md", size: 14, mtimeMs: 5, folder: "final" },
       { name: "GENSPARK_SLIDE_GUIDE.md", size: 10, mtimeMs: 4, folder: "final" },
       { name: "kb_context.md", size: 11, mtimeMs: 3, folder: "intermediate" }
     ]);
@@ -801,6 +802,7 @@ describe("RunViewer", () => {
     const search = screen.getByLabelText("Artifact search");
     await user.type(search, "guide");
     expect(screen.getByText("GENSPARK_SLIDE_GUIDE.md")).toBeInTheDocument();
+    expect(screen.queryByText("GENSPARK_MASTER_RENDER_PLAN.md")).not.toBeInTheDocument();
     expect(screen.queryByText("run.json")).not.toBeInTheDocument();
 
     await user.clear(search);

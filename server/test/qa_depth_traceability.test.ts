@@ -114,16 +114,29 @@ describe("pipeline/qa_depth_traceability", () => {
           reusable_visual_elements: ["evidence board"],
           continuity_rules: ["keep style"]
         },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
         slides: [
           {
             slide_id: "S1",
             title: "Baseline physiology",
+            slide_mode: "hybrid",
+            medical_visual_mode: "dual_hud_panels",
+            narrative_phase: "intro",
             content_md: "normal state and early deviation signals",
             speaker_notes: "normal state",
             hud_panel_bullets: ["early deviation signals"],
             location_description: "HQ",
             evidence_visual_description: "evidence checkpoint board",
             character_staging: "Dr. Ada points at board",
+            scene_description: "Detailed medical scene",
+            used_assets: ["evidence board"],
+            used_characters: ["Dr. Ada"],
             story_and_dialogue: "The team reaches an evidence checkpoint."
           }
         ],

@@ -1,6 +1,6 @@
 import { StepStatus } from "../api";
 
-const ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"];
+const ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
 
 const LABELS: Record<string, string> = {
   KB0: "KB Compiler",
@@ -18,7 +18,8 @@ const LABELS: Record<string, string> = {
   L: "Slide Writer",
   M: "QA Suite",
   N: "Patch Applier",
-  O: "Genspark Packager"
+  O: "Genspark Packager",
+  P: "Genspark Master Doc"
 };
 
 function parseIsoMs(iso?: string): number | null {

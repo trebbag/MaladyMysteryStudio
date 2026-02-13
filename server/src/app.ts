@@ -93,7 +93,8 @@ const AllowedRerunStartFromSchema = z.enum([
   "L",
   "M",
   "N",
-  "O"
+  "O",
+  "P"
 ]);
 
 const RerunBodySchema = z

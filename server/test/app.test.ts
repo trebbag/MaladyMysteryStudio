@@ -320,6 +320,7 @@ describe("server app", () => {
     expect(res.body.stepSlo.evaluations.A.status).toBe("warn");
     expect(res.body.stepSlo.warningSteps).toContain("A");
     expect(res.body.stepSlo.evaluations.KB0.status).toBe("n/a");
+    expect(res.body.stepSlo.evaluations.P.status).toBe("n/a");
   });
 
   it("GET /api/runs/:runId includes stepSlo ok/n-a branches", async () => {
@@ -437,6 +438,15 @@ describe("server app", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /api/runs/:runId/rerun accepts startFrom=P enum value", async () => {
+    const runs = new RunManager();
+    const parent = await runs.createRun("topic");
+    const app = createApp(runs, makeExecutor() as never);
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toContain("cannot reuse step");
+  });
+
   it("POST /api/runs/:runId/rerun rejects when parent prerequisites are not done", async () => {
     const runs = new RunManager();
     const parent = await runs.createRun("topic");
@@ -528,6 +538,38 @@ describe("server app", () => {
     const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "A" });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("runId");
+  });
+
+  it("POST /api/runs/:runId/rerun supports startFrom=P for sparse legacy parent runs", async () => {
+    const runs = new RunManager();
+    const enqueue = vi.fn(() => true);
+    const app = createApp(runs, makeExecutor({ enqueue }) as never);
+
+    const parent = await runs.createRun("legacy sparse parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    expect(childRunId.length).toBeGreaterThan(0);
+    expect(enqueue).toHaveBeenCalledWith(childRunId, { startFrom: "P" });
+
+    const child = await request(app).get(`/api/runs/${childRunId}`);
+    expect(child.status).toBe(200);
+    expect(child.body.derivedFrom).toMatchObject({ runId: parent.runId, startFrom: "P" });
+    expect(child.body.steps.O.status).toBe("done");
+    expect(child.body.steps.O.artifacts).toEqual([]);
+    expect(child.body.steps.P.status).toBe("queued");
   });
 
   it("GET /api/runs/:runId/export returns 404 for missing run", async () => {

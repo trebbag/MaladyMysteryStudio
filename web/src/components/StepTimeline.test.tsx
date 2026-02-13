@@ -19,6 +19,7 @@ describe("StepTimeline", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.getByText("B")).toBeInTheDocument();
     expect(screen.getByText("C")).toBeInTheDocument();
+    expect(screen.getByText("P")).toBeInTheDocument();
 
     // Spot-check status text
     expect(screen.getAllByText("done").length).toBeGreaterThanOrEqual(1);

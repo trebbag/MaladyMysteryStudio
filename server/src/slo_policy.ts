@@ -19,7 +19,8 @@ export const DEFAULT_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
   L: 180_000,
   M: 120_000,
   N: 120_000,
-  O: 90_000
+  O: 90_000,
+  P: 90_000
 };
 
 export const STEP_SLO_MIN_MS = 5_000;
@@ -83,4 +84,3 @@ export function normalizeThresholdOverrides(
   }
   return next;
 }
-

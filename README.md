@@ -1,6 +1,6 @@
 # Malady Mystery Studio
 
-Local dev web app that runs a multi-agent pipeline (KB0 -> A -> ... -> O) using the OpenAI Agents SDK, streams progress live via SSE, and persists all run artifacts under `output/<runId>/`.
+Local dev web app that runs a multi-agent pipeline (KB0 -> A -> ... -> P) using the OpenAI Agents SDK, streams progress live via SSE, and persists all run artifacts under `output/<runId>/`.
 
 ## Prereqs
 
@@ -62,7 +62,7 @@ npm run start
 
 ## Local real-backend E2E (fake pipeline mode)
 
-Playwright E2E starts both local servers and drives the real backend APIs/SSE without mocking.  
+Playwright E2E starts the app in single-process pilot mode and drives real backend APIs/SSE without mocking.  
 The test harness forces `MMS_PIPELINE_MODE=fake` so it does not require model access.
 
 ```bash
@@ -73,7 +73,7 @@ npm run test:e2e:soak
 
 ## Pilot runtime notes
 
-- Longest/most variable steps are usually `B` (web research), `G-H-I` (story/visual generation), and `O` (packaging + adherence checks).
+- Longest/most variable steps are usually `B` (web research), `G-H-I` (story/visual generation), and `O-P` (packaging + master-doc synthesis + adherence checks).
 - It is normal for a single step to appear `running` for multiple polling cycles.
 - During step `M/N`, QA can loop once (QA -> Patch -> QA), so elapsed time can spike late in a run.
 - If you need pilot continuity over strict gating, set run setting `adherenceMode` to `warn` (the run completes while still recording adherence findings).
@@ -96,6 +96,8 @@ Each run writes to:
   - `GENSPARK_ASSET_BIBLE.md`
   - `GENSPARK_SLIDE_GUIDE.md`
   - `GENSPARK_BUILD_SCRIPT.txt`
+  - `GENSPARK_MASTER_RENDER_PLAN.md`
+  - (`GENSPARK_MASTER_RENDER_PLAN_BASE.md` is retained as an intermediate fallback/reference)
 
 ## API (backend)
 
@@ -119,7 +121,7 @@ Each run writes to:
   - Includes `constraintAdherence` summary (`status`, failure/warning counts, timestamp)
   - Includes `stepSlo` with per-step elapsed/threshold evaluations and `warningSteps`
 - `POST /api/runs/:runId/cancel`
-- `POST /api/runs/:runId/rerun { startFrom: "KB0"|"A"|...|"O" }` (creates a new derived runId)
+- `POST /api/runs/:runId/rerun { startFrom: "KB0"|"A"|...|"P" }` (creates a new derived runId)
 - `GET /api/runs/:runId/events` (SSE)
 - `GET /api/runs/:runId/export` (zip download)
 - `GET /api/runs/:runId/artifacts`

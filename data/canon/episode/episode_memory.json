@@ -1,6 +1,59 @@
 {
   "recent": [
     {
+      "at": "2026-02-13T23:38:24.834Z",
+      "runId": "ENnuWG3uWzvK",
+      "key": "small-town mystery|busy urgent care in flu season|a confusing medication list|the patient decompensates during a key decision|a pager that never stops|false reassurance,team handoffs,false reassurance",
+      "variety": {
+        "genre_wrapper": "small-town mystery",
+        "body_setting": "busy urgent care in flu season",
+        "antagonist_archetype": "a confusing medication list",
+        "twist_type": "the patient decompensates during a key decision",
+        "signature_gadget": "a pager that never stops",
+        "motifs": [
+          "false reassurance",
+          "team handoffs",
+          "false reassurance"
+        ]
+      },
+      "story_fingerprint": "When a case arrives labeled only “E2E rerun parent 1771024054717,” Detective Cyto Kine treats it like a forged warrant—refusing to invent a diagnosis—until a near-miss decompensation in a flu-season urgent care proves why primary-care safety depends on structured triage, mechanism-based reasoning, and a mandatory Topic Intake Checklist before any disease-specific chase begins. | A small-town urgent care during peak flu season—crowded waiting room, constant handoffs, and a pager that never stops. The ‘micro-world’ is a stylized Intake Terminal inside the clinic’s workflow system that can ‘shrink’ Cyto and Pip into a neutral Body City diorama for universal clinical frameworks (no diagnosis-specific anatomy until a real topic exists). | Detective Cyto Kine — felt lead investigator with HUD visor, evidence vial; noir radio-drama narration, Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who asks learner-questions, Urgent Care Charge RN — competent protocol anchor managing triage and handoffs (supporting), Front Desk/Registrar — well-meaning but rushed; the source of the bare ID slip (supporting), The Patient Avatar — respectful, anonymized silhouette representing ‘a real patient’ who could be harmed by speculative medicine, Antagonist archetype: A confusing medication list — duplications/omissions that create false reassurance and unsafe empiric choices, ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean metadata watermark embedded in the intake ID string | If Cyto and Pip treat an internal tracking label as a clinical entity, they’ll trigger a shotgun workup, unsafe empiric meds (interaction/allergy/QT/renal risks), missed red flags, and a preventable deterioration during a key decision—turning workflow noise into patient harm. The win condition is stopping speculation, triaging correctly, and building a reusable PCP framework plus a Topic Intake Checklist that prevents future ‘non-cases’ from entering the diagnostic pipeline.",
+      "cast": [
+        "Detective Cyto Kine — felt lead investigator with HUD visor, evidence vial; noir radio-drama narration",
+        "Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who asks learner-questions",
+        "Urgent Care Charge RN — competent protocol anchor managing triage and handoffs (supporting)",
+        "Front Desk/Registrar — well-meaning but rushed; the source of the bare ID slip (supporting)",
+        "The Patient Avatar — respectful, anonymized silhouette representing ‘a real patient’ who could be harmed by speculative medicine",
+        "Antagonist archetype: A confusing medication list — duplications/omissions that create false reassurance and unsafe empiric choices",
+        "ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean metadata watermark embedded in the intake ID string"
+      ]
+    },
+    {
+      "at": "2026-02-13T23:35:44.892Z",
+      "runId": "hypertension-in-primary-care-evaluation-and-mana-gyxk1jhi",
+      "key": "techno-thriller|busy urgent care in flu season|an overconfident consultant|the obvious diagnosis is wrong|a battered pocket ultrasound|protocol vs intuition,false reassurance,hidden constraints",
+      "variety": {
+        "genre_wrapper": "techno-thriller",
+        "body_setting": "busy urgent care in flu season",
+        "antagonist_archetype": "an overconfident consultant",
+        "twist_type": "the obvious diagnosis is wrong",
+        "signature_gadget": "a battered pocket ultrasound",
+        "motifs": [
+          "protocol vs intuition",
+          "false reassurance",
+          "hidden constraints"
+        ]
+      },
+      "story_fingerprint": "During a flu-season crush at a busy urgent care, Detective Cyto Kine and Deputy Pip chase a “Silent Pressure Syndicate” that’s vandalizing the body’s vascular city—only to learn the obvious culprit (a scary office BP) is sometimes a decoy, and the real case hinges on clean measurement, out-of-office surveillance, targeted secondary-cause interrogations, and a stepwise long-game takedown that prevents future MI, stroke, HF, and CKD. | Techno-thriller wrapper set in a busy urgent care during flu season: crowded waiting room, constant interruptions, and an overconfident consultant pushing shortcuts. Micro-world locations include the brachial artery “interrogation room,” arteriolar “choke-point streets,” the kidney “Water Authority,” the heart “Pump Station,” the retina “camera grid,” and the glomerulus “archive filters.” | Detective Cyto Kine (felt lead investigator; HUD visor; evidence vial; noir-radio narration), Deputy Pip (felt field deputy; micro-scanner; earnest chaos probe), Dr. Voss (overconfident consultant; antagonist archetype; insists ‘numbers are numbers’ and pushes rapid fixes), Urgent Care Charge RN (protocol anchor; keeps triage moving; not villainous), The Patient (adult, respected; here for flu-like symptoms; ‘feels fine’ re: BP), ICD (Internal Calamity Directorate) presence (breadcrumb only): a too-clean “BP Protocol Patch” watermark that appears on the HUD evidence chain | If Cyto and Pip mis-handle the evidence (bad cuff/technique, no ABPM/HBPM confirmation, anchoring on symptoms), the patient is either falsely labeled/overtreated (hypotension, AKI, side effects) or undertreated (silent progression to LVH, stroke, CKD, retinopathy). A wrong move during a severe-reading standoff risks hypoperfusion from overly rapid BP reduction; a missed emergency risks acute end-organ injury.",
+      "cast": [
+        "Detective Cyto Kine (felt lead investigator; HUD visor; evidence vial; noir-radio narration)",
+        "Deputy Pip (felt field deputy; micro-scanner; earnest chaos probe)",
+        "Dr. Voss (overconfident consultant; antagonist archetype; insists ‘numbers are numbers’ and pushes rapid fixes)",
+        "Urgent Care Charge RN (protocol anchor; keeps triage moving; not villainous)",
+        "The Patient (adult, respected; here for flu-like symptoms; ‘feels fine’ re: BP)",
+        "ICD (Internal Calamity Directorate) presence (breadcrumb only): a too-clean “BP Protocol Patch” watermark that appears on the HUD evidence chain"
+      ]
+    },
+    {
       "at": "2026-02-13T20:49:51.873Z",
       "runId": "eEH1E9OK0hW1",
       "key": "courtroom thriller|overnight ED shift|a hidden comorbidity|the patient decompensates during a key decision|a pager that never stops|signal vs noise,protocol vs intuition,protocol vs intuition",

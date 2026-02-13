@@ -12,12 +12,12 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: "http://localhost:5150",
     headless: true
   },
   webServer: {
-    command: "MMS_PIPELINE_MODE=fake MMS_FAKE_STEP_DELAY_MS=180 npm run dev",
-    url: "http://localhost:5173",
+    command: "PORT=5150 MMS_PIPELINE_MODE=fake MMS_FAKE_STEP_DELAY_MS=180 npm run start",
+    url: "http://localhost:5150",
     reuseExistingServer: false,
     cwd: repoRoot,
     timeout: 180_000

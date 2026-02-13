@@ -225,7 +225,53 @@ function minimalAssessmentOut() {
 
 function minimalSlideArchitectOut() {
   return {
-    slide_skeleton: [{ slide_id: "S1", title: "Slide 1", objective: "Obj", bullets: ["b1"] }],
+    slide_skeleton: [
+      {
+        slide_id: "S1",
+        title: "Intro 1",
+        objective: "Obj",
+        bullets: ["b1"],
+        slide_mode: "hybrid",
+        narrative_phase: "intro",
+        story_goal: "Quirky opening"
+      },
+      {
+        slide_id: "S2",
+        title: "Intro 2",
+        objective: "Obj",
+        bullets: ["b2"],
+        slide_mode: "story_transition",
+        narrative_phase: "intro",
+        story_goal: "Case received"
+      },
+      {
+        slide_id: "S3",
+        title: "Intro 3",
+        objective: "Obj",
+        bullets: ["b3"],
+        slide_mode: "hybrid",
+        narrative_phase: "intro",
+        story_goal: "Shrink entry"
+      },
+      {
+        slide_id: "S4",
+        title: "Outro 1",
+        objective: "Obj",
+        bullets: ["b4"],
+        slide_mode: "hybrid",
+        narrative_phase: "outro",
+        story_goal: "Return office"
+      },
+      {
+        slide_id: "S5",
+        title: "Outro 2",
+        objective: "Obj",
+        bullets: ["b5"],
+        slide_mode: "hybrid",
+        narrative_phase: "outro",
+        story_goal: "Callback"
+      }
+    ],
     coverage: { atoms_covered: ["A1"], gaps: [] }
   };
 }
@@ -247,6 +293,14 @@ function minimalShowrunnerOut() {
       ],
       story_constraints_used: ["use canonical characters"],
       visual_constraints_used: ["avoid gore"]
+    },
+    episode_arc: {
+      intro_beats: ["quirky opening", "case acquisition", "shrink entry"],
+      body_beats: ["investigation"],
+      outro_beats: ["return to office", "callback ending"],
+      entry_to_body_beat: "shrink entry",
+      return_to_office_beat: "return to office",
+      callback_beat: "callback ending"
     },
     beat_sheet: [{ beat: "beat1", purpose: "purpose1", characters: ["Dr. Ada"], setting: "ED" }]
   };
@@ -304,16 +358,28 @@ function minimalStorySeed(
   };
 }
 
-function minimalSlideScene(content: string) {
+function minimalSlideScene(
+  slideId: string,
+  content: string,
+  narrativePhase: "intro" | "body" | "outro",
+  slideMode: "hybrid" | "story_transition" = "hybrid",
+  medicalVisualMode: "dual_hud_panels" | "in_scene_annotated_visual" = "dual_hud_panels"
+) {
   return {
-    slide_id: "S1",
-    title: "Slide 1",
+    slide_id: slideId,
+    title: `Slide ${slideId}`,
+    slide_mode: slideMode,
+    medical_visual_mode: medicalVisualMode,
+    narrative_phase: narrativePhase,
     content_md: content,
     speaker_notes: "notes",
-    hud_panel_bullets: ["teaching bullet"],
+    hud_panel_bullets: slideMode === "story_transition" ? [] : ["teaching bullet"],
     location_description: "Scene in organ command center.",
     evidence_visual_description: "Annotated medically accurate evidence panel.",
     character_staging: "Characters lean into dashboard with focused expression.",
+    scene_description: "Detailed cinematic scene with educational overlays.",
+    used_assets: ["Evidence board"],
+    used_characters: ["Dr. Ada"],
     story_and_dialogue: 'Story beat with dialogue: "Ada: evidence points here."'
   };
 }
@@ -328,7 +394,20 @@ function minimalSlideSpecOut() {
         reusable_visual_elements: ["Evidence board"],
         continuity_rules: ["Keep character styling consistent"]
       },
-      slides: [minimalSlideScene("content")],
+      story_arc_contract: {
+        intro_slide_ids: ["S1", "S2", "S3"],
+        outro_slide_ids: ["S4", "S5"],
+        entry_to_body_slide_id: "S3",
+        return_to_office_slide_id: "S4",
+        callback_slide_id: "S5"
+      },
+      slides: [
+        minimalSlideScene("S1", "content 1", "intro"),
+        minimalSlideScene("S2", "content 2", "intro", "story_transition", "in_scene_annotated_visual"),
+        minimalSlideScene("S3", "content 3", "intro"),
+        minimalSlideScene("S4", "content 4", "outro"),
+        minimalSlideScene("S5", "content 5", "outro")
+      ],
       sources: ["https://example.com"]
     }
   };
@@ -356,7 +435,20 @@ function minimalPatchedSpecOut() {
         reusable_visual_elements: ["Evidence board"],
         continuity_rules: ["Keep character styling consistent"]
       },
-      slides: [minimalSlideScene("content patched")],
+      story_arc_contract: {
+        intro_slide_ids: ["S1", "S2", "S3"],
+        outro_slide_ids: ["S4", "S5"],
+        entry_to_body_slide_id: "S3",
+        return_to_office_slide_id: "S4",
+        callback_slide_id: "S5"
+      },
+      slides: [
+        minimalSlideScene("S1", "content patched 1", "intro"),
+        minimalSlideScene("S2", "content patched 2", "intro", "story_transition", "in_scene_annotated_visual"),
+        minimalSlideScene("S3", "content patched 3", "intro"),
+        minimalSlideScene("S4", "content patched 4", "outro"),
+        minimalSlideScene("S5", "content patched 5", "outro")
+      ],
       sources: ["https://example.com"]
     }
   };
@@ -487,6 +579,7 @@ describe("runStudioPipeline", () => {
     await expect(fs.stat(artifactAbsPath(run.runId, "medical_story_traceability_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "qa_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_ASSET_BIBLE.md"))).resolves.toBeTruthy();
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"))).resolves.toBeTruthy();
 
     const patched = await readJsonFile<{ final_slide_spec_patched: { title: string } }>(artifactAbsPath(run.runId, "final_slide_spec_patched.json"));
     expect(patched.final_slide_spec_patched.title).toBe("Final Spec");
@@ -543,6 +636,7 @@ describe("runStudioPipeline", () => {
     expect(producerCalls).toBe(2);
     expect(runs.getRun(run.runId)?.steps.A.status).toBe("done");
     expect(runs.getRun(run.runId)?.steps.O.status).toBe("done");
+    expect(runs.getRun(run.runId)?.steps.P.status).toBe("done");
   });
 
   it("retries from scratch when schema failure output cannot be extracted and continues the pipeline", async () => {
@@ -597,6 +691,7 @@ describe("runStudioPipeline", () => {
     expect(producerCalls).toBe(2);
     expect(runs.getRun(run.runId)?.steps.A.status).toBe("done");
     expect(runs.getRun(run.runId)?.steps.O.status).toBe("done");
+    expect(runs.getRun(run.runId)?.steps.P.status).toBe("done");
   });
 
   it("applies a patch when QA fails (iter1) and runs QA iter2", async () => {
@@ -878,7 +973,7 @@ describe("runStudioPipeline", () => {
     expect(sawQa).toBe(true);
   });
 
-  it("startFrom=O reuses final patched artifacts and only runs packaging", async () => {
+  it("startFrom=O reuses final patched artifacts and runs packaging + master doc", async () => {
     const { RunManager } = await import("../src/run_manager.js");
     const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
     const { artifactAbsPath } = await import("../src/pipeline/utils.js");
@@ -953,7 +1048,168 @@ describe("runStudioPipeline", () => {
       { signal: new AbortController().signal, startFrom: "O" }
     );
     await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_BUILD_SCRIPT.txt"))).resolves.toBeTruthy();
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"))).resolves.toBeTruthy();
     expect(sawPackager).toBe(true);
+  });
+
+  it("startFrom=P reuses packaging artifacts and only rebuilds master doc", async () => {
+    const { RunManager } = await import("../src/run_manager.js");
+    const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
+    const { artifactAbsPath } = await import("../src/pipeline/utils.js");
+
+    const agents = (await import("@openai/agents")) as RunnerModule;
+    const runs = new RunManager();
+    const run = await runs.createRun("topic");
+
+    // Initial full run.
+    agents.__setMockRunnerHandler?.((agent: MockAgent, prompt: string) => {
+      if (agent.name === "KB Compiler") return { finalOutput: { kb_context: "kb" } };
+      if (agent.name === "Producer") return { finalOutput: minimalProducerBrief() };
+      if (agent.name === "Medical Researcher") return { finalOutput: minimalFactsRaw() };
+      if (agent.name === "Medical Editor") return { finalOutput: minimalEditorOut() };
+      if (agent.name === "Medical Narrative Flow") return { finalOutput: minimalMedicalNarrativeFlowOut() };
+      if (agent.name === "Curriculum Architect") return { finalOutput: minimalCurriculumOut() };
+      if (agent.name === "Assessment Designer") return { finalOutput: minimalAssessmentOut() };
+      if (agent.name === "Slide Architect") return { finalOutput: minimalSlideArchitectOut() };
+      if (agent.name === "Story Seed") {
+        const variety = jsonBlock(prompt, "VARIETY PACK (json):\n", "\n\nRECENT VARIETY") as Record<string, unknown>;
+        return { finalOutput: { story_seed: minimalStorySeed(variety) } };
+      }
+      if (agent.name === "Showrunner") return { finalOutput: minimalShowrunnerOut() };
+      if (agent.name === "Visual Director") return { finalOutput: minimalVisualOut() };
+      if (agent.name === "Pacing Editor") return { finalOutput: minimalPacingOut() };
+      if (agent.name === "Mapper") return { finalOutput: minimalMapperOut() };
+      if (agent.name === "Slide Writer") return { finalOutput: minimalSlideSpecOut() };
+      if (agent.name === "QA Suite") return { finalOutput: minimalQa(true) };
+      if (agent.name === "Genspark Packager") return { finalOutput: minimalGensparkOut() };
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    await runStudioPipeline({ runId: run.runId, topic: run.topic }, runs, { signal: new AbortController().signal });
+
+    // startFrom=P should skip O and optionally invoke only the polisher.
+    const forbidden = new Set([
+      "KB Compiler",
+      "Producer",
+      "Medical Researcher",
+      "Medical Editor",
+      "Medical Narrative Flow",
+      "Curriculum Architect",
+      "Assessment Designer",
+      "Slide Architect",
+      "Story Seed",
+      "Showrunner",
+      "Visual Director",
+      "Pacing Editor",
+      "Mapper",
+      "Slide Writer",
+      "QA Suite",
+      "Patch Applier",
+      "Genspark Packager"
+    ]);
+
+    let sawPolisher = false;
+    agents.__setMockRunnerHandler?.((agent: MockAgent) => {
+      if (forbidden.has(agent.name)) throw new Error(`Should not call agent: ${agent.name}`);
+      if (agent.name === "Genspark Master Polisher") {
+        sawPolisher = true;
+        return { finalOutput: { genspark_master_render_plan_md: "## invalid polished doc" } };
+      }
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    await runStudioPipeline(
+      { runId: run.runId, topic: run.topic },
+      runs,
+      { signal: new AbortController().signal, startFrom: "P" }
+    );
+
+    const status = runs.getRun(run.runId);
+    expect(status?.steps.O.status).toBe("done");
+    expect(status?.steps.P.status).toBe("done");
+    await expect(fs.stat(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"))).resolves.toBeTruthy();
+    expect(sawPolisher).toBe(true);
+  });
+
+  it("startFrom=P supports sparse legacy artifacts with compatibility fallbacks", async () => {
+    const { RunManager } = await import("../src/run_manager.js");
+    const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
+    const { artifactAbsPath } = await import("../src/pipeline/utils.js");
+
+    const agents = (await import("@openai/agents")) as RunnerModule;
+    const runs = new RunManager();
+    const run = await runs.createRun("legacy sparse rerun");
+
+    // Sparse legacy state: only the patched slide spec is present.
+    await fs.writeFile(
+      artifactAbsPath(run.runId, "final_slide_spec_patched.json"),
+      JSON.stringify(minimalPatchedSpecOut(), null, 2) + "\n",
+      "utf8"
+    );
+
+    const forbidden = new Set([
+      "KB Compiler",
+      "Producer",
+      "Medical Researcher",
+      "Medical Editor",
+      "Medical Narrative Flow",
+      "Curriculum Architect",
+      "Assessment Designer",
+      "Slide Architect",
+      "Story Seed",
+      "Showrunner",
+      "Visual Director",
+      "Pacing Editor",
+      "Mapper",
+      "Slide Writer",
+      "QA Suite",
+      "Patch Applier",
+      "Genspark Packager"
+    ]);
+
+    let sawPolisher = false;
+    agents.__setMockRunnerHandler?.((agent: MockAgent) => {
+      if (forbidden.has(agent.name)) throw new Error(`Should not call agent: ${agent.name}`);
+      if (agent.name === "Genspark Master Polisher") {
+        sawPolisher = true;
+        return { finalOutput: { genspark_master_render_plan_md: "## invalid polished doc" } };
+      }
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    await runStudioPipeline(
+      { runId: run.runId, topic: run.topic },
+      runs,
+      { signal: new AbortController().signal, startFrom: "P" }
+    );
+
+    const master = await fs.readFile(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"), "utf8");
+    expect(master).toContain("GENSPARK MASTER RENDER PLAN");
+    expect(master).toContain("compatibility fallback");
+    await expect(fs.stat(artifactAbsPath(run.runId, "constraint_adherence_report.json"))).resolves.toBeTruthy();
+    expect(sawPolisher).toBe(true);
+  });
+
+  it("startFrom=P fails loudly when final_slide_spec_patched.json is missing", async () => {
+    const { RunManager } = await import("../src/run_manager.js");
+    const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
+
+    const agents = (await import("@openai/agents")) as RunnerModule;
+    agents.__setMockRunnerHandler?.((agent: MockAgent) => {
+      if (agent.name === "Genspark Master Polisher") return { finalOutput: { genspark_master_render_plan_md: "ok" } };
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("missing patched spec");
+
+    await expect(
+      runStudioPipeline(
+        { runId: run.runId, topic: run.topic },
+        runs,
+        { signal: new AbortController().signal, startFrom: "P" }
+      )
+    ).rejects.toThrow(/final_slide_spec_patched\.json/);
   });
 
   it("fails early when required env vars are missing", async () => {
@@ -1632,6 +1888,7 @@ describe("runStudioPipeline", () => {
 
       const status = runs.getRun(run.runId);
       expect(status?.steps.O.status).toBe("done");
+      expect(status?.steps.P.status).toBe("done");
       const adherence = await readJsonFile<{ status: string }>(artifactAbsPath(run.runId, "constraint_adherence_report.json"));
       expect(adherence.status).toBe("fail");
       expect(status?.constraintAdherence?.status).toBe("fail");

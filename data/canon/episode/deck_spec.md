@@ -24,15 +24,24 @@ required_sections:
   - patient_counseling_prevention
 
 pacing_rules:
-  slide_mix_target:
-    MED: 16
-    STORY: 12
-    TRANSITION: 2
-    CHECKPOINT: 2
-  max_story_slides_in_a_row: 3
+  hybrid_default: true
+  medical_only_slides_forbidden: true
+  story_transition_allowed_for_action_or_location_change: true
+  max_story_transition_slides: 3
+  story_transition_requires_plot_reason: true
   min_med_anchor_every_minutes: 2.5
-  story_time_fraction_target: 0.25   # story slides are quick; can be many
-  story_slide_caption_max_words: 12
+  story_transition_caption_max_words: 12
+
+intro_outro_contract:
+  intro_slide_count: 3
+  outro_slide_count: 2
+  required_intro_beats:
+    - "quirky Cyto/Pip opening"
+    - "case acquisition"
+    - "office return + shrinking entry to body"
+  required_outro_beats:
+    - "case wrapped + return to normal size in office"
+    - "fun callback ending that closes intro loop"
 
 visual_style:
   character_material: "felt"
@@ -69,6 +78,7 @@ story_constraints:
     - reveal
     - treatment
     - prognosis
-  story_slide_rule: "STORY slides introduce no new medical atoms"
+  slide_composition_rule: "HYBRID slides are default and must combine story action + medical teaching payload."
+  transition_slide_rule: "STORY_TRANSITION slides are allowed only for action/location changes and do not introduce standalone medical payload."
 
 ```

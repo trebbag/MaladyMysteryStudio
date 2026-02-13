@@ -18,7 +18,7 @@ export default function AppHeader({ health, healthErr }: AppHeaderProps) {
               Malady Mystery Studio
             </Link>
           </div>
-          <div className="subtle">Local multi-agent episode builder (KB0 to O) with live tracing + artifacts</div>
+          <div className="subtle">Local multi-agent episode builder (KB0 to P) with live tracing + artifacts</div>
         </div>
 
         <div className="headerBadges">

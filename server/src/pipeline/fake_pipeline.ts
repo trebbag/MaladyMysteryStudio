@@ -1,8 +1,10 @@
+import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import type { RunManager, RunSettings, StepName } from "../run_manager.js";
 import { STEP_ORDER } from "../run_manager.js";
 import { resolveCanonicalProfilePaths } from "./canon.js";
 import { summarizeConstraintAdherence, type ConstraintAdherenceReport } from "./constraint_checks.js";
+import { buildGensparkMasterDoc, validateGensparkMasterDoc } from "./genspark_master_doc.js";
 import { buildMedicalStoryTraceabilityReport, evaluateMedicalDepth } from "./qa_depth_traceability.js";
 import { MEDICAL_NARRATIVE_SECTIONS } from "./schemas.js";
 import { artifactAbsPath, ensureDir, nowIso, runOutputDirAbs, writeJsonFile, writeTextFile } from "./utils.js";
@@ -159,19 +161,33 @@ function mkReusableVisualPrimer(topic: string) {
   };
 }
 
-function mkSlide(slideId: string, title: string, topic: string, beat: string) {
+function mkSlide(
+  slideId: string,
+  title: string,
+  topic: string,
+  beat: string,
+  narrativePhase: "intro" | "body" | "outro",
+  slideMode: "hybrid" | "story_transition" = "hybrid",
+  medicalVisualMode: "dual_hud_panels" | "in_scene_annotated_visual" = "dual_hud_panels"
+) {
+  const isTransition = slideMode === "story_transition";
   return {
     slide_id: slideId,
     title,
+    slide_mode: slideMode,
+    medical_visual_mode: medicalVisualMode,
+    narrative_phase: narrativePhase,
     content_md: `${title}: clinical investigation anchored to ${topic}.`,
     speaker_notes: `Teach the decision logic for ${beat}.`,
-    hud_panel_bullets: [
-      `${topic}: key teaching point for ${beat}`,
-      "Diagnostic and management cue linked to evidence"
-    ],
+    hud_panel_bullets: isTransition
+      ? []
+      : [`${topic}: key teaching point for ${beat}`, "Diagnostic and management cue linked to evidence"],
     location_description: `Scene set in the ${topic} investigation zone with organ-context overlays and command consoles.`,
     evidence_visual_description: `Display clinically accurate ${topic} evidence visuals with labeled findings and trend arrows.`,
     character_staging: "Dr. Ada leans over the evidence console while Nurse Lee cross-checks scanner readouts; both show focused urgency.",
+    scene_description: `Cinematic felt-style medical detective scene for ${topic} around beat "${beat}" with educational overlays and continuity-safe lighting.`,
+    used_assets: ["Mission HUD overlay", "Evidence board", "Anatomy reference panel"],
+    used_characters: ["Dr. Ada Vega", "Nurse Lee"],
     story_and_dialogue: `Story beat: ${beat}. Dialogue: "Ada: The pattern changed at this checkpoint." "Lee: Then the differential narrows now."`
   };
 }
@@ -180,10 +196,21 @@ function mkFinalSlideSpec(topic: string) {
   return {
     title: `Malady Mystery: ${topic}`,
     reusable_visual_primer: mkReusableVisualPrimer(topic),
+    story_arc_contract: {
+      intro_slide_ids: ["S1", "S2", "S3"],
+      outro_slide_ids: ["S6", "S7"],
+      entry_to_body_slide_id: "S3",
+      return_to_office_slide_id: "S6",
+      callback_slide_id: "S7"
+    },
     slides: [
-      mkSlide("S1", "Case setup", topic, "initial anomaly"),
-      mkSlide("S2", "Differential narrowing", topic, "evidence pivot"),
-      mkSlide("S3", "Management sequence", topic, "intervention and prevention")
+      mkSlide("S1", "Quirky cold open", topic, "intro detective routine", "intro"),
+      mkSlide("S2", "Case call and scramble", topic, "drop everything and rush to HQ", "intro", "story_transition"),
+      mkSlide("S3", "Shrink entry launch", topic, "office-to-body entry", "intro", "hybrid", "in_scene_annotated_visual"),
+      mkSlide("S4", "Differential narrowing", topic, "evidence pivot", "body"),
+      mkSlide("S5", "Management sequence", topic, "intervention and prevention", "body"),
+      mkSlide("S6", "Return to office", topic, "case wrapped and normal size restored", "outro"),
+      mkSlide("S7", "Outro callback", topic, "fun payoff tied to intro", "outro")
     ],
     sources: ["https://example.org/clinical-reference"]
   };
@@ -371,9 +398,69 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
   await runStep("F", async () => {
     await writeJsonArtifact("F", "slide_skeleton.json", {
       slide_skeleton: [
-        { slide_id: "S1", title: "Case hook", objective: "Establish baseline and presenting danger", bullets: ["Normal state", "First abnormal clue"] },
-        { slide_id: "S2", title: "Differential reasoning", objective: "Narrow diagnosis with evidence", bullets: ["Risk factors", "Workup pivots"] },
-        { slide_id: "S3", title: "Action plan", objective: "Finalize treatment and prevention", bullets: ["Acute actions", "Long-term follow-up"] }
+        {
+          slide_id: "S1",
+          title: "Quirky cold open",
+          objective: "Establish character voice and foreshadow the clinical case",
+          bullets: ["Team routine", "Foreshadowed anomaly"],
+          slide_mode: "hybrid",
+          narrative_phase: "intro",
+          story_goal: "Open on Cyto/Pip personality and setup"
+        },
+        {
+          slide_id: "S2",
+          title: "Case call and scramble",
+          objective: "Trigger mission transition to HQ",
+          bullets: ["Urgency signal", "Mission pivot"],
+          slide_mode: "story_transition",
+          narrative_phase: "intro",
+          story_goal: "Receive case and rush to office"
+        },
+        {
+          slide_id: "S3",
+          title: "Shrink entry launch",
+          objective: "Bridge intro to body investigation",
+          bullets: ["Entry checkpoint", "Initial evidence framing"],
+          slide_mode: "hybrid",
+          narrative_phase: "intro",
+          story_goal: "Enter body and begin investigation"
+        },
+        {
+          slide_id: "S4",
+          title: "Differential reasoning",
+          objective: "Narrow diagnosis with evidence",
+          bullets: ["Risk factors", "Workup pivots"],
+          slide_mode: "hybrid",
+          narrative_phase: "body",
+          story_goal: "Eliminate false lead with medical logic"
+        },
+        {
+          slide_id: "S5",
+          title: "Action plan",
+          objective: "Finalize treatment and prevention",
+          bullets: ["Acute actions", "Long-term follow-up"],
+          slide_mode: "hybrid",
+          narrative_phase: "body",
+          story_goal: "Resolve danger via guideline-aligned treatment"
+        },
+        {
+          slide_id: "S6",
+          title: "Return to office",
+          objective: "Close case and restore normal scale",
+          bullets: ["Resolution summary", "Office return"],
+          slide_mode: "hybrid",
+          narrative_phase: "outro",
+          story_goal: "Wrap case and return to HQ"
+        },
+        {
+          slide_id: "S7",
+          title: "Outro callback",
+          objective: "Close loop with fun payoff",
+          bullets: ["Callback to intro", "Prevention reminder"],
+          slide_mode: "hybrid",
+          narrative_phase: "outro",
+          story_goal: "Complete full-circle ending"
+        }
       ]
     });
 
@@ -445,6 +532,17 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
       }
     });
 
+    await writeJsonArtifact("H", "episode_arc.json", {
+      episode_arc: {
+        intro_beats: ["Quirky detective opening", "Case acquisition", "Office return and shrink launch"],
+        body_beats: ["Evidence-driven differential", "Intervention and stabilization", "Prevention closeout"],
+        outro_beats: ["Return to normal size in office", "Fun callback ending"],
+        entry_to_body_beat: "Office return and shrink launch",
+        return_to_office_beat: "Return to normal size in office",
+        callback_beat: "Fun callback ending"
+      }
+    });
+
     await writeJsonArtifact("H", "beat_sheet.json", {
       beat_sheet: [
         {
@@ -458,6 +556,12 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
           purpose: "Use evidence to demote false lead and choose treatment branch",
           characters: ["Dr. Ada Vega"],
           setting: "Diagnostic command wall"
+        },
+        {
+          beat: "Return and callback",
+          purpose: "Return to office and deliver full-circle ending",
+          characters: ["Dr. Ada Vega", "Nurse Lee"],
+          setting: "Office HQ"
         }
       ]
     });
@@ -482,8 +586,12 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
         total_minutes: settings?.durationMinutes ?? 20,
         per_slide_seconds: [
           { slide_id: "S1", seconds: 40 },
-          { slide_id: "S2", seconds: 55 },
-          { slide_id: "S3", seconds: 45 }
+          { slide_id: "S2", seconds: 30 },
+          { slide_id: "S3", seconds: 45 },
+          { slide_id: "S4", seconds: 55 },
+          { slide_id: "S5", seconds: 55 },
+          { slide_id: "S6", seconds: 35 },
+          { slide_id: "S7", seconds: 30 }
         ],
         transitions: ["match-cut to evidence board", "tight zoom to intervention panel"]
       }
@@ -495,12 +603,16 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
       alignment_plan: {
         slide_to_atoms: [
           { slide_id: "S1", atom_ids: ["A1"] },
-          { slide_id: "S2", atom_ids: ["A1", "A2"] },
-          { slide_id: "S3", atom_ids: ["A2"] }
+          { slide_id: "S2", atom_ids: [] },
+          { slide_id: "S3", atom_ids: ["A1"] },
+          { slide_id: "S4", atom_ids: ["A1", "A2"] },
+          { slide_id: "S5", atom_ids: ["A2"] },
+          { slide_id: "S6", atom_ids: ["A2"] },
+          { slide_id: "S7", atom_ids: ["A2"] }
         ],
         slide_to_assessment: [
-          { slide_id: "S2", question_ids: ["Q1"] },
-          { slide_id: "S3", question_ids: ["Q1"] }
+          { slide_id: "S4", question_ids: ["Q1"] },
+          { slide_id: "S5", question_ids: ["Q1"] }
         ],
         coverage_notes: ["Each slide ties back to at least one medical atom."]
       }
@@ -578,6 +690,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
 
   await runStep("O", async () => {
     await ensureFinalArtifacts();
+    const finalPatched = mkFinalSlideSpec(topic);
 
     await writeTextArtifact(
       "O",
@@ -610,9 +723,14 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
     const traceability = buildMedicalStoryTraceabilityReport({
       createdAt: nowIso(),
       narrativeFlow: mkNarrativeFlow(topic).medical_narrative_flow,
-      finalPatched: mkFinalSlideSpec(topic)
+      finalPatched
     });
     await writeJsonArtifact("O", "medical_story_traceability_report.json", traceability);
+
+    const slideModeCounts = {
+      hybrid: finalPatched.slides.filter((s) => s.slide_mode === "hybrid").length,
+      story_transition: finalPatched.slides.filter((s) => s.slide_mode === "story_transition").length
+    };
 
     const adherenceReport: ConstraintAdherenceReport = {
       status: "pass",
@@ -626,11 +744,98 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
         missing_story_characters: [],
         required_style_rules_checked: foundAny ? 3 : 0,
         required_style_rule_hits: foundAny ? 3 : 0,
-        forbidden_style_hits: []
+        forbidden_style_hits: [],
+        slide_mode_counts: slideModeCounts,
+        intro_outro_contract_status: { status: "pass", issues: [] },
+        medical_only_violations: [],
+        master_doc_validation_status: "not_checked"
       }
     };
 
     await writeJsonArtifact("O", "constraint_adherence_report.json", adherenceReport);
     await runs.setConstraintAdherence(runId, summarizeConstraintAdherence(adherenceReport));
+  });
+
+  await runStep("P", async () => {
+    const finalPatchedRaw = await fs.readFile(artifactAbsPath(runId, "final_slide_spec_patched.json"), "utf8");
+    const finalPatched = JSON.parse(finalPatchedRaw) as { final_slide_spec_patched: ReturnType<typeof mkFinalSlideSpec> };
+    const gensparkAssetBibleMd = await fs.readFile(artifactAbsPath(runId, "GENSPARK_ASSET_BIBLE.md"), "utf8");
+    const gensparkSlideGuideMd = await fs.readFile(artifactAbsPath(runId, "GENSPARK_SLIDE_GUIDE.md"), "utf8");
+    const gensparkBuildScriptTxt = await fs.readFile(artifactAbsPath(runId, "GENSPARK_BUILD_SCRIPT.txt"), "utf8");
+    const storyBible = (await fs
+      .readFile(artifactAbsPath(runId, "story_bible.json"), "utf8")
+      .then((raw) => JSON.parse(raw) as {
+        story_bible: {
+          premise: string;
+          rules: string[];
+          recurring_motifs: string[];
+          cast: Array<{ name: string; role: string; bio: string; traits: string[]; constraints: string[] }>;
+          story_constraints_used: string[];
+          visual_constraints_used: string[];
+        };
+      })
+      .catch(() => ({
+        story_bible: {
+          premise: `Fallback story bible for ${topic}`,
+          rules: ["keep continuity"],
+          recurring_motifs: ["signal vs noise"],
+          cast: [{ name: "Dr. Ada Vega", role: "lead", bio: "Fallback lead", traits: ["calm"], constraints: ["no cruelty"] }],
+          story_constraints_used: ["fallback"],
+          visual_constraints_used: ["fallback"]
+        }
+      }))) as {
+      story_bible: {
+        premise: string;
+        rules: string[];
+        recurring_motifs: string[];
+        cast: Array<{ name: string; role: string; bio: string; traits: string[]; constraints: string[] }>;
+        story_constraints_used: string[];
+        visual_constraints_used: string[];
+      };
+    };
+    const beatSheet = (await fs
+      .readFile(artifactAbsPath(runId, "beat_sheet.json"), "utf8")
+      .then((raw) => JSON.parse(raw) as { beat_sheet: Array<{ beat: string; purpose: string; characters: string[]; setting: string }> })
+      .catch(() => ({
+        beat_sheet: [{ beat: "fallback beat", purpose: "fallback purpose", characters: ["Dr. Ada Vega"], setting: "HQ" }]
+      }))) as { beat_sheet: Array<{ beat: string; purpose: string; characters: string[]; setting: string }> };
+    const shotList = (await fs
+      .readFile(artifactAbsPath(runId, "shot_list.json"), "utf8")
+      .then((raw) => JSON.parse(raw) as { shot_list: Array<{ shot_id: string; moment: string; framing: string; visual_notes: string }> })
+      .catch(() => ({
+        shot_list: [{ shot_id: "SH1", moment: "fallback shot", framing: "medium", visual_notes: "fallback visual notes" }]
+      }))) as { shot_list: Array<{ shot_id: string; moment: string; framing: string; visual_notes: string }> };
+
+    const baseDoc = buildGensparkMasterDoc({
+      topic,
+      finalPatched: finalPatched.final_slide_spec_patched,
+      reusableVisualPrimer: finalPatched.final_slide_spec_patched.reusable_visual_primer,
+      storyBible: storyBible.story_bible,
+      beatSheet: beatSheet.beat_sheet,
+      shotList: shotList.shot_list,
+      gensparkAssetBibleMd,
+      gensparkSlideGuideMd,
+      gensparkBuildScriptTxt
+    });
+
+    await writeTextArtifact("P", "GENSPARK_MASTER_RENDER_PLAN_BASE.md", baseDoc);
+    const validation = validateGensparkMasterDoc(baseDoc, finalPatched.final_slide_spec_patched.slides);
+    const finalDoc = validation.ok ? baseDoc : `${baseDoc}\n`;
+    await writeTextArtifact("P", "GENSPARK_MASTER_RENDER_PLAN.md", finalDoc);
+
+    const adherenceRaw = await fs.readFile(artifactAbsPath(runId, "constraint_adherence_report.json"), "utf8").catch(() => null);
+    if (adherenceRaw) {
+      const adherence = JSON.parse(adherenceRaw) as ConstraintAdherenceReport;
+      const next: ConstraintAdherenceReport = {
+        ...adherence,
+        details: {
+          ...adherence.details,
+          master_doc_validation_status: validation.ok ? "pass" : "fail"
+        },
+        warnings: validation.ok ? adherence.warnings : [...adherence.warnings, ...validation.errors]
+      };
+      await writeJsonArtifact("P", "constraint_adherence_report.json", next);
+      await runs.setConstraintAdherence(runId, summarizeConstraintAdherence(next));
+    }
   });
 }

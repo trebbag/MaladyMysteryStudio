@@ -15,7 +15,8 @@ const FINAL_ARTIFACT_NAMES = new Set([
   "constraint_adherence_report.json",
   "GENSPARK_ASSET_BIBLE.md",
   "GENSPARK_SLIDE_GUIDE.md",
-  "GENSPARK_BUILD_SCRIPT.txt"
+  "GENSPARK_BUILD_SCRIPT.txt",
+  "GENSPARK_MASTER_RENDER_PLAN.md"
 ]);
 
 export function nowIso(): string {

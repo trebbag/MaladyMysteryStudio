@@ -65,6 +65,16 @@ export type ConstraintAdherenceReport = {
     required_style_rules_checked: number;
     required_style_rule_hits: number;
     forbidden_style_hits: string[];
+    slide_mode_counts: {
+      hybrid: number;
+      story_transition: number;
+    };
+    intro_outro_contract_status: {
+      status: "pass" | "fail";
+      issues: string[];
+    };
+    medical_only_violations: string[];
+    master_doc_validation_status: "not_checked" | "pass" | "warn" | "fail";
     semantic_similarity?: {
       closest_run_id: string;
       score: number;
@@ -84,6 +94,10 @@ export type ConstraintCheckInput = {
     closest: SimilarityMatch;
     threshold: number;
     retried: boolean;
+  } | null;
+  masterDocValidation?: {
+    status: "pass" | "warn" | "fail";
+    errors: string[];
   } | null;
   checkedAt: string;
 };
@@ -249,6 +263,118 @@ export function evaluateConstraintAdherence(input: ConstraintCheckInput): Constr
     warnings.push(`Detected canonical forbidden-style marker hit(s): ${forbiddenHits.slice(0, 3).join(" | ")}`);
   }
 
+  const slides = input.finalPatched.slides as Array<Record<string, unknown>>;
+  const slideModeCounts = {
+    hybrid: slides.filter((s) => s.slide_mode === "hybrid").length,
+    story_transition: slides.filter((s) => s.slide_mode === "story_transition").length
+  };
+
+  const medicalOnlyViolations: string[] = [];
+  const requiredFieldViolations: string[] = [];
+  const transitionViolations: string[] = [];
+  const recurringAssetViolations: string[] = [];
+  const recurringCharacterViolations: string[] = [];
+
+  const primerAssets = new Set(input.finalPatched.reusable_visual_primer.reusable_visual_elements.map((v) => norm(v)));
+  const castNames = new Set(input.storyBible.cast.map((c) => norm(c.name)));
+
+  for (const slideRaw of slides) {
+    const slideId = String(slideRaw.slide_id ?? "unknown");
+    const requiredKeys = [
+      "slide_mode",
+      "medical_visual_mode",
+      "used_assets",
+      "used_characters",
+      "scene_description",
+      "narrative_phase",
+      "location_description",
+      "character_staging",
+      "story_and_dialogue"
+    ];
+    for (const key of requiredKeys) {
+      const value = slideRaw[key];
+      const missing =
+        value === undefined ||
+        value === null ||
+        (typeof value === "string" && value.trim().length === 0) ||
+        (Array.isArray(value) && value.length === 0);
+      if (missing) requiredFieldViolations.push(`${slideId}:${key}`);
+    }
+
+    const mode = String(slideRaw.slide_mode ?? "");
+    const hud = Array.isArray(slideRaw.hud_panel_bullets) ? (slideRaw.hud_panel_bullets as unknown[]).map((v) => String(v).trim()) : [];
+    const usedCharacters = Array.isArray(slideRaw.used_characters) ? (slideRaw.used_characters as unknown[]).map((v) => String(v).trim()) : [];
+    const usedAssets = Array.isArray(slideRaw.used_assets) ? (slideRaw.used_assets as unknown[]).map((v) => String(v).trim()) : [];
+
+    if (mode === "hybrid") {
+      if (hud.length === 0) medicalOnlyViolations.push(slideId);
+    }
+    if (mode === "story_transition" && hud.length > 0) {
+      transitionViolations.push(`${slideId}: story_transition must not contain hud_panel_bullets`);
+    }
+
+    for (const asset of usedAssets) {
+      if (!primerAssets.has(norm(asset))) recurringAssetViolations.push(`${slideId}:${asset}`);
+    }
+    for (const character of usedCharacters) {
+      if (!castNames.has(norm(character))) recurringCharacterViolations.push(`${slideId}:${character}`);
+    }
+  }
+
+  if (medicalOnlyViolations.length > 0) {
+    failures.push(`Medical-only slide violation(s): ${medicalOnlyViolations.join(", ")}`);
+  }
+  if (requiredFieldViolations.length > 0) {
+    failures.push(`Missing required slide field(s): ${requiredFieldViolations.join(" | ")}`);
+  }
+  if (transitionViolations.length > 0) {
+    failures.push(`Transition-slide field violation(s): ${transitionViolations.join(" | ")}`);
+  }
+
+  const maxTransitionWarn = Math.max(2, Math.ceil(slides.length * 0.25));
+  const maxTransitionFail = Math.max(3, Math.ceil(slides.length * 0.5));
+  if (slideModeCounts.story_transition > maxTransitionFail) {
+    failures.push(`Too many story_transition slides (${slideModeCounts.story_transition}/${slides.length}).`);
+  } else if (slideModeCounts.story_transition > maxTransitionWarn) {
+    warnings.push(`High story_transition slide count (${slideModeCounts.story_transition}/${slides.length}).`);
+  }
+
+  if (recurringAssetViolations.length > 0) {
+    warnings.push(`Found slide assets not in reusable primer: ${recurringAssetViolations.slice(0, 8).join(" | ")}`);
+  }
+  if (recurringCharacterViolations.length > 0) {
+    warnings.push(`Found slide characters not in story_bible.cast: ${recurringCharacterViolations.slice(0, 8).join(" | ")}`);
+  }
+
+  const arc = input.finalPatched.story_arc_contract as Record<string, unknown>;
+  const allSlideIds = new Set(slides.map((s) => String(s.slide_id ?? "")).filter((v) => v.length > 0));
+  const introIds = Array.isArray(arc.intro_slide_ids) ? arc.intro_slide_ids.map((v) => String(v)) : [];
+  const outroIds = Array.isArray(arc.outro_slide_ids) ? arc.outro_slide_ids.map((v) => String(v)) : [];
+  const entryToBody = String(arc.entry_to_body_slide_id ?? "");
+  const returnToOffice = String(arc.return_to_office_slide_id ?? "");
+  const callback = String(arc.callback_slide_id ?? "");
+  const introOutroIssues: string[] = [];
+
+  if (introIds.length !== 3) introOutroIssues.push(`intro_slide_ids must contain 3 ids (found ${introIds.length})`);
+  if (outroIds.length !== 2) introOutroIssues.push(`outro_slide_ids must contain 2 ids (found ${outroIds.length})`);
+  for (const id of [...introIds, ...outroIds, entryToBody, returnToOffice, callback]) {
+    if (!id || !allSlideIds.has(id)) introOutroIssues.push(`contract references missing slide_id: ${id || "(empty)"}`);
+  }
+  if (new Set([...introIds, ...outroIds]).size !== introIds.length + outroIds.length) {
+    introOutroIssues.push("intro/outro slide IDs must not overlap");
+  }
+  if (introOutroIssues.length > 0) failures.push(`Intro/outro contract violation(s): ${introOutroIssues.join(" | ")}`);
+
+  let masterDocValidationStatus: "not_checked" | "pass" | "warn" | "fail" = "not_checked";
+  if (input.masterDocValidation) {
+    masterDocValidationStatus = input.masterDocValidation.status;
+    if (input.masterDocValidation.status === "fail") {
+      failures.push(`Master doc validation failed: ${input.masterDocValidation.errors.join(" | ")}`);
+    } else if (input.masterDocValidation.status === "warn") {
+      warnings.push(`Master doc validation warning: ${input.masterDocValidation.errors.join(" | ")}`);
+    }
+  }
+
   if (input.semanticSimilarity) {
     const { closest, threshold, retried } = input.semanticSimilarity;
     if (closest.score >= 0.93) {
@@ -281,6 +407,13 @@ export function evaluateConstraintAdherence(input: ConstraintCheckInput): Constr
       required_style_rules_checked: requiredRules.length,
       required_style_rule_hits: requiredHits,
       forbidden_style_hits: forbiddenHits,
+      slide_mode_counts: slideModeCounts,
+      intro_outro_contract_status: {
+        status: introOutroIssues.length === 0 ? "pass" : "fail",
+        issues: introOutroIssues
+      },
+      medical_only_violations: medicalOnlyViolations,
+      master_doc_validation_status: masterDocValidationStatus,
       semantic_similarity: input.semanticSimilarity
         ? {
             closest_run_id: input.semanticSimilarity.closest.runId,

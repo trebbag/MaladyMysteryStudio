@@ -65,30 +65,31 @@ recurring_ui_and_graphics:
     reuse_rule: "Board layout identical across slides tagged [CLUE_BOARD]"
 
 slide_types_and_rules:
-  MED:
-    intent: "teach medicine; story stays in notes unless explicitly captioned"
+  HYBRID:
+    intent: "default slide type; story action and medical teaching happen together"
+    rules:
+      - "medical-only composition is forbidden"
+      - "panel-1 bullets must teach standalone medical points"
+      - "panel-2 medical visual is required unless in-scene annotated equivalent is used"
+      - "characters remain in-scene and involved in the teaching action"
     on_slide_density:
-      bullets_max: 5
-      words_per_bullet_max: 12
-    visuals: ["diagram", "algorithm", "table", "annotated anatomy render"]
+      bullets_max: 6
+      words_per_bullet_max: 14
+    visuals: ["diagram", "algorithm", "table", "annotated anatomy render", "in-scene annotated medical visual"]
   CHECKPOINT:
-    intent: "retrieval practice; 1 question + answer/rationale in notes"
+    intent: "retrieval practice subtype of HYBRID"
     on_slide_density:
       question_max_words: 18
       answer_on_slide: false
-  STORY:
-    intent: "motion frame; no new medical atoms introduced"
-    on_slide_density:
-      caption_max_words: 12
-      bullets_allowed: false
-    visuals: ["full-bleed cinematic scene with felt characters"]
-  TRANSITION:
-    intent: "location/time jump; reset cognitive load"
+  STORY_TRANSITION:
+    intent: "location/time/action jump; used sparingly"
+    rules:
+      - "allowed only for action or location change"
+      - "may omit medical bullets"
+      - "must not become a medical-only slide"
     on_slide_density:
       caption_max_words: 10
-  HYBRID:
-    intent: "medical visual + narrative overlay (use sparingly)"
-    constraint: "medical content must remain legible"
+    visuals: ["full-bleed cinematic scene with felt characters"]
 
 storytelling_rules:
   tone:

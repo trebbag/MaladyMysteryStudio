@@ -16,6 +16,7 @@ import {
   assessmentDesignerAgent,
   CONFIGURED_MODEL,
   curriculumArchitectAgent,
+  gensparkMasterPolisherAgent,
   gensparkPackagerAgent,
   makeKbCompilerAgent,
   mapperAgent,
@@ -32,11 +33,13 @@ import {
   storySeedAgent,
   visualDirectorAgent
 } from "./agents.js";
+import { buildGensparkMasterDoc, validateGensparkMasterDoc } from "./genspark_master_doc.js";
 import { artifactAbsPath, nowIso, readJsonFile, resolveArtifactPathAbs, writeJsonFile, writeTextFile } from "./utils.js";
 import type {
   AssessmentOutput,
   CurriculumOutput,
   EditorOutput,
+  GensparkMasterDocOutput,
   GensparkOutput,
   KbCompilerOutput,
   MedicalNarrativeFlowOutput,
@@ -224,9 +227,11 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
   const startFrom = options.startFrom ?? "KB0";
   const startIdx = STEP_ORDER.indexOf(startFrom);
   if (startIdx === -1) throw new Error(`Invalid startFrom: ${startFrom}`);
+  const pOnlyRerun = startFrom === "P";
 
   const idx = (step: StepName) => STEP_ORDER.indexOf(step);
   const shouldRun = (step: StepName) => idx(step) >= startIdx;
+  const allowSparseLegacyReuse = startIdx >= idx("O");
 
   async function loadJson<T>(name: string): Promise<T> {
     const resolved = await resolveArtifactPathAbs(runId, name);
@@ -267,6 +272,66 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
 
     const section = lines.slice(startIdx, endIdx).join("\n").trim();
     return section.length > 0 ? section : null;
+  }
+
+  function fallbackStoryBible(): ShowrunnerOutput["story_bible"] {
+    return {
+      premise: `Compatibility fallback story bible for ${topic}.`,
+      rules: ["Preserve medical-story alignment", "Keep continuity of recurring cast and scene style"],
+      recurring_motifs: ["evidence checkpoints", "signal vs noise"],
+      cast: [
+        {
+          name: "Cyto",
+          role: "lead detective",
+          bio: "Fallback cast entry generated from sparse legacy artifacts.",
+          traits: ["curious", "methodical"],
+          constraints: ["avoid contradiction with medical facts"]
+        },
+        {
+          name: "Pip",
+          role: "investigation partner",
+          bio: "Fallback cast entry generated from sparse legacy artifacts.",
+          traits: ["energetic", "supportive"],
+          constraints: ["keep scenes clinically grounded"]
+        }
+      ],
+      story_constraints_used: ["legacy compatibility fallback"],
+      visual_constraints_used: ["legacy compatibility fallback"]
+    };
+  }
+
+  function fallbackBeatSheet(): ShowrunnerOutput["beat_sheet"] {
+    return [
+      {
+        beat: "Fallback intro beat",
+        purpose: "Bridge sparse legacy artifacts into a valid renderable sequence.",
+        characters: ["Cyto", "Pip"],
+        setting: "Office HQ"
+      },
+      {
+        beat: "Fallback investigation beat",
+        purpose: "Maintain medical narrative continuity in compatibility mode.",
+        characters: ["Cyto", "Pip"],
+        setting: "Body investigation zone"
+      },
+      {
+        beat: "Fallback outro beat",
+        purpose: "Close loop for compatibility mode output.",
+        characters: ["Cyto", "Pip"],
+        setting: "Office HQ"
+      }
+    ];
+  }
+
+  function fallbackShotList(): VisualDirectorOutput["shot_list"] {
+    return [
+      {
+        shot_id: "SH_FALLBACK_1",
+        moment: "Compatibility fallback framing",
+        framing: "medium",
+        visual_notes: "Fallback shot list generated because sparse legacy artifacts omitted shot_list.json."
+      }
+    ];
   }
 
   async function runStep<T>(step: StepName, fn: () => Promise<T>): Promise<T> {
@@ -425,8 +490,24 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       });
       await writeTextArtifact("KB0", "kb_context.md", kb0.kb_context);
     } else {
-      runs.log(runId, "Reusing KB0 artifacts", "KB0");
-      kb0 = { kb_context: await loadText("kb_context.md") };
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping KB0 artifact load for P-only rerun path.", "KB0");
+        kb0 = {
+          kb_context: [
+            "## Medical / Clinical KB",
+            "- Compatibility fallback (P-only rerun)",
+            "",
+            "## Characters & Story Constraints",
+            "- Compatibility fallback (P-only rerun)",
+            "",
+            "## Visual Style / Shot Constraints",
+            "- Compatibility fallback (P-only rerun)"
+          ].join("\n")
+        };
+      } else {
+        runs.log(runId, "Reusing KB0 artifacts", "KB0");
+        kb0 = { kb_context: await loadText("kb_context.md") };
+      }
     }
 
     const kbStorySection =
@@ -451,8 +532,22 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       });
       await writeJsonArtifact("A", "producer_brief.json", a);
     } else {
-      runs.log(runId, "Reusing A artifacts", "A");
-      a = await loadJson<ProducerOutput>("producer_brief.json");
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping A artifact load for P-only rerun path.", "A");
+        a = {
+          producer_brief: {
+            title: `Compatibility fallback producer brief: ${topic}`,
+            learning_goal: `Legacy P-only rerun fallback for ${topic}.`,
+            target_audience: settings?.level ?? "student",
+            key_constraints: ["Compatibility fallback"],
+            outline: ["Legacy rerun fallback"],
+            tone: "neutral"
+          }
+        };
+      } else {
+        runs.log(runId, "Reusing A artifacts", "A");
+        a = await loadJson<ProducerOutput>("producer_brief.json");
+      }
     }
 
     let b: ResearcherOutput;
@@ -463,8 +558,26 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       });
       await writeJsonArtifact("B", "facts_library_raw.json", b);
     } else {
-      runs.log(runId, "Reusing B artifacts", "B");
-      b = await loadJson<ResearcherOutput>("facts_library_raw.json");
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping B artifact load for P-only rerun path.", "B");
+        b = {
+          facts_library: {
+            normal_physiology: [],
+            pathophysiology: [],
+            epidemiology_risk: [],
+            clinical_presentation: [],
+            diagnosis_workup: [],
+            differential: [],
+            treatment_acute: [],
+            treatment_long_term: [],
+            prognosis_complications: [],
+            patient_counseling_prevention: []
+          }
+        };
+      } else {
+        runs.log(runId, "Reusing B artifacts", "B");
+        b = await loadJson<ResearcherOutput>("facts_library_raw.json");
+      }
     }
 
     let c: EditorOutput;
@@ -476,10 +589,22 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await writeJsonArtifact("C", "facts_library_clean.json", { facts_library_clean: c.facts_library_clean });
       await writeJsonArtifact("C", "editor_notes.json", { editor_notes: c.editor_notes });
     } else {
-      runs.log(runId, "Reusing C artifacts", "C");
-      const facts = await loadJson<{ facts_library_clean: EditorOutput["facts_library_clean"] }>("facts_library_clean.json");
-      const notes = await loadJson<{ editor_notes: EditorOutput["editor_notes"] }>("editor_notes.json");
-      c = { facts_library_clean: facts.facts_library_clean, editor_notes: notes.editor_notes };
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping C artifact load for P-only rerun path.", "C");
+        c = {
+          facts_library_clean: b.facts_library,
+          editor_notes: {
+            changes_made: ["Compatibility fallback"],
+            red_flags: ["Legacy P-only rerun fallback"],
+            completeness_checks: []
+          }
+        };
+      } else {
+        runs.log(runId, "Reusing C artifacts", "C");
+        const facts = await loadJson<{ facts_library_clean: EditorOutput["facts_library_clean"] }>("facts_library_clean.json");
+        const notes = await loadJson<{ editor_notes: EditorOutput["editor_notes"] }>("editor_notes.json");
+        c = { facts_library_clean: facts.facts_library_clean, editor_notes: notes.editor_notes };
+      }
     }
 
     let d: CurriculumOutput;
@@ -491,10 +616,22 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await writeJsonArtifact("D", "medical_atoms.json", { medical_atoms: d.medical_atoms });
       await writeJsonArtifact("D", "teaching_blueprint.json", { teaching_blueprint: d.teaching_blueprint });
     } else {
-      runs.log(runId, "Reusing D artifacts", "D");
-      const atoms = await loadJson<{ medical_atoms: CurriculumOutput["medical_atoms"] }>("medical_atoms.json");
-      const blueprint = await loadJson<{ teaching_blueprint: CurriculumOutput["teaching_blueprint"] }>("teaching_blueprint.json");
-      d = { medical_atoms: atoms.medical_atoms, teaching_blueprint: blueprint.teaching_blueprint };
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping D artifact load for P-only rerun path.", "D");
+        d = {
+          medical_atoms: [],
+          teaching_blueprint: {
+            sequence: [],
+            misconceptions_to_address: [],
+            end_state: "Compatibility fallback"
+          }
+        };
+      } else {
+        runs.log(runId, "Reusing D artifacts", "D");
+        const atoms = await loadJson<{ medical_atoms: CurriculumOutput["medical_atoms"] }>("medical_atoms.json");
+        const blueprint = await loadJson<{ teaching_blueprint: CurriculumOutput["teaching_blueprint"] }>("teaching_blueprint.json");
+        d = { medical_atoms: atoms.medical_atoms, teaching_blueprint: blueprint.teaching_blueprint };
+      }
     }
 
     let e: AssessmentOutput;
@@ -505,8 +642,13 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       });
       await writeJsonArtifact("E", "assessment_bank.json", e);
     } else {
-      runs.log(runId, "Reusing E artifacts", "E");
-      e = await loadJson<AssessmentOutput>("assessment_bank.json");
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping E artifact load for P-only rerun path.", "E");
+        e = { assessment_bank: [] };
+      } else {
+        runs.log(runId, "Reusing E artifacts", "E");
+        e = await loadJson<AssessmentOutput>("assessment_bank.json");
+      }
     }
 
     let f: SlideArchitectOutput;
@@ -518,10 +660,15 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await writeJsonArtifact("F", "slide_skeleton.json", { slide_skeleton: f.slide_skeleton });
       await writeJsonArtifact("F", "coverage.json", { coverage: f.coverage });
     } else {
-      runs.log(runId, "Reusing F artifacts", "F");
-      const skeleton = await loadJson<{ slide_skeleton: SlideArchitectOutput["slide_skeleton"] }>("slide_skeleton.json");
-      const coverage = await loadJson<{ coverage: SlideArchitectOutput["coverage"] }>("coverage.json");
-      f = { slide_skeleton: skeleton.slide_skeleton, coverage: coverage.coverage };
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping F artifact load for P-only rerun path.", "F");
+        f = { slide_skeleton: [], coverage: { atoms_covered: [], gaps: [] } };
+      } else {
+        runs.log(runId, "Reusing F artifacts", "F");
+        const skeleton = await loadJson<{ slide_skeleton: SlideArchitectOutput["slide_skeleton"] }>("slide_skeleton.json");
+        const coverage = await loadJson<{ coverage: SlideArchitectOutput["coverage"] }>("coverage.json");
+        f = { slide_skeleton: skeleton.slide_skeleton, coverage: coverage.coverage };
+      }
     }
 
     let medicalNarrativeFlow: MedicalNarrativeFlowOutput["medical_narrative_flow"];
@@ -625,10 +772,41 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await saveEpisodeMemory(enriched);
       await writeJsonArtifact("G", "episode_memory_snapshot.json", enriched);
     } else {
-      runs.log(runId, "Reusing G artifacts", "G");
-      g = await loadJson<StorySeedOutput>("story_seed.json");
-      const narrative = await loadJson<MedicalNarrativeFlowOutput>("medical_narrative_flow.json");
-      medicalNarrativeFlow = narrative.medical_narrative_flow;
+      if (pOnlyRerun) {
+        runs.log(runId, "Skipping G artifact load for P-only rerun path.", "G");
+        g = {
+          story_seed: {
+            logline: `Compatibility fallback seed for ${topic}`,
+            setting: "Fallback setting",
+            cast: ["Cyto", "Pip"],
+            stakes: "Fallback compatibility stakes",
+            medical_backbone_summary: "Fallback narrative summary",
+            metaphor_map: [],
+            action_moments: [],
+            intrigue_twists: [],
+            variety_pack: await selectVarietyPack(runId)
+          }
+        };
+        medicalNarrativeFlow = {
+          chapter_summary: "Fallback medical narrative flow for legacy P-only rerun.",
+          progression: [
+            {
+              stage: "Fallback stage",
+              medical_logic: "Compatibility fallback",
+              key_teaching_points: ["Compatibility fallback"],
+              story_implication: "Compatibility fallback"
+            }
+          ],
+          section_coverage: [],
+          metaphor_map: [],
+          required_plot_events: []
+        };
+      } else {
+        runs.log(runId, "Reusing G artifacts", "G");
+        g = await loadJson<StorySeedOutput>("story_seed.json");
+        const narrative = await loadJson<MedicalNarrativeFlowOutput>("medical_narrative_flow.json");
+        medicalNarrativeFlow = narrative.medical_narrative_flow;
+      }
     }
 
     let h: ShowrunnerOutput;
@@ -644,12 +822,47 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
         return await runAgentOutput<ShowrunnerOutput>("H", showrunnerAgent, prompt, { maxTurns: 10 });
       });
       await writeJsonArtifact("H", "story_bible.json", { story_bible: h.story_bible });
+      await writeJsonArtifact("H", "episode_arc.json", { episode_arc: h.episode_arc });
       await writeJsonArtifact("H", "beat_sheet.json", { beat_sheet: h.beat_sheet });
     } else {
       runs.log(runId, "Reusing H artifacts", "H");
-      const bible = await loadJson<{ story_bible: ShowrunnerOutput["story_bible"] }>("story_bible.json");
-      const beats = await loadJson<{ beat_sheet: ShowrunnerOutput["beat_sheet"] }>("beat_sheet.json");
-      h = { story_bible: bible.story_bible, beat_sheet: beats.beat_sheet };
+      let bible: { story_bible: ShowrunnerOutput["story_bible"] };
+      try {
+        bible = await loadJson<{ story_bible: ShowrunnerOutput["story_bible"] }>("story_bible.json");
+      } catch {
+        if (!allowSparseLegacyReuse) throw new Error("Missing required artifact: story_bible.json");
+        runs.log(runId, "story_bible.json missing; using compatibility fallback story_bible.", "H");
+        bible = { story_bible: fallbackStoryBible() };
+      }
+
+      let beats: { beat_sheet: ShowrunnerOutput["beat_sheet"] };
+      try {
+        beats = await loadJson<{ beat_sheet: ShowrunnerOutput["beat_sheet"] }>("beat_sheet.json");
+      } catch {
+        if (!allowSparseLegacyReuse) throw new Error("Missing required artifact: beat_sheet.json");
+        runs.log(runId, "beat_sheet.json missing; using compatibility fallback beat_sheet.", "H");
+        beats = { beat_sheet: fallbackBeatSheet() };
+      }
+
+      let episodeArc: ShowrunnerOutput["episode_arc"] | null = null;
+      try {
+        const arc = await loadJson<{ episode_arc: ShowrunnerOutput["episode_arc"] }>("episode_arc.json");
+        episodeArc = arc.episode_arc;
+      } catch {
+        const intro = beats.beat_sheet.slice(0, 3).map((b) => b.beat);
+        const outro = beats.beat_sheet.slice(-2).map((b) => b.beat);
+        const body = beats.beat_sheet.slice(3, -2).map((b) => b.beat).filter((v) => v.length > 0);
+        episodeArc = {
+          intro_beats: [intro[0] ?? "Intro setup", intro[1] ?? "Case received", intro[2] ?? "Shrink entry"],
+          body_beats: body.length > 0 ? body : ["Body investigation"],
+          outro_beats: [outro[0] ?? "Return to office", outro[1] ?? "Callback ending"],
+          entry_to_body_beat: intro[2] ?? "Shrink entry",
+          return_to_office_beat: outro[0] ?? "Return to office",
+          callback_beat: outro[1] ?? "Callback ending"
+        };
+        runs.log(runId, "episode_arc.json missing; synthesized episode_arc from beat_sheet for compatibility.", "H");
+      }
+      h = { story_bible: bible.story_bible, episode_arc: episodeArc, beat_sheet: beats.beat_sheet };
     }
 
     let i: VisualDirectorOutput;
@@ -665,35 +878,51 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await writeJsonArtifact("I", "shot_list.json", i);
     } else {
       runs.log(runId, "Reusing I artifacts", "I");
-      i = await loadJson<VisualDirectorOutput>("shot_list.json");
+      try {
+        i = await loadJson<VisualDirectorOutput>("shot_list.json");
+      } catch {
+        if (!allowSparseLegacyReuse) throw new Error("Missing required artifact: shot_list.json");
+        runs.log(runId, "shot_list.json missing; using compatibility fallback shot_list.", "I");
+        i = { shot_list: fallbackShotList() };
+      }
     }
 
-    let j: PacingEditorOutput;
+    const needsPacingForSlideWriter = startIdx <= idx("L");
+    const needsMapperForSlideWriter = startIdx <= idx("L");
+    const needsSlideSpecForPatchStage = startIdx <= idx("N");
+
+    let j: PacingEditorOutput | null = null;
     if (shouldRun("J")) {
       j = await runStep<PacingEditorOutput>("J", async () => {
         const prompt = `TOPIC:\n${topic}\n\nBEAT SHEET (json):\n${JSON.stringify({ beat_sheet: h.beat_sheet }, null, 2)}\n\nSLIDE SKELETON (json):\n${JSON.stringify({ slide_skeleton: f.slide_skeleton }, null, 2)}`;
         return await runAgentOutput<PacingEditorOutput>("J", pacingEditorAgent, prompt, { maxTurns: 8 });
       });
       await writeJsonArtifact("J", "pacing_map.json", j);
-    } else {
+    } else if (needsPacingForSlideWriter) {
       runs.log(runId, "Reusing J artifacts", "J");
       j = await loadJson<PacingEditorOutput>("pacing_map.json");
+    } else {
+      runs.log(runId, "Skipping J artifact load (not needed for this rerun path).", "J");
     }
 
-    let k: MapperOutput;
+    let k: MapperOutput | null = null;
     if (shouldRun("K")) {
       k = await runStep<MapperOutput>("K", async () => {
         const prompt = `TOPIC:\n${topic}\n\nSLIDE SKELETON (json):\n${JSON.stringify({ slide_skeleton: f.slide_skeleton }, null, 2)}\n\nMEDICAL ATOMS (json):\n${JSON.stringify({ medical_atoms: d.medical_atoms }, null, 2)}\n\nASSESSMENT BANK (json):\n${JSON.stringify(e, null, 2)}`;
         return await runAgentOutput<MapperOutput>("K", mapperAgent, prompt, { maxTurns: 8 });
       });
       await writeJsonArtifact("K", "alignment_plan.json", k);
-    } else {
+    } else if (needsMapperForSlideWriter) {
       runs.log(runId, "Reusing K artifacts", "K");
       k = await loadJson<MapperOutput>("alignment_plan.json");
+    } else {
+      runs.log(runId, "Skipping K artifact load (not needed for this rerun path).", "K");
     }
 
-    let l: SlideWriterOutput;
+    let l: SlideWriterOutput | null = null;
     if (shouldRun("L")) {
+      if (!j) throw new Error("Missing pacing map context needed for Slide Writer (J)");
+      if (!k) throw new Error("Missing alignment plan context needed for Slide Writer (K)");
       l = await runStep<SlideWriterOutput>("L", async () => {
         const prompt =
           `TOPIC:\n${topic}\n\n` +
@@ -710,16 +939,20 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
         return await runAgentOutput<SlideWriterOutput>("L", slideWriterAgent, prompt, { maxTurns: 14 });
       });
       await writeJsonArtifact("L", "final_slide_spec.json", l);
-    } else {
+    } else if (needsSlideSpecForPatchStage) {
       runs.log(runId, "Reusing L artifacts", "L");
       l = await loadJson<SlideWriterOutput>("final_slide_spec.json");
+    } else {
+      runs.log(runId, "Skipping L artifact load (not needed for this rerun path).", "L");
     }
 
     const idxM = STEP_ORDER.indexOf("M");
     const idxN = STEP_ORDER.indexOf("N");
+    const idxO = STEP_ORDER.indexOf("O");
     const startFromIdx = startIdx;
     const runQaIter1 = startFromIdx <= idxM;
-    const runPatchStage = startFromIdx <= idxN; // startFrom <= N; if startFrom === O, we reuse patched outputs.
+    const runPatchStage = startFromIdx <= idxN; // startFrom <= N; if startFrom > N, reuse patch artifacts.
+    const runPackagingO = startFromIdx <= idxO; // startFrom <= O; if startFrom === P, reuse O artifacts.
     let medicalDepth: MedicalDepthReport | null = null;
 
     if (runPatchStage) {
@@ -761,6 +994,7 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
 
     if (runPatchStage) {
       if (!qa1) throw new Error("Missing QA iter1 report (qa_report_iter1.json) needed for patch stage");
+      if (!l) throw new Error("Missing slide spec context (final_slide_spec.json) needed for patch stage");
 
       finalPatched = l.final_slide_spec;
       finalQa = qa1.qa_report;
@@ -804,7 +1038,7 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       });
       await writeJsonArtifact("M", "qa_report.json", { qa_report: finalQa });
     } else {
-      // startFrom === O: reuse final patched outputs
+      // startFrom >= O: reuse final patched outputs
       runs.log(runId, "Reusing final patched slide spec + QA report", "N");
       const patchedWrap = await loadJson<{ final_slide_spec_patched: PatchOutput["final_slide_spec_patched"] }>(
         "final_slide_spec_patched.json"
@@ -813,23 +1047,135 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       await writeJsonArtifact("N", "reusable_visual_primer.json", {
         reusable_visual_primer: finalPatched.reusable_visual_primer
       });
-      const qaWrap = await loadJson<{ qa_report: QaOutput["qa_report"] }>("qa_report.json");
+      let qaWrap: { qa_report: QaOutput["qa_report"] };
+      try {
+        qaWrap = await loadJson<{ qa_report: QaOutput["qa_report"] }>("qa_report.json");
+      } catch {
+        if (!allowSparseLegacyReuse) throw new Error("Missing required artifact: qa_report.json");
+        runs.log(runId, "qa_report.json missing; using compatibility fallback QA report.", "M");
+        qaWrap = { qa_report: { pass: true, patch_list: [], notes: ["compatibility fallback qa_report.json"] } };
+      }
       finalQa = qaWrap.qa_report;
     }
 
-    await runStep<GensparkOutput>("O", async () => {
-      const prompt = `TOPIC:\n${topic}\n\nFINAL PATCHED SLIDE SPEC (json):\n${JSON.stringify({ final_slide_spec_patched: finalPatched }, null, 2)}`;
-      const o = await runAgentOutput<GensparkOutput>("O", gensparkPackagerAgent, prompt, { maxTurns: 10 });
+    let gensparkAssetBibleMd = "";
+    let gensparkSlideGuideMd = "";
+    let gensparkBuildScriptTxt = "";
 
-      await writeTextArtifact("O", "GENSPARK_ASSET_BIBLE.md", o.genspark_asset_bible_md);
-      await writeTextArtifact("O", "GENSPARK_SLIDE_GUIDE.md", o.genspark_slide_guide_md);
-      await writeTextArtifact("O", "GENSPARK_BUILD_SCRIPT.txt", o.genspark_build_script_txt);
-      const traceability = buildMedicalStoryTraceabilityReport({
-        createdAt: nowIso(),
-        narrativeFlow: medicalNarrativeFlow,
-        finalPatched
+    if (runPackagingO) {
+      await runStep<GensparkOutput>("O", async () => {
+        const prompt = `TOPIC:\n${topic}\n\nFINAL PATCHED SLIDE SPEC (json):\n${JSON.stringify({ final_slide_spec_patched: finalPatched }, null, 2)}`;
+        const o = await runAgentOutput<GensparkOutput>("O", gensparkPackagerAgent, prompt, { maxTurns: 10 });
+
+        gensparkAssetBibleMd = o.genspark_asset_bible_md;
+        gensparkSlideGuideMd = o.genspark_slide_guide_md;
+        gensparkBuildScriptTxt = o.genspark_build_script_txt;
+
+        await writeTextArtifact("O", "GENSPARK_ASSET_BIBLE.md", o.genspark_asset_bible_md);
+        await writeTextArtifact("O", "GENSPARK_SLIDE_GUIDE.md", o.genspark_slide_guide_md);
+        await writeTextArtifact("O", "GENSPARK_BUILD_SCRIPT.txt", o.genspark_build_script_txt);
+        const traceability = buildMedicalStoryTraceabilityReport({
+          createdAt: nowIso(),
+          narrativeFlow: medicalNarrativeFlow,
+          finalPatched
+        });
+        await writeJsonArtifact("O", "medical_story_traceability_report.json", traceability);
+
+        const adherenceReport = evaluateConstraintAdherence({
+          canonical: canonicalProfile,
+          storyBible: h.story_bible,
+          beatSheet: h.beat_sheet,
+          shotList: i.shot_list,
+          finalPatched,
+          semanticSimilarity: semanticGuard,
+          checkedAt: nowIso()
+        });
+        await writeJsonArtifact("O", "constraint_adherence_report.json", adherenceReport);
+        await runs.setConstraintAdherence(runId, summarizeConstraintAdherence(adherenceReport));
+
+        if (adherenceReport.status === "warn") {
+          runs.log(runId, `Constraint adherence warning: ${adherenceReport.warnings.join(" | ")}`, "O");
+        }
+        if (adherenceReport.status === "fail") {
+          if (adherenceMode === "strict") {
+            throw new Error(`Constraint adherence failed: ${adherenceReport.failures.join(" | ")}`);
+          }
+          runs.log(runId, `Constraint adherence fail treated as non-blocking (warn mode): ${adherenceReport.failures.join(" | ")}`, "O");
+        }
+
+        return o;
       });
-      await writeJsonArtifact("O", "medical_story_traceability_report.json", traceability);
+    } else {
+      runs.log(runId, "Reusing O artifacts for master-doc assembly", "O");
+      const loadPackagingText = async (name: string, fallback: string): Promise<string> => {
+        try {
+          return await loadText(name);
+        } catch {
+          if (!allowSparseLegacyReuse) throw new Error(`Missing required artifact: ${name}`);
+          runs.log(runId, `${name} missing; using compatibility fallback packaging text.`, "O");
+          return fallback;
+        }
+      };
+
+      gensparkAssetBibleMd = await loadPackagingText(
+        "GENSPARK_ASSET_BIBLE.md",
+        "# Genspark Asset Bible\n- Unavailable in legacy run; compatibility fallback generated."
+      );
+      gensparkSlideGuideMd = await loadPackagingText(
+        "GENSPARK_SLIDE_GUIDE.md",
+        "# Genspark Slide Guide\n- Unavailable in legacy run; compatibility fallback generated."
+      );
+      gensparkBuildScriptTxt = await loadPackagingText(
+        "GENSPARK_BUILD_SCRIPT.txt",
+        "1) Compatibility fallback: upstream build script not present in legacy run."
+      );
+    }
+
+    await runStep<GensparkMasterDocOutput>("P", async () => {
+      const baseDoc = buildGensparkMasterDoc({
+        topic,
+        finalPatched,
+        reusableVisualPrimer: finalPatched.reusable_visual_primer,
+        storyBible: h.story_bible,
+        beatSheet: h.beat_sheet,
+        shotList: i.shot_list,
+        gensparkAssetBibleMd,
+        gensparkSlideGuideMd,
+        gensparkBuildScriptTxt
+      });
+      await writeTextArtifact("P", "GENSPARK_MASTER_RENDER_PLAN_BASE.md", baseDoc);
+
+      const baseValidation = validateGensparkMasterDoc(baseDoc, finalPatched.slides);
+      if (!baseValidation.ok) {
+        throw new Error(`Deterministic master doc validation failed: ${baseValidation.errors.join(" | ")}`);
+      }
+
+      let finalMasterDoc = baseDoc;
+      let masterDocValidation: { status: "pass" | "warn" | "fail"; errors: string[] } = { status: "pass", errors: [] };
+
+      try {
+        const polishPrompt =
+          `You must polish this markdown while preserving strict structure.\n` +
+          `Do not reorder/remove headings or slide blocks.\n\n` +
+          `MARKDOWN:\n${baseDoc}`;
+        const polished = await runAgentOutput<GensparkMasterDocOutput>("P", gensparkMasterPolisherAgent, polishPrompt, {
+          maxTurns: 6,
+          noFinalOutputMessage: "P produced no final output"
+        });
+        const polishedValidation = validateGensparkMasterDoc(polished.genspark_master_render_plan_md, finalPatched.slides);
+        if (polishedValidation.ok) {
+          finalMasterDoc = polished.genspark_master_render_plan_md;
+        } else {
+          masterDocValidation = { status: "warn", errors: polishedValidation.errors };
+          runs.log(runId, `Master doc polish rejected; using deterministic base. ${polishedValidation.errors.join(" | ")}`, "P");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        masterDocValidation = { status: "warn", errors: [msg] };
+        runs.log(runId, `Master doc polish failed; using deterministic base. ${msg}`, "P");
+      }
+
+      await writeTextArtifact("P", "GENSPARK_MASTER_RENDER_PLAN.md", finalMasterDoc);
 
       const adherenceReport = evaluateConstraintAdherence({
         canonical: canonicalProfile,
@@ -838,22 +1184,23 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
         shotList: i.shot_list,
         finalPatched,
         semanticSimilarity: semanticGuard,
+        masterDocValidation,
         checkedAt: nowIso()
       });
-      await writeJsonArtifact("O", "constraint_adherence_report.json", adherenceReport);
+      await writeJsonArtifact("P", "constraint_adherence_report.json", adherenceReport);
       await runs.setConstraintAdherence(runId, summarizeConstraintAdherence(adherenceReport));
 
       if (adherenceReport.status === "warn") {
-        runs.log(runId, `Constraint adherence warning: ${adherenceReport.warnings.join(" | ")}`, "O");
+        runs.log(runId, `Constraint adherence warning: ${adherenceReport.warnings.join(" | ")}`, "P");
       }
       if (adherenceReport.status === "fail") {
         if (adherenceMode === "strict") {
           throw new Error(`Constraint adherence failed: ${adherenceReport.failures.join(" | ")}`);
         }
-        runs.log(runId, `Constraint adherence fail treated as non-blocking (warn mode): ${adherenceReport.failures.join(" | ")}`, "O");
+        runs.log(runId, `Constraint adherence fail treated as non-blocking (warn mode): ${adherenceReport.failures.join(" | ")}`, "P");
       }
 
-      return o;
+      return { genspark_master_render_plan_md: finalMasterDoc };
     });
   });
 }
