@@ -216,62 +216,69 @@ function minimalCurriculumOut() {
 }
 
 function minimalAssessmentOut() {
+  const assessment_bank = Array.from({ length: 30 }, (_, idx) => {
+    const n = idx + 1;
+    return {
+      question_id: `Q${n}`,
+      stem: `Question ${n}: Which action best fits the case?`,
+      choices: ["A", "B", "C", "D"],
+      answer_index: 0,
+      explanation: "Because this is the best-supported choice."
+    };
+  });
   return {
-    assessment_bank: [
-      { question_id: "Q1", stem: "Stem", choices: ["a", "b"], answer_index: 0, explanation: "Because" }
-    ]
+    assessment_bank
   };
 }
 
 function minimalSlideArchitectOut() {
+  const slide_skeleton = Array.from({ length: 100 }, (_, idx) => {
+    const n = idx + 1;
+    const slideId = `S${n}`;
+    const isIntro = n <= 3;
+    const isOutro = n >= 99;
+    const narrative_phase = isIntro ? "intro" : isOutro ? "outro" : "body";
+    const slide_mode = slideId === "S2" ? "story_transition" : "hybrid";
+
+    const title =
+      slideId === "S1"
+        ? "Intro 1"
+        : slideId === "S2"
+          ? "Intro 2"
+          : slideId === "S3"
+            ? "Intro 3"
+            : slideId === "S99"
+              ? "Outro 1"
+              : slideId === "S100"
+                ? "Outro 2"
+                : `Body ${slideId}`;
+
+    const story_goal =
+      slideId === "S1"
+        ? "Quirky opening"
+        : slideId === "S2"
+          ? "Case received"
+          : slideId === "S3"
+            ? "Shrink entry"
+            : slideId === "S99"
+              ? "Return office"
+              : slideId === "S100"
+                ? "Callback"
+                : "Investigation beat";
+
+    return {
+      slide_id: slideId,
+      title,
+      objective: "Obj",
+      bullets: [`bullet ${slideId}`],
+      slide_mode,
+      narrative_phase,
+      story_goal
+    } as const;
+  });
+
   return {
-    slide_skeleton: [
-      {
-        slide_id: "S1",
-        title: "Intro 1",
-        objective: "Obj",
-        bullets: ["b1"],
-        slide_mode: "hybrid",
-        narrative_phase: "intro",
-        story_goal: "Quirky opening"
-      },
-      {
-        slide_id: "S2",
-        title: "Intro 2",
-        objective: "Obj",
-        bullets: ["b2"],
-        slide_mode: "story_transition",
-        narrative_phase: "intro",
-        story_goal: "Case received"
-      },
-      {
-        slide_id: "S3",
-        title: "Intro 3",
-        objective: "Obj",
-        bullets: ["b3"],
-        slide_mode: "hybrid",
-        narrative_phase: "intro",
-        story_goal: "Shrink entry"
-      },
-      {
-        slide_id: "S4",
-        title: "Outro 1",
-        objective: "Obj",
-        bullets: ["b4"],
-        slide_mode: "hybrid",
-        narrative_phase: "outro",
-        story_goal: "Return office"
-      },
-      {
-        slide_id: "S5",
-        title: "Outro 2",
-        objective: "Obj",
-        bullets: ["b5"],
-        slide_mode: "hybrid",
-        narrative_phase: "outro",
-        story_goal: "Callback"
-      }
-    ],
+    slide_skeleton,
     coverage: { atoms_covered: ["A1"], gaps: [] }
   };
 }
@@ -323,8 +330,17 @@ function minimalPacingOut() {
 function minimalMapperOut() {
   return {
     alignment_plan: {
-      slide_to_atoms: [{ slide_id: "S1", atom_ids: ["A1"] }],
-      slide_to_assessment: [{ slide_id: "S1", question_ids: ["Q1"] }],
+      slide_to_atoms: [{ slide_id: "S10", atom_ids: ["A1"] }],
+      // Downstream policy: only 5-7 questions from the 30-bank should be used in the deck.
+      slide_to_assessment: [
+        { slide_id: "S10", question_ids: ["Q1"] },
+        { slide_id: "S20", question_ids: ["Q2"] },
+        { slide_id: "S30", question_ids: ["Q3"] },
+        { slide_id: "S40", question_ids: ["Q4"] },
+        { slide_id: "S50", question_ids: ["Q5"] },
+        { slide_id: "S60", question_ids: ["Q6"] },
+        { slide_id: "S70", question_ids: ["Q7"] }
+      ],
       coverage_notes: ["ok"]
     }
   };
@@ -385,6 +401,16 @@ function minimalSlideScene(
 }
 
 function minimalSlideSpecOut() {
+  const slides = Array.from({ length: 100 }, (_, idx) => {
+    const n = idx + 1;
+    const slideId = `S${n}`;
+    const narrativePhase: "intro" | "body" | "outro" = n <= 3 ? "intro" : n >= 99 ? "outro" : "body";
+    if (slideId === "S2") {
+      return minimalSlideScene(slideId, `content ${n}`, narrativePhase, "story_transition", "in_scene_annotated_visual");
+    }
+    return minimalSlideScene(slideId, `content ${n}`, narrativePhase);
+  });
+
   return {
     final_slide_spec: {
       title: "Final Spec",
@@ -396,18 +422,12 @@ function minimalSlideSpecOut() {
       },
       story_arc_contract: {
         intro_slide_ids: ["S1", "S2", "S3"],
-        outro_slide_ids: ["S4", "S5"],
+        outro_slide_ids: ["S99", "S100"],
         entry_to_body_slide_id: "S3",
-        return_to_office_slide_id: "S4",
-        callback_slide_id: "S5"
+        return_to_office_slide_id: "S99",
+        callback_slide_id: "S100"
       },
-      slides: [
-        minimalSlideScene("S1", "content 1", "intro"),
-        minimalSlideScene("S2", "content 2", "intro", "story_transition", "in_scene_annotated_visual"),
-        minimalSlideScene("S3", "content 3", "intro"),
-        minimalSlideScene("S4", "content 4", "outro"),
-        minimalSlideScene("S5", "content 5", "outro")
-      ],
+      slides,
       sources: ["https://example.com"]
     }
   };
@@ -426,6 +446,16 @@ function minimalQa(pass: boolean) {
 }
 
 function minimalPatchedSpecOut() {
+  const slides = Array.from({ length: 100 }, (_, idx) => {
+    const n = idx + 1;
+    const slideId = `S${n}`;
+    const narrativePhase: "intro" | "body" | "outro" = n <= 3 ? "intro" : n >= 99 ? "outro" : "body";
+    if (slideId === "S2") {
+      return minimalSlideScene(slideId, `content patched ${n}`, narrativePhase, "story_transition", "in_scene_annotated_visual");
+    }
+    return minimalSlideScene(slideId, `content patched ${n}`, narrativePhase);
+  });
+
   return {
     final_slide_spec_patched: {
       title: "Final Spec (Patched)",
@@ -437,18 +467,12 @@ function minimalPatchedSpecOut() {
       },
       story_arc_contract: {
         intro_slide_ids: ["S1", "S2", "S3"],
-        outro_slide_ids: ["S4", "S5"],
+        outro_slide_ids: ["S99", "S100"],
         entry_to_body_slide_id: "S3",
-        return_to_office_slide_id: "S4",
-        callback_slide_id: "S5"
+        return_to_office_slide_id: "S99",
+        callback_slide_id: "S100"
       },
-      slides: [
-        minimalSlideScene("S1", "content patched 1", "intro"),
-        minimalSlideScene("S2", "content patched 2", "intro", "story_transition", "in_scene_annotated_visual"),
-        minimalSlideScene("S3", "content patched 3", "intro"),
-        minimalSlideScene("S4", "content patched 4", "outro"),
-        minimalSlideScene("S5", "content patched 5", "outro")
-      ],
+      slides,
       sources: ["https://example.com"]
     }
   };
@@ -1185,7 +1209,7 @@ describe("runStudioPipeline", () => {
 
     const master = await fs.readFile(artifactAbsPath(run.runId, "GENSPARK_MASTER_RENDER_PLAN.md"), "utf8");
     expect(master).toContain("GENSPARK MASTER RENDER PLAN");
-    expect(master).toContain("compatibility fallback");
+    expect(master).toContain("sparse legacy artifacts");
     await expect(fs.stat(artifactAbsPath(run.runId, "constraint_adherence_report.json"))).resolves.toBeTruthy();
     expect(sawPolisher).toBe(true);
   });
@@ -2030,5 +2054,111 @@ describe("runStudioPipeline", () => {
       process.env.MMS_DISABLE_CANON_AUTO_DISCOVERY = "1";
       await fs.rm(canonRoot, { recursive: true, force: true }).catch(() => undefined);
     }
+  });
+
+  it("enforces assessment usage policy (5-7 questions) in strict mode", async () => {
+    const { RunManager } = await import("../src/run_manager.js");
+    const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
+    const { artifactAbsPath, readJsonFile } = await import("../src/pipeline/utils.js");
+
+    const agents = (await import("@openai/agents")) as RunnerModule;
+    agents.__setMockRunnerHandler?.((agent: MockAgent) => {
+      if (agent.name === "KB Compiler") return { finalOutput: { kb_context: "# KB\n- item" } };
+      if (agent.name === "Producer") return { finalOutput: minimalProducerBrief() };
+      if (agent.name === "Medical Researcher") return { finalOutput: minimalFactsRaw() };
+      if (agent.name === "Medical Editor") return { finalOutput: minimalEditorOut() };
+      if (agent.name === "Medical Narrative Flow") return { finalOutput: minimalMedicalNarrativeFlowOut() };
+      if (agent.name === "Curriculum Architect") return { finalOutput: minimalCurriculumOut() };
+      if (agent.name === "Assessment Designer") return { finalOutput: minimalAssessmentOut() };
+      if (agent.name === "Slide Architect") return { finalOutput: minimalSlideArchitectOut() };
+      if (agent.name === "Story Seed") {
+        return {
+          finalOutput: {
+            story_seed: minimalStorySeed({ genre_wrapper: "g", body_setting: "b", antagonist_archetype: "a", twist_type: "t", signature_gadget: "s", motifs: ["m"] })
+          }
+        };
+      }
+      if (agent.name === "Showrunner") return { finalOutput: minimalShowrunnerOut() };
+      if (agent.name === "Visual Director") return { finalOutput: minimalVisualOut() };
+      if (agent.name === "Pacing Editor") return { finalOutput: minimalPacingOut() };
+      if (agent.name === "Mapper") {
+        return {
+          finalOutput: {
+            alignment_plan: {
+              slide_to_atoms: [{ slide_id: "S10", atom_ids: ["A1"] }],
+              slide_to_assessment: [{ slide_id: "S10", question_ids: ["Q1"] }],
+              coverage_notes: ["ok"]
+            }
+          }
+        };
+      }
+      if (agent.name === "Slide Writer") return { finalOutput: minimalSlideSpecOut() };
+      if (agent.name === "QA Suite") return { finalOutput: minimalQa(true) };
+      if (agent.name === "Genspark Packager") return { finalOutput: minimalGensparkOut() };
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("topic");
+
+    await expect(
+      runStudioPipeline({ runId: run.runId, topic: run.topic, settings: run.settings }, runs, { signal: new AbortController().signal })
+    ).rejects.toThrow(/Assessment usage policy violated/);
+
+    const report = await readJsonFile<{ ok: boolean; selected_count: number }>(artifactAbsPath(run.runId, "assessment_usage_report.json"));
+    expect(report.ok).toBe(false);
+    expect(report.selected_count).toBe(1);
+  });
+
+  it("logs and continues when assessment usage policy is violated in warn mode", async () => {
+    const { RunManager } = await import("../src/run_manager.js");
+    const { runStudioPipeline } = await import("../src/pipeline/studio_pipeline.js");
+    const { artifactAbsPath, readJsonFile } = await import("../src/pipeline/utils.js");
+
+    const agents = (await import("@openai/agents")) as RunnerModule;
+    agents.__setMockRunnerHandler?.((agent: MockAgent) => {
+      if (agent.name === "KB Compiler") return { finalOutput: { kb_context: "# KB\n- item" } };
+      if (agent.name === "Producer") return { finalOutput: minimalProducerBrief() };
+      if (agent.name === "Medical Researcher") return { finalOutput: minimalFactsRaw() };
+      if (agent.name === "Medical Editor") return { finalOutput: minimalEditorOut() };
+      if (agent.name === "Medical Narrative Flow") return { finalOutput: minimalMedicalNarrativeFlowOut() };
+      if (agent.name === "Curriculum Architect") return { finalOutput: minimalCurriculumOut() };
+      if (agent.name === "Assessment Designer") return { finalOutput: minimalAssessmentOut() };
+      if (agent.name === "Slide Architect") return { finalOutput: minimalSlideArchitectOut() };
+      if (agent.name === "Story Seed") {
+        return {
+          finalOutput: {
+            story_seed: minimalStorySeed({ genre_wrapper: "g", body_setting: "b", antagonist_archetype: "a", twist_type: "t", signature_gadget: "s", motifs: ["m"] })
+          }
+        };
+      }
+      if (agent.name === "Showrunner") return { finalOutput: minimalShowrunnerOut() };
+      if (agent.name === "Visual Director") return { finalOutput: minimalVisualOut() };
+      if (agent.name === "Pacing Editor") return { finalOutput: minimalPacingOut() };
+      if (agent.name === "Mapper") {
+        return {
+          finalOutput: {
+            alignment_plan: {
+              slide_to_atoms: [{ slide_id: "S10", atom_ids: ["A1"] }],
+              slide_to_assessment: [{ slide_id: "S10", question_ids: ["Q1"] }],
+              coverage_notes: ["ok"]
+            }
+          }
+        };
+      }
+      if (agent.name === "Slide Writer") return { finalOutput: minimalSlideSpecOut() };
+      if (agent.name === "QA Suite") return { finalOutput: minimalQa(true) };
+      if (agent.name === "Genspark Packager") return { finalOutput: minimalGensparkOut() };
+      throw new Error(`Unexpected agent: ${agent.name}`);
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("topic", { adherenceMode: "warn" });
+
+    await runStudioPipeline({ runId: run.runId, topic: run.topic, settings: run.settings }, runs, { signal: new AbortController().signal });
+
+    const report = await readJsonFile<{ ok: boolean; selected_count: number }>(artifactAbsPath(run.runId, "assessment_usage_report.json"));
+    expect(report.ok).toBe(false);
+    expect(report.selected_count).toBe(1);
   });
 });

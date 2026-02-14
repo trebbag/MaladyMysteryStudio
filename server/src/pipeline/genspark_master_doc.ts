@@ -4,6 +4,8 @@ type ReusableVisualPrimer = PatchOutput["final_slide_spec_patched"]["reusable_vi
 type SlideSpec = PatchOutput["final_slide_spec_patched"]["slides"][number];
 
 export const MASTER_DOC_SECTION_HEADINGS = [
+  "GENSPARK GENERATION PROMPT",
+  "ORIGINAL USER PROMPT",
   "GLOBAL CONSISTENCY PACK",
   "RECURRING CHARACTERS",
   "RECURRING SCENES",
@@ -60,13 +62,23 @@ function firstQuotedDialogue(input: string): string {
 }
 
 function renderInstructions(slide: SlideSpec): string {
+  const lines: string[] = [];
   if (slide.slide_mode === "story_transition") {
-    return "Render as a cinematic transition/action beat. Keep medical payload off HUD bullets; preserve story continuity and location change cues.";
+    lines.push(
+      "Render as a cinematic transition/action beat. Keep medical payload off HUD bullets; preserve story continuity and location change cues."
+    );
+  } else if (slide.medical_visual_mode === "in_scene_annotated_visual") {
+    lines.push(
+      "Render the medical teaching visual inside the scene using labels/annotations. Keep panel 1 bullets legible and aligned to the same teaching target."
+    );
+  } else {
+    lines.push("Render dual HUD panels: panel 1 for standalone medical bullets and panel 2 for the explicit medical visual payload.");
   }
-  if (slide.medical_visual_mode === "in_scene_annotated_visual") {
-    return "Render the medical teaching visual inside the scene using labels/annotations. Keep panel 1 bullets legible and aligned to the same teaching target.";
-  }
-  return "Render dual HUD panels: panel 1 for standalone medical bullets and panel 2 for the explicit medical visual payload.";
+
+  lines.push("");
+  lines.push(`Character staging: ${slide.character_staging.trim()}`);
+  lines.push(`Medical evidence/visual teaching payload: ${slide.evidence_visual_description.trim()}`);
+  return lines.join("\n");
 }
 
 function panel2Content(slide: SlideSpec): string {
@@ -125,8 +137,33 @@ export function buildGensparkMasterDoc(input: BuildMasterDocInput): string {
   const slideBlocks = input.finalPatched.slides.map((slide) => slideBlock(slide)).join("\n\n");
 
   const arc = input.finalPatched.story_arc_contract;
+  const pastePrompt = [
+    `You are generating a 16:9 educational slide deck using Genspark AI Slides.`,
+    `You will be given an attached document titled "GENSPARK MASTER RENDER PLAN".`,
+    ``,
+    `Rules:`,
+    `- Follow the document exactly. Do not invent additional recurring characters/scenes/assets beyond what it lists.`,
+    `- Start by reading: GLOBAL CONSISTENCY PACK and all RECURRING sections.`,
+    `- Create/lock recurring characters, scenes, and reusable objects first for continuity.`,
+    `- Then generate slides in order using the strict slide blocks between BEGIN_SLIDE/END_SLIDE markers.`,
+    `- Hybrid slides must include story action in-scene plus medical teaching via Panel 1 bullets, plus a medically accurate visual payload (Panel 2 or in-scene annotated).`,
+    `- story_transition slides must not include Panel 1 medical bullets.`,
+    `- Put "Dialogue For Speaker Notes" + "Speaker Notes" into the slide speaker notes.`,
+    ``,
+    `USER PROMPT:`,
+    input.topic
+  ].join("\n");
+
   return [
     "# GENSPARK MASTER RENDER PLAN",
+    "",
+    "## GENSPARK GENERATION PROMPT",
+    "```",
+    pastePrompt.trim(),
+    "```",
+    "",
+    "## ORIGINAL USER PROMPT",
+    input.topic,
     "",
     "## GLOBAL CONSISTENCY PACK",
     `- Topic: ${input.topic}`,
@@ -139,19 +176,6 @@ export function buildGensparkMasterDoc(input: BuildMasterDocInput): string {
     "",
     "### Canonical continuity rules",
     toBullets(input.reusableVisualPrimer.continuity_rules),
-    "",
-    "### Upstream packaging references",
-    "```md",
-    input.gensparkAssetBibleMd.trim(),
-    "```",
-    "",
-    "```md",
-    input.gensparkSlideGuideMd.trim(),
-    "```",
-    "",
-    "```txt",
-    input.gensparkBuildScriptTxt.trim(),
-    "```",
     "",
     "## RECURRING CHARACTERS",
     toBullets(recurringCharacters),

@@ -64,7 +64,8 @@ function envConfig(): EnvConfig {
 const RunSettingsSchema = z
   .object({
     durationMinutes: z.number().int().min(5).max(240).optional(),
-    targetSlides: z.number().int().min(5).max(200).optional(),
+    // Long-form decks only; enforce a realistic pilot range while allowing larger runs.
+    targetSlides: z.number().int().min(100).max(500).optional(),
     level: z.enum(["pcp", "student"]).optional(),
     adherenceMode: z.enum(["strict", "warn"]).optional()
   })
@@ -371,6 +372,26 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
         } catch {
           res.status(400).json({ error: `missing artifact in parent run: ${name}` });
           return;
+        }
+      }
+
+      // Legacy compatibility: parent run metadata may not list required artifacts.
+      // For `startFrom=P`, ensure the patched spec exists so master-doc assembly can succeed.
+      if (startFrom === "P" && step === "N") {
+        const required = "final_slide_spec_patched.json";
+        if (!copied.includes(required)) {
+          const src = await resolveArtifactPathAbs(parentRunId, required);
+          if (!src) {
+            res.status(400).json({ error: `missing required artifact in parent run for startFrom=P: ${required}` });
+            return;
+          }
+          try {
+            await fs.copyFile(src, artifactAbsPath(child.runId, required));
+            copied.push(required);
+          } catch {
+            res.status(400).json({ error: `failed to copy required artifact for startFrom=P: ${required}` });
+            return;
+          }
         }
       }
 

@@ -33,8 +33,8 @@ pacing_rules:
   story_transition_caption_max_words: 12
 
 intro_outro_contract:
-  intro_slide_count: 3
-  outro_slide_count: 2
+  min_total_slides: 100
+  max_intro_outro_percent_combined: 0.15
   required_intro_beats:
     - "quirky Cyto/Pip opening"
     - "case acquisition"

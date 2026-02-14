@@ -128,6 +128,7 @@ export const CurriculumOutputSchema = z.object({
 });
 
 export const AssessmentOutputSchema = z.object({
+  // Keep producing a full bank, but downstream only uses a small subset in the deck.
   assessment_bank: z.array(
     z.object({
       question_id: z.string().min(1),
@@ -136,7 +137,7 @@ export const AssessmentOutputSchema = z.object({
       answer_index: z.number().int().min(0),
       explanation: z.string().min(1)
     })
-  )
+  ).length(30)
 });
 
 export const SlideArchitectOutputSchema = z.object({
@@ -150,7 +151,7 @@ export const SlideArchitectOutputSchema = z.object({
       narrative_phase: NarrativePhaseSchema,
       story_goal: z.string().min(1)
     })
-  ),
+  ).min(100),
   coverage: z.object({
     atoms_covered: z.array(z.string().min(1)),
     gaps: z.array(z.string().min(1))
@@ -205,9 +206,9 @@ export const ShowrunnerOutputSchema = z.object({
     visual_constraints_used: z.array(z.string().min(1))
   }),
   episode_arc: z.object({
-    intro_beats: z.array(z.string().min(1)).length(3),
+    intro_beats: z.array(z.string().min(1)).min(3),
     body_beats: z.array(z.string().min(1)).min(1),
-    outro_beats: z.array(z.string().min(1)).length(2),
+    outro_beats: z.array(z.string().min(1)).min(2),
     entry_to_body_beat: z.string().min(1),
     return_to_office_beat: z.string().min(1),
     callback_beat: z.string().min(1)
@@ -311,11 +312,42 @@ const SlideSceneSpecSchema = z
   });
 
 const StoryArcContractSchema = z.object({
-  intro_slide_ids: z.array(z.string().min(1)).length(3),
-  outro_slide_ids: z.array(z.string().min(1)).length(2),
+  intro_slide_ids: z.array(z.string().min(1)).min(3),
+  outro_slide_ids: z.array(z.string().min(1)).min(2),
   entry_to_body_slide_id: z.string().min(1),
   return_to_office_slide_id: z.string().min(1),
   callback_slide_id: z.string().min(1)
+}).superRefine((value, ctx) => {
+  const introSet = new Set(value.intro_slide_ids);
+  const outroSet = new Set(value.outro_slide_ids);
+
+  if (!introSet.has(value.entry_to_body_slide_id)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `entry_to_body_slide_id must be in intro_slide_ids (found ${value.entry_to_body_slide_id}).`
+    });
+  }
+  if (!outroSet.has(value.return_to_office_slide_id)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `return_to_office_slide_id must be in outro_slide_ids (found ${value.return_to_office_slide_id}).`
+    });
+  }
+  if (!outroSet.has(value.callback_slide_id)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `callback_slide_id must be in outro_slide_ids (found ${value.callback_slide_id}).`
+    });
+  }
+  for (const id of value.intro_slide_ids) {
+    if (outroSet.has(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `intro_slide_ids and outro_slide_ids must not overlap (overlap=${id}).`
+      });
+      break;
+    }
+  }
 });
 
 export const SlideWriterOutputSchema = z.object({
@@ -323,7 +355,7 @@ export const SlideWriterOutputSchema = z.object({
     title: z.string().min(1),
     reusable_visual_primer: ReusableVisualPrimerSchema,
     story_arc_contract: StoryArcContractSchema,
-    slides: z.array(SlideSceneSpecSchema),
+    slides: z.array(SlideSceneSpecSchema).min(100),
     sources: z.array(z.string().min(1))
   })
 });
@@ -347,7 +379,7 @@ export const PatchOutputSchema = z.object({
     title: z.string().min(1),
     reusable_visual_primer: ReusableVisualPrimerSchema,
     story_arc_contract: StoryArcContractSchema,
-    slides: z.array(SlideSceneSpecSchema),
+    slides: z.array(SlideSceneSpecSchema).min(100),
     sources: z.array(z.string().min(1))
   })
 });

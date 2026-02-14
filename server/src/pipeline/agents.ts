@@ -72,7 +72,9 @@ You will receive a topic and KB context.
 Create a tight producer brief for an educational, story-driven medical episode.
 
 Rules:
+- The title must be clever, slightly punny, and case-like (not cringe), while clearly reflecting the medical topic.
 - Stay high-level: goals, audience, constraints, outline.
+- The deck must be long-form (default 100+ slides). If run settings include targetSlides, align planning to that number (minimum 100).
 - Return ONLY valid JSON matching the schema with top-level key producer_brief.
 - No extra keys.`
 });
@@ -190,6 +192,7 @@ You will receive medical_atoms and the teaching blueprint.
 Create an assessment_bank of multiple-choice questions.
 
 Rules:
+- Produce EXACTLY 30 questions.
 - Return ONLY valid JSON matching the schema with top-level key assessment_bank.
 - No extra keys.`
 });
@@ -219,10 +222,14 @@ Rules:
   - Most slides must be slide_mode="hybrid".
   - story_transition is allowed only for action/location transitions and should be limited.
 - No medical-only mode is allowed.
-- Ensure narrative_phase allocation includes exactly:
-  - intro: 3 slides
-  - outro: 2 slides
-  - remaining slides: body
+- Slide count:
+  - The deck must be long-form: target at least 100 slides.
+  - If run settings include targetSlides, output EXACTLY that many skeleton rows (minimum 100).
+- Intro/outro sizing:
+  - Do NOT hardcode intro/outro to fixed slide counts.
+  - Intro + outro combined must be <= 15% of total slides.
+  - Intro must still cover: quirky opening, case acquisition, office return + shrink entry.
+  - Outro must still cover: return to office, fun callback ending.
 - Ensure intro/body/outro continuity aligns with clinical teaching progression.
 - Return ONLY valid JSON matching the schema with top-level keys slide_skeleton and coverage.
 - No extra keys.`
@@ -288,8 +295,8 @@ Rules:
 - Ensure beat sequencing stays consistent with the medical_narrative_flow progression.
 - beat_sheet items must include: beat, purpose, characters (names), and setting.
 - episode_arc is required and must satisfy:
-  - intro_beats length exactly 3
-  - outro_beats length exactly 2
+  - intro_beats length >= 3
+  - outro_beats length >= 2
   - include entry_to_body_beat, return_to_office_beat, and callback_beat
 - Intro must explicitly include: quirky opening, case acquisition, office return, shrink-entry launch.
 - Outro must explicitly include: return to normal size in office and a callback ending.
@@ -347,6 +354,8 @@ You will receive slide skeleton, medical_atoms, and assessment_bank.
 Create an alignment_plan mapping slide_id -> atom_ids and slide_id -> question_ids.
 
 Rules:
+- The assessment bank contains 30 questions, but the deck should only use 5-7 of them.
+- Choose 5-7 question_id values total (unique) and map them to the most appropriate slide(s).
 - slide_to_atoms MUST be an array of objects: [{"slide_id":"S1","atom_ids":["A1"]}, ...]
 - slide_to_assessment MUST be an array of objects: [{"slide_id":"S1","question_ids":["Q1"]}, ...]
 - Return ONLY valid JSON matching the schema with top-level key alignment_plan.
@@ -372,17 +381,23 @@ Rules:
   - medical-only slides are forbidden.
   - default every slide to slide_mode="hybrid" unless it is a justified action/location transition.
   - story_transition slides are allowed only for transitions/action beats and may have empty hud_panel_bullets.
+- Deck length:
+  - The deck must be long-form: at least 100 slides.
+  - Keep each slide bite-sized: one focused teaching payload + one story beat.
 - Include reusable_visual_primer at the top-level to define recurring assets:
   - character_descriptions
   - recurring_scene_descriptions
   - reusable_visual_elements
   - continuity_rules
 - Include story_arc_contract at top-level:
-  - intro_slide_ids (exactly 3)
-  - outro_slide_ids (exactly 2)
+  - intro_slide_ids (>= 3; include ALL intro slides)
+  - outro_slide_ids (>= 2; include ALL outro slides)
   - entry_to_body_slide_id
   - return_to_office_slide_id
   - callback_slide_id
+- Intro/outro sizing:
+  - Do NOT hardcode intro/outro to fixed slide counts.
+  - intro_slide_ids.length + outro_slide_ids.length must be <= 15% of total slide count.
 - For every slide, include ALL required fields:
   - slide_mode
   - medical_visual_mode (dual_hud_panels | in_scene_annotated_visual)
@@ -401,6 +416,9 @@ Rules:
   - non-empty hud_panel_bullets
   - story_and_dialogue must include active scene progression
   - include panel-2 medical visual OR use in_scene_annotated_visual mode.
+- Assessments:
+  - The assessment bank contains 30 questions, but only 5-7 should appear in the deck.
+  - For the selected assessment slides, embed the question_id + stem + choices inside speaker_notes (so a generator can render them).
 - If medical_visual_mode is dual_hud_panels, include explicit panel-2 medical visual payload in evidence_visual_description.
 - If medical_visual_mode is in_scene_annotated_visual, panel-2 may be absent but in-scene labels must carry the same teaching payload.
 - Return ONLY valid JSON matching the schema with top-level key final_slide_spec.
@@ -423,7 +441,9 @@ If anything is wrong, set pass=false and produce a patch_list with concrete inst
 Rules:
 - Hard-fail (pass=false) when any of the following are true:
   - any medical-only slide pattern is detected
-  - intro/outro contract missing or invalid (intro must be 3 slides; outro must be 2)
+  - deck slide count is below 100
+  - intro/outro contract missing or invalid
+  - intro+outro combined exceed 15% of the deck
   - required story_arc_contract fields are missing
   - required per-slide fields are missing
   - slide_mode-specific requirements are violated
@@ -486,6 +506,14 @@ You will receive a deterministic markdown document that already contains strict 
 
 Rules:
 - Keep all required top headings and their order exactly unchanged.
+- Required top headings (in order):
+  - GENSPARK GENERATION PROMPT
+  - ORIGINAL USER PROMPT
+  - GLOBAL CONSISTENCY PACK
+  - RECURRING CHARACTERS
+  - RECURRING SCENES
+  - RECURRING OBJECTS/ASSETS
+  - SLIDE-BY-SLIDE RENDER PLAN
 - Keep every slide block marker exactly:
   - <!-- BEGIN_SLIDE:<slide_id> -->
   - <!-- END_SLIDE:<slide_id> -->

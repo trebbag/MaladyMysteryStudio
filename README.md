@@ -102,7 +102,7 @@ Each run writes to:
 ## API (backend)
 
 - `GET /api/health`
-- `POST /api/runs { topic: string, settings?: { durationMinutes?: number, targetSlides?: number, level?: "pcp"|"student", adherenceMode?: "strict"|"warn" } }`
+- `POST /api/runs { topic: string, settings?: { durationMinutes?: number, targetSlides?: number (min 100, max 500), level?: "pcp"|"student", adherenceMode?: "strict"|"warn" } }`
 - `GET /api/runs`
 - `GET /api/runs/retention` (retention policy + run stats + disk analytics)
   - Includes `analytics` with:

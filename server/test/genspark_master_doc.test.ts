@@ -130,6 +130,8 @@ describe("pipeline/genspark_master_doc", () => {
       gensparkBuildScriptTxt: "BUILD"
     });
 
+    expect(doc).toContain("## GENSPARK GENERATION PROMPT");
+    expect(doc).toContain("## ORIGINAL USER PROMPT");
     expect(doc).toContain("## GLOBAL CONSISTENCY PACK");
     expect(doc).toContain("## SLIDE-BY-SLIDE RENDER PLAN");
     expect(doc).toContain("<!-- BEGIN_SLIDE:S1 -->");

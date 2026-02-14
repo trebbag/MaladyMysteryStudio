@@ -48,7 +48,7 @@ export default function ChatStart({ health }: ChatStartProps) {
   const navigate = useNavigate();
   const [topic, setTopic] = useState<string>("");
   const [durationMinutes, setDurationMinutes] = useState<string>("");
-  const [targetSlides, setTargetSlides] = useState<string>("");
+  const [targetSlides, setTargetSlides] = useState<string>("120");
   const [level, setLevel] = useState<NonNullable<RunSettings["level"]>>("student");
   const [adherenceMode, setAdherenceMode] = useState<NonNullable<RunSettings["adherenceMode"]>>("strict");
   const [busy, setBusy] = useState(false);
@@ -287,10 +287,10 @@ export default function ChatStart({ health }: ChatStartProps) {
                 <div className="subtle">Target slides</div>
                 <input
                   type="number"
-                  min={5}
-                  max={200}
+                  min={100}
+                  max={500}
                   value={targetSlides}
-                  placeholder="e.g. 12"
+                  placeholder="e.g. 120"
                   onChange={(e) => setTargetSlides(e.target.value)}
                 />
               </div>

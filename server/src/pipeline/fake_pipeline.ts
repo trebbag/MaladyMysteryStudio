@@ -192,26 +192,77 @@ function mkSlide(
   };
 }
 
-function mkFinalSlideSpec(topic: string) {
+function mkFinalSlideSpec(topic: string, targetSlides?: number) {
+  const totalSlides = Math.max(100, typeof targetSlides === "number" ? Math.round(targetSlides) : 100);
+  const introCount = Math.max(3, Math.round(totalSlides * 0.08));
+  const outroCount = Math.max(2, Math.round(totalSlides * 0.05));
+
+  const introSlideIds = Array.from({ length: introCount }, (_, idx) => `S${idx + 1}`);
+  const outroSlideIds = Array.from({ length: outroCount }, (_, idx) => `S${totalSlides - outroCount + idx + 1}`);
+  const entryToBody = introSlideIds[introSlideIds.length - 1] ?? "S3";
+  const returnToOffice = outroSlideIds[0] ?? `S${totalSlides - 1}`;
+  const callback = outroSlideIds[outroSlideIds.length - 1] ?? `S${totalSlides}`;
+
+  const sectionBeats: Array<{ label: string; beat: string }> = [
+    { label: "Normal physiology", beat: "baseline clues in normal physiology" },
+    { label: "Pathophysiology", beat: "pathophysiology reveals the hidden mechanism" },
+    { label: "Epidemiology/risk", beat: "risk factors narrow the suspect list" },
+    { label: "Clinical presentation", beat: "symptoms become the first witness statements" },
+    { label: "Diagnosis/workup", beat: "workup orders expose the culprit pattern" },
+    { label: "Differential", beat: "differential suspects are eliminated by evidence" },
+    { label: "Treatment (acute)", beat: "acute intervention defuses the crisis" },
+    { label: "Treatment (long-term)", beat: "long-term plan prevents repeat offenses" },
+    { label: "Prognosis/complications", beat: "complications are the looming secondary threat" },
+    { label: "Counseling/prevention", beat: "prevention closes the case permanently" }
+  ];
+
+  const slides = Array.from({ length: totalSlides }, (_, idx) => {
+    const n = idx + 1;
+    const slideId = `S${n}`;
+    const narrativePhase: "intro" | "body" | "outro" =
+      n <= introCount ? "intro" : n > totalSlides - outroCount ? "outro" : "body";
+    const isTransition = slideId === "S2" || (n % 25 === 0 && narrativePhase === "body");
+    const slideMode: "hybrid" | "story_transition" = isTransition ? "story_transition" : "hybrid";
+    const medicalVisualMode: "dual_hud_panels" | "in_scene_annotated_visual" =
+      slideMode === "story_transition" ? "in_scene_annotated_visual" : n % 3 === 0 ? "in_scene_annotated_visual" : "dual_hud_panels";
+
+    let title = `Slide ${slideId}`;
+    let beat = "investigation beat";
+    if (n === 1) {
+      title = "Quirky cold open";
+      beat = "intro detective routine";
+    } else if (n === 2) {
+      title = "Case call and scramble";
+      beat = "drop everything and rush to HQ";
+    } else if (slideId === entryToBody) {
+      title = "Shrink entry launch";
+      beat = "office-to-body entry";
+    } else if (slideId === returnToOffice) {
+      title = "Return to office";
+      beat = "case wrapped and normal size restored";
+    } else if (slideId === callback) {
+      title = "Outro callback";
+      beat = "fun payoff tied to intro";
+    } else if (n > introCount && n <= totalSlides - outroCount) {
+      const section = sectionBeats[(n - introCount - 1) % sectionBeats.length];
+      title = `${section.label} checkpoint`;
+      beat = section.beat;
+    }
+
+    return mkSlide(slideId, title, topic, beat, narrativePhase, slideMode, medicalVisualMode);
+  });
+
   return {
-    title: `Malady Mystery: ${topic}`,
+    title: `The ${topic} Caper`,
     reusable_visual_primer: mkReusableVisualPrimer(topic),
     story_arc_contract: {
-      intro_slide_ids: ["S1", "S2", "S3"],
-      outro_slide_ids: ["S6", "S7"],
-      entry_to_body_slide_id: "S3",
-      return_to_office_slide_id: "S6",
-      callback_slide_id: "S7"
+      intro_slide_ids: introSlideIds,
+      outro_slide_ids: outroSlideIds,
+      entry_to_body_slide_id: entryToBody,
+      return_to_office_slide_id: returnToOffice,
+      callback_slide_id: callback
     },
-    slides: [
-      mkSlide("S1", "Quirky cold open", topic, "intro detective routine", "intro"),
-      mkSlide("S2", "Case call and scramble", topic, "drop everything and rush to HQ", "intro", "story_transition"),
-      mkSlide("S3", "Shrink entry launch", topic, "office-to-body entry", "intro", "hybrid", "in_scene_annotated_visual"),
-      mkSlide("S4", "Differential narrowing", topic, "evidence pivot", "body"),
-      mkSlide("S5", "Management sequence", topic, "intervention and prevention", "body"),
-      mkSlide("S6", "Return to office", topic, "case wrapped and normal size restored", "outro"),
-      mkSlide("S7", "Outro callback", topic, "fun payoff tied to intro", "outro")
-    ],
+    slides,
     sources: ["https://example.org/clinical-reference"]
   };
 }
@@ -262,7 +313,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
 
   async function ensureFinalArtifacts(): Promise<void> {
     const finalPatchedPath = artifactAbsPath(runId, "final_slide_spec_patched.json");
-    const finalSlideSpecPatched = mkFinalSlideSpec(topic);
+    const finalSlideSpecPatched = mkFinalSlideSpec(topic, settings?.targetSlides);
     if (!existsSync(finalPatchedPath)) {
       await writeJsonArtifact("N", "final_slide_spec_patched.json", {
         final_slide_spec_patched: finalSlideSpecPatched
@@ -382,86 +433,48 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
   });
 
   await runStep("E", async () => {
+    const assessment_bank = Array.from({ length: 30 }, (_, idx) => {
+      const n = idx + 1;
+      return {
+        question_id: `Q${n}`,
+        stem: `Q${n}: Which action is most appropriate given the current ${topic} clues?`,
+        choices: ["A", "B", "C", "D"],
+        answer_index: 0,
+        explanation: "This choice best matches the clinical evidence and safety priorities."
+      };
+    });
     await writeJsonArtifact("E", "assessment_bank.json", {
-      assessment_bank: [
-        {
-          question_id: "Q1",
-          stem: `Which first action is most appropriate in acute ${topic} concern?`,
-          choices: ["Observe only", "Immediate stabilization and targeted workup", "Delay intervention for repeat history"],
-          answer_index: 1,
-          explanation: "Time-sensitive stabilization with evidence-based workup is highest priority."
-        }
-      ]
+      assessment_bank
     });
   });
 
   await runStep("F", async () => {
+    const spec = mkFinalSlideSpec(topic, settings?.targetSlides);
+    const slide_skeleton = spec.slides.map((slide) => {
+      const bullets =
+        Array.isArray(slide.hud_panel_bullets) && slide.hud_panel_bullets.length > 0 ? slide.hud_panel_bullets.slice(0, 3) : ["transition beat"];
+      const story_goal =
+        slide.narrative_phase === "intro"
+          ? "Establish tone, receive case, and enter the body"
+          : slide.narrative_phase === "outro"
+            ? "Return to office and close the loop"
+            : slide.slide_mode === "story_transition"
+              ? "Move location or escalate action without adding medical bullets"
+              : "Advance investigation and teach the next medical checkpoint";
+
+      return {
+        slide_id: slide.slide_id,
+        title: slide.title,
+        objective: `Teach ${topic} via a cinematic medical mystery beat.`,
+        bullets,
+        slide_mode: slide.slide_mode,
+        narrative_phase: slide.narrative_phase,
+        story_goal
+      };
+    });
+
     await writeJsonArtifact("F", "slide_skeleton.json", {
-      slide_skeleton: [
-        {
-          slide_id: "S1",
-          title: "Quirky cold open",
-          objective: "Establish character voice and foreshadow the clinical case",
-          bullets: ["Team routine", "Foreshadowed anomaly"],
-          slide_mode: "hybrid",
-          narrative_phase: "intro",
-          story_goal: "Open on Cyto/Pip personality and setup"
-        },
-        {
-          slide_id: "S2",
-          title: "Case call and scramble",
-          objective: "Trigger mission transition to HQ",
-          bullets: ["Urgency signal", "Mission pivot"],
-          slide_mode: "story_transition",
-          narrative_phase: "intro",
-          story_goal: "Receive case and rush to office"
-        },
-        {
-          slide_id: "S3",
-          title: "Shrink entry launch",
-          objective: "Bridge intro to body investigation",
-          bullets: ["Entry checkpoint", "Initial evidence framing"],
-          slide_mode: "hybrid",
-          narrative_phase: "intro",
-          story_goal: "Enter body and begin investigation"
-        },
-        {
-          slide_id: "S4",
-          title: "Differential reasoning",
-          objective: "Narrow diagnosis with evidence",
-          bullets: ["Risk factors", "Workup pivots"],
-          slide_mode: "hybrid",
-          narrative_phase: "body",
-          story_goal: "Eliminate false lead with medical logic"
-        },
-        {
-          slide_id: "S5",
-          title: "Action plan",
-          objective: "Finalize treatment and prevention",
-          bullets: ["Acute actions", "Long-term follow-up"],
-          slide_mode: "hybrid",
-          narrative_phase: "body",
-          story_goal: "Resolve danger via guideline-aligned treatment"
-        },
-        {
-          slide_id: "S6",
-          title: "Return to office",
-          objective: "Close case and restore normal scale",
-          bullets: ["Resolution summary", "Office return"],
-          slide_mode: "hybrid",
-          narrative_phase: "outro",
-          story_goal: "Wrap case and return to HQ"
-        },
-        {
-          slide_id: "S7",
-          title: "Outro callback",
-          objective: "Close loop with fun payoff",
-          bullets: ["Callback to intro", "Prevention reminder"],
-          slide_mode: "hybrid",
-          narrative_phase: "outro",
-          story_goal: "Complete full-circle ending"
-        }
-      ]
+      slide_skeleton
     });
 
     await writeJsonArtifact("F", "coverage.json", {
@@ -581,38 +594,39 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
   });
 
   await runStep("J", async () => {
+    const spec = mkFinalSlideSpec(topic, settings?.targetSlides);
+    const totalMinutes = settings?.durationMinutes ?? 20;
+    const totalSeconds = Math.max(1, Math.round(totalMinutes * 60));
+    const secondsPerSlide = Math.max(20, Math.round(totalSeconds / spec.slides.length));
     await writeJsonArtifact("J", "pacing_map.json", {
       pacing_map: {
-        total_minutes: settings?.durationMinutes ?? 20,
-        per_slide_seconds: [
-          { slide_id: "S1", seconds: 40 },
-          { slide_id: "S2", seconds: 30 },
-          { slide_id: "S3", seconds: 45 },
-          { slide_id: "S4", seconds: 55 },
-          { slide_id: "S5", seconds: 55 },
-          { slide_id: "S6", seconds: 35 },
-          { slide_id: "S7", seconds: 30 }
-        ],
+        total_minutes: totalMinutes,
+        per_slide_seconds: spec.slides.map((slide) => ({ slide_id: slide.slide_id, seconds: secondsPerSlide })),
         transitions: ["match-cut to evidence board", "tight zoom to intervention panel"]
       }
     });
   });
 
   await runStep("K", async () => {
+    const spec = mkFinalSlideSpec(topic, settings?.targetSlides);
+    const totalSlides = spec.slides.length;
+    const pickSlideId = (fraction: number) => `S${Math.min(totalSlides, Math.max(1, Math.round(totalSlides * fraction)))}`;
+    const selectedQuestions = ["Q1", "Q2", "Q3", "Q4", "Q5"];
     await writeJsonArtifact("K", "alignment_plan.json", {
       alignment_plan: {
         slide_to_atoms: [
           { slide_id: "S1", atom_ids: ["A1"] },
           { slide_id: "S2", atom_ids: [] },
           { slide_id: "S3", atom_ids: ["A1"] },
-          { slide_id: "S4", atom_ids: ["A1", "A2"] },
-          { slide_id: "S5", atom_ids: ["A2"] },
-          { slide_id: "S6", atom_ids: ["A2"] },
-          { slide_id: "S7", atom_ids: ["A2"] }
+          { slide_id: pickSlideId(0.4), atom_ids: ["A1", "A2"] },
+          { slide_id: pickSlideId(0.7), atom_ids: ["A2"] }
         ],
         slide_to_assessment: [
-          { slide_id: "S4", question_ids: ["Q1"] },
-          { slide_id: "S5", question_ids: ["Q1"] }
+          { slide_id: pickSlideId(0.25), question_ids: [selectedQuestions[0]] },
+          { slide_id: pickSlideId(0.35), question_ids: [selectedQuestions[1]] },
+          { slide_id: pickSlideId(0.5), question_ids: [selectedQuestions[2]] },
+          { slide_id: pickSlideId(0.65), question_ids: [selectedQuestions[3]] },
+          { slide_id: pickSlideId(0.8), question_ids: [selectedQuestions[4]] }
         ],
         coverage_notes: ["Each slide ties back to at least one medical atom."]
       }
@@ -621,7 +635,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
 
   await runStep("L", async () => {
     await writeJsonArtifact("L", "final_slide_spec.json", {
-      final_slide_spec: mkFinalSlideSpec(topic)
+      final_slide_spec: mkFinalSlideSpec(topic, settings?.targetSlides)
     });
   });
 
@@ -649,7 +663,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
   });
 
   await runStep("N", async () => {
-    const patchedIter1 = mkFinalSlideSpec(topic);
+    const patchedIter1 = mkFinalSlideSpec(topic, settings?.targetSlides);
     patchedIter1.slides[1] = {
       ...patchedIter1.slides[1],
       story_and_dialogue:
@@ -660,7 +674,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
       final_slide_spec_patched: patchedIter1
     });
 
-    const finalPatched = mkFinalSlideSpec(topic);
+    const finalPatched = mkFinalSlideSpec(topic, settings?.targetSlides);
     await writeJsonArtifact("N", "final_slide_spec_patched.json", {
       final_slide_spec_patched: finalPatched
     });
@@ -690,7 +704,7 @@ export async function runFakeStudioPipeline(input: RunInput, runs: RunManager, o
 
   await runStep("O", async () => {
     await ensureFinalArtifacts();
-    const finalPatched = mkFinalSlideSpec(topic);
+    const finalPatched = mkFinalSlideSpec(topic, settings?.targetSlides);
 
     await writeTextArtifact(
       "O",

@@ -355,14 +355,46 @@ export function evaluateConstraintAdherence(input: ConstraintCheckInput): Constr
   const callback = String(arc.callback_slide_id ?? "");
   const introOutroIssues: string[] = [];
 
-  if (introIds.length !== 3) introOutroIssues.push(`intro_slide_ids must contain 3 ids (found ${introIds.length})`);
-  if (outroIds.length !== 2) introOutroIssues.push(`outro_slide_ids must contain 2 ids (found ${outroIds.length})`);
   for (const id of [...introIds, ...outroIds, entryToBody, returnToOffice, callback]) {
     if (!id || !allSlideIds.has(id)) introOutroIssues.push(`contract references missing slide_id: ${id || "(empty)"}`);
   }
   if (new Set([...introIds, ...outroIds]).size !== introIds.length + outroIds.length) {
     introOutroIssues.push("intro/outro slide IDs must not overlap");
   }
+
+  const introSet = new Set(introIds);
+  const outroSet = new Set(outroIds);
+  if (introIds.length < 3) introOutroIssues.push(`intro_slide_ids must contain at least 3 ids (found ${introIds.length})`);
+  if (outroIds.length < 2) introOutroIssues.push(`outro_slide_ids must contain at least 2 ids (found ${outroIds.length})`);
+  if (!introSet.has(entryToBody)) introOutroIssues.push(`entry_to_body_slide_id must be included in intro_slide_ids (found ${entryToBody})`);
+  if (!outroSet.has(returnToOffice))
+    introOutroIssues.push(`return_to_office_slide_id must be included in outro_slide_ids (found ${returnToOffice})`);
+  if (!outroSet.has(callback)) introOutroIssues.push(`callback_slide_id must be included in outro_slide_ids (found ${callback})`);
+
+  const introCount = slides.filter((s) => String(s.narrative_phase ?? "") === "intro").length;
+  const outroCount = slides.filter((s) => String(s.narrative_phase ?? "") === "outro").length;
+  const introOutroCount = introCount + outroCount;
+  const introOutroPct = slides.length > 0 ? introOutroCount / slides.length : 0;
+  if (introOutroPct > 0.15) {
+    introOutroIssues.push(
+      `intro+outro slides must be <= 15% of the deck (found ${introOutroCount}/${slides.length} = ${(introOutroPct * 100).toFixed(1)}%)`
+    );
+  }
+
+  const slidePhaseById = new Map(slides.map((s) => [String(s.slide_id ?? ""), String(s.narrative_phase ?? "")]));
+  const entryPhase = slidePhaseById.get(entryToBody);
+  if (entryPhase && entryPhase !== "intro") {
+    warnings.push(`entry_to_body_slide_id should be an intro slide (slide_id=${entryToBody}, narrative_phase=${entryPhase})`);
+  }
+  const returnPhase = slidePhaseById.get(returnToOffice);
+  if (returnPhase && returnPhase !== "outro") {
+    warnings.push(`return_to_office_slide_id should be an outro slide (slide_id=${returnToOffice}, narrative_phase=${returnPhase})`);
+  }
+  const callbackPhase = slidePhaseById.get(callback);
+  if (callbackPhase && callbackPhase !== "outro") {
+    warnings.push(`callback_slide_id should be an outro slide (slide_id=${callback}, narrative_phase=${callbackPhase})`);
+  }
+
   if (introOutroIssues.length > 0) failures.push(`Intro/outro contract violation(s): ${introOutroIssues.join(" | ")}`);
 
   let masterDocValidationStatus: "not_checked" | "pass" | "warn" | "fail" = "not_checked";

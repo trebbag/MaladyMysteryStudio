@@ -4,6 +4,8 @@ To run the MVP locally you must provide:
 
 - `OPENAI_API_KEY` in `.env`
 - `KB_VECTOR_STORE_ID` in `.env` (vector store id like `vs_...`)
+- An OpenAI project/account with sufficient billing/quota enabled for the chosen `MMS_MODEL`
+  - If you see `429 You exceeded your current quota`, enable billing or increase quota/spend limits for that project, then retry.
 
 Optional:
 

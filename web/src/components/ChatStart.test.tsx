@@ -177,14 +177,15 @@ describe("ChatStart", () => {
 
     await user.type(screen.getByPlaceholderText(/Example:/), "DKA management");
     await user.type(screen.getByPlaceholderText("e.g. 20"), "25");
-    await user.type(screen.getByPlaceholderText("e.g. 12"), "10");
+    await user.clear(screen.getByPlaceholderText("e.g. 120"));
+    await user.type(screen.getByPlaceholderText("e.g. 120"), "150");
     await user.selectOptions(screen.getByDisplayValue("Student"), "pcp");
 
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
     expect(createRun).toHaveBeenCalledWith("DKA management", {
       durationMinutes: 25,
-      targetSlides: 10,
+      targetSlides: 150,
       level: "pcp",
       adherenceMode: "strict"
     });
@@ -205,7 +206,8 @@ describe("ChatStart", () => {
 
     await user.type(screen.getByPlaceholderText(/Example:/), "DKA management");
     await user.type(screen.getByPlaceholderText("e.g. 20"), "0");
-    await user.type(screen.getByPlaceholderText("e.g. 12"), "-5");
+    await user.clear(screen.getByPlaceholderText("e.g. 120"));
+    await user.type(screen.getByPlaceholderText("e.g. 120"), "-5");
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
     expect(createRun).toHaveBeenCalledWith("DKA management", { level: "student", adherenceMode: "strict" });
@@ -227,7 +229,7 @@ describe("ChatStart", () => {
     await user.selectOptions(screen.getByDisplayValue("Strict (block on fail)"), "warn");
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
-    expect(createRun).toHaveBeenCalledWith("DKA management", { level: "student", adherenceMode: "warn" });
+    expect(createRun).toHaveBeenCalledWith("DKA management", { level: "student", adherenceMode: "warn", targetSlides: 120 });
   });
 
   it("shows an error when createRun fails (non-Error throw)", async () => {

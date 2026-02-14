@@ -1,6 +1,77 @@
 {
   "recent": [
     {
+      "at": "2026-02-14T02:39:28.807Z",
+      "runId": "acute-chest-pain-differential-in-urgent-care-stjz5ikt",
+      "key": "hospital procedural|ICU during a storm-induced power flicker|a confusing medication list|the obvious diagnosis is wrong|an annotated pocket guideline card|pattern recognition,countdown clocks,signal vs noise",
+      "variety": {
+        "genre_wrapper": "hospital procedural",
+        "body_setting": "ICU during a storm-induced power flicker",
+        "antagonist_archetype": "a confusing medication list",
+        "twist_type": "the obvious diagnosis is wrong",
+        "signature_gadget": "an annotated pocket guideline card",
+        "motifs": [
+          "pattern recognition",
+          "countdown clocks",
+          "signal vs noise"
+        ]
+      },
+      "story_fingerprint": "During a storm-flickering ICU overflow that’s triaging urgent-care chest pain, felt detectives Cyto Kine and Deputy Pip shrink into the thorax to run a killers-first investigation—only to learn the “obvious” benign culprit is wrong, and the real threat is an invisible pulmonary highway blockade revealed by probability-based warrants, serial evidence, and a clean-but-misleading chest X-ray. | Macro: a hospital procedural vibe—urgent-care chest pain is being routed through an ICU-adjacent triage bay during a storm-induced power flicker; monitors blink, printers jam, and handoffs are noisy. Micro: an anatomically accurate 3D thorax ‘city’ (ribs/intercostals/pleura, pericardium, coronary arteries, aorta layers, pulmonary arteries and alveoli-capillary interface) lit by intermittent emergency lighting and Cyto’s HUD glow. Antagonist pressure: a confusing medication list that keeps trying to ‘solve’ the case prematurely (duplicate nitrates, missing anticoagulant history, unclear PDE-5 use, mislabeled aspirin allergy), creating signal-vs-noise traps. | Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; noir radio-drama narration that turns physiology into infrastructure., Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who asks learner-questions and triggers clue reveals without being incompetent., Urgent-Care Charge RN (supporting) — protocol anchor managing triage under storm flicker; pushes ABCs/ECG-first., ICU Float Pharmacist (supporting) — trying to reconcile a chaotic med list; not villainous, but the list itself is the antagonist., The Patient (adult, anonymized, respected) — acute chest pain + dyspnea; anxious but cooperative; physiology is the true ‘crime scene.’, ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean ‘Protocol Patch’ watermark appears on the pocket guideline card’s laminate and on the med-rec printout header. | If Cyto and Pip anchor on a benign label (GERD/MSK/anxiety) or let the confusing medication list drive unsafe empiric treatment, they miss a time-sensitive killer (ACS/PE/dissection/tension PTX/tamponade). The host can deteriorate during the storm flicker—hypoxemia worsens, RV strain escalates, or a dissection is anticoagulated—turning a triage decision into preventable catastrophe. Win condition: safe disposition (transfer when needed), correct first-5-min actions, and explicit safety-netting that acknowledges early-test limits.",
+      "cast": [
+        "Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; noir radio-drama narration that turns physiology into infrastructure.",
+        "Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who asks learner-questions and triggers clue reveals without being incompetent.",
+        "Urgent-Care Charge RN (supporting) — protocol anchor managing triage under storm flicker; pushes ABCs/ECG-first.",
+        "ICU Float Pharmacist (supporting) — trying to reconcile a chaotic med list; not villainous, but the list itself is the antagonist.",
+        "The Patient (adult, anonymized, respected) — acute chest pain + dyspnea; anxious but cooperative; physiology is the true ‘crime scene.’",
+        "ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean ‘Protocol Patch’ watermark appears on the pocket guideline card’s laminate and on the med-rec printout header."
+      ]
+    },
+    {
+      "at": "2026-02-14T00:54:23.436Z",
+      "runId": "heart-failure-vdqe6jf1",
+      "key": "techno-thriller|pre-op holding area with conflicting histories|a time-critical lab delay|the test result is a red herring|a whiteboard of shifting differentials|countdown clocks,countdown clocks,team handoffs",
+      "variety": {
+        "genre_wrapper": "techno-thriller",
+        "body_setting": "pre-op holding area with conflicting histories",
+        "antagonist_archetype": "a time-critical lab delay",
+        "twist_type": "the test result is a red herring",
+        "signature_gadget": "a whiteboard of shifting differentials",
+        "motifs": [
+          "countdown clocks",
+          "countdown clocks",
+          "team handoffs"
+        ]
+      },
+      "story_fingerprint": "In a countdown-driven techno-thriller set in a pre-op holding area with conflicting histories, Detective Cyto Kine and Deputy Pip shrink into Cardio City to solve a “pressure–flow” crime: the patient isn’t primarily starving for output—he’s drowning in filling pressure. A time-critical lab delay threatens to mislead the team, and a red-herring test result nearly derails the case until Cyto proves the real culprit is congestion from heart failure, triggered by a preventable precipitant, and the only true arrest is two-part—acute decongestion plus long-term takedown of the SNS/RAAS protection racket with guideline-directed therapy. | Macro: Pre-op holding area minutes before surgery, with rapid team handoffs, incomplete med reconciliation, and a ticking OR schedule. Micro: Cardio City’s pump station (LV/RV), pulmonary venous ‘waterfront’ (alveoli-capillary interface), venous ‘pressure gauge’ district (IJ/JVP), and the Echo Courtroom (TTE imaging space). Tone: noir narration inside a techno-thriller countdown. | Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; narrates physiology as noir infrastructure., Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who triggers clue reveals without being incompetent., Pre-op Charge RN — protocol anchor managing handoffs and the OR countdown; not villainous., Anesthesiology Resident — focused on immediate airway/hemodynamics; pushes for fast clearance., Hospitalist/IM Consult — balancing differential and disposition; wants objective evidence., The Patient (adult, respected, anonymized) — progressive dyspnea/orthopnea/edema discovered during pre-op evaluation., Antagonist archetype: Time-critical lab delay — BNP/chemistry results stuck in the tube system, forcing decisions under uncertainty., ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean “Delay Protocol Patch” watermark appears on the lab-tracking HUD feed. | If Cyto and Pip misclassify the syndrome (e.g., treat as primary lung disease or ‘just anxiety’) or wait on delayed labs, the patient can tip into acute pulmonary edema or cardiogenic shock during induction—turning a routine surgery into a preventable catastrophe. Win condition: separate congestion vs perfusion, rule out dangerous mimics, identify phenotype and trigger, stabilize/decongest safely, and leave a relapse-prevention system that prevents rehospitalization.",
+      "cast": [
+        "Detective Cyto Kine — felt lead investigator with HUD visor and evidence vial; narrates physiology as noir infrastructure.",
+        "Deputy Pip — felt field deputy with micro-scanner; earnest chaos probe who triggers clue reveals without being incompetent.",
+        "Pre-op Charge RN — protocol anchor managing handoffs and the OR countdown; not villainous.",
+        "Anesthesiology Resident — focused on immediate airway/hemodynamics; pushes for fast clearance.",
+        "Hospitalist/IM Consult — balancing differential and disposition; wants objective evidence.",
+        "The Patient (adult, respected, anonymized) — progressive dyspnea/orthopnea/edema discovered during pre-op evaluation.",
+        "Antagonist archetype: Time-critical lab delay — BNP/chemistry results stuck in the tube system, forcing decisions under uncertainty.",
+        "ICD (Internal Calamity Directorate) — breadcrumb only: a too-clean “Delay Protocol Patch” watermark appears on the lab-tracking HUD feed."
+      ]
+    },
+    {
+      "at": "2026-02-13T23:50:58.160Z",
+      "runId": "hypertension-in-primary-care-evaluation-and-mana-uzauour0",
+      "key": "hospital procedural|overnight ED shift|a hidden comorbidity|a vital clue was overlooked in plain sight|a suspiciously pristine chart printout|false reassurance,protocol vs intuition,hidden constraints",
+      "variety": {
+        "genre_wrapper": "hospital procedural",
+        "body_setting": "overnight ED shift",
+        "antagonist_archetype": "a hidden comorbidity",
+        "twist_type": "a vital clue was overlooked in plain sight",
+        "signature_gadget": "a suspiciously pristine chart printout",
+        "motifs": [
+          "false reassurance",
+          "protocol vs intuition",
+          "hidden constraints"
+        ]
+      }
+    },
+    {
       "at": "2026-02-13T23:38:24.834Z",
       "runId": "ENnuWG3uWzvK",
       "key": "small-town mystery|busy urgent care in flu season|a confusing medication list|the patient decompensates during a key decision|a pager that never stops|false reassurance,team handoffs,false reassurance",

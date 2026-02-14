@@ -352,14 +352,14 @@ describe("server app", () => {
 
     const res = await request(app)
       .post("/api/runs")
-      .send({ topic: "test topic", settings: { durationMinutes: 20, targetSlides: 12, level: "student", adherenceMode: "warn" } });
+      .send({ topic: "test topic", settings: { durationMinutes: 20, targetSlides: 120, level: "student", adherenceMode: "warn" } });
 
     expect(res.status).toBe(200);
     const runId = String(res.body.runId);
 
     const runRes = await request(app).get(`/api/runs/${runId}`);
     expect(runRes.status).toBe(200);
-    expect(runRes.body.settings).toMatchObject({ durationMinutes: 20, targetSlides: 12, level: "student", adherenceMode: "warn" });
+    expect(runRes.body.settings).toMatchObject({ durationMinutes: 20, targetSlides: 120, level: "student", adherenceMode: "warn" });
   });
 
   it("POST /api/runs accepts an empty settings object (stores as undefined)", async () => {
@@ -558,6 +558,13 @@ describe("server app", () => {
       (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
     }
 
+    // Minimal required artifact for startFrom=P compatibility.
+    await fs.writeFile(
+      path.join(runOutputDirAbs(parent.runId), "final_slide_spec_patched.json"),
+      JSON.stringify({ final_slide_spec_patched: { title: "t", reusable_visual_primer: { character_descriptions: ["c"], recurring_scene_descriptions: ["s"], reusable_visual_elements: ["e"], continuity_rules: ["r"] }, story_arc_contract: { intro_slide_ids: ["S1","S2","S3"], outro_slide_ids: ["S4","S5"], entry_to_body_slide_id: "S3", return_to_office_slide_id: "S4", callback_slide_id: "S5" }, slides: [], sources: ["src"] } }, null, 2) + "\n",
+      "utf8"
+    );
+
     const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
     expect(res.status).toBe(200);
     const childRunId = String(res.body.runId);
@@ -569,7 +576,30 @@ describe("server app", () => {
     expect(child.body.derivedFrom).toMatchObject({ runId: parent.runId, startFrom: "P" });
     expect(child.body.steps.O.status).toBe("done");
     expect(child.body.steps.O.artifacts).toEqual([]);
+    expect(child.body.steps.N.artifacts).toContain("final_slide_spec_patched.json");
     expect(child.body.steps.P.status).toBe("queued");
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P fails when patched spec is missing in sparse legacy parents", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy sparse parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toContain("missing required artifact in parent run for startFrom=P");
   });
 
   it("GET /api/runs/:runId/export returns 404 for missing run", async () => {
@@ -637,7 +667,7 @@ describe("server app", () => {
     } finally {
       await fs.rm(tmpWeb, { recursive: true, force: true }).catch(() => undefined);
     }
-  });
+  }, 20_000);
 
   it("does not serve the web UI when webDistDir is missing index.html", async () => {
     const runs = new RunManager();

@@ -216,6 +216,8 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
   const { signal } = options;
   const adherenceMode = settings?.adherenceMode ?? "strict";
   const level = settings?.level ?? "student";
+  const effectiveTargetSlides = Math.max(100, settings?.targetSlides ?? 120);
+  const effectiveSettings = { ...(settings ?? {}), targetSlides: effectiveTargetSlides };
 
   const openaiKey = requireEnv("OPENAI_API_KEY");
   const vectorStoreId = requireEnv("KB_VECTOR_STORE_ID");
@@ -525,7 +527,7 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       a = await runStep<ProducerOutput>("A", async () => {
         const prompt =
           `TOPIC:\n${topic}\n\n` +
-          `RUN SETTINGS (json):\n${JSON.stringify(settings ?? {}, null, 2)}\n\n` +
+          `RUN SETTINGS (json):\n${JSON.stringify(effectiveSettings, null, 2)}\n\n` +
           `CANONICAL STORY + STYLE PROFILE (markdown):\n${canonicalProfile.combined_markdown}\n\n` +
           `KB CONTEXT (markdown):\n${kb0.kb_context}`;
         return await runAgentOutput<ProducerOutput>("A", producerAgent, prompt, { maxTurns: 6 });
@@ -654,7 +656,12 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
     let f: SlideArchitectOutput;
     if (shouldRun("F")) {
       f = await runStep<SlideArchitectOutput>("F", async () => {
-        const prompt = `TOPIC:\n${topic}\n\nPRODUCER BRIEF (json):\n${JSON.stringify(a, null, 2)}\n\nATOMS (json):\n${JSON.stringify({ medical_atoms: d.medical_atoms }, null, 2)}\n\nTEACHING BLUEPRINT (json):\n${JSON.stringify({ teaching_blueprint: d.teaching_blueprint }, null, 2)}`;
+        const prompt =
+          `TOPIC:\n${topic}\n\n` +
+          `RUN SETTINGS (json):\n${JSON.stringify(effectiveSettings, null, 2)}\n\n` +
+          `PRODUCER BRIEF (json):\n${JSON.stringify(a, null, 2)}\n\n` +
+          `ATOMS (json):\n${JSON.stringify({ medical_atoms: d.medical_atoms }, null, 2)}\n\n` +
+          `TEACHING BLUEPRINT (json):\n${JSON.stringify({ teaching_blueprint: d.teaching_blueprint }, null, 2)}`;
         return await runAgentOutput<SlideArchitectOutput>("F", slideArchitectAgent, prompt, { maxTurns: 10 });
       });
       await writeJsonArtifact("F", "slide_skeleton.json", { slide_skeleton: f.slide_skeleton });
@@ -919,6 +926,38 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
       runs.log(runId, "Skipping K artifact load (not needed for this rerun path).", "K");
     }
 
+    if (k && e.assessment_bank.length > 0) {
+      const bankIds = new Set(e.assessment_bank.map((q) => q.question_id));
+      const usedIds = [
+        ...new Set(
+          k.alignment_plan.slide_to_assessment
+            .flatMap((row) => (Array.isArray(row.question_ids) ? row.question_ids.map((v) => String(v)) : []))
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0)
+        )
+      ];
+      const missingFromBank = usedIds.filter((id) => !bankIds.has(id));
+      const usageOk = usedIds.length >= 5 && usedIds.length <= 7 && missingFromBank.length === 0;
+
+      const report = {
+        bank_size: e.assessment_bank.length,
+        selected_question_ids: usedIds,
+        selected_count: usedIds.length,
+        missing_from_bank: missingFromBank,
+        allowed_selected_range: { min: 5, max: 7 },
+        ok: usageOk
+      };
+      await writeJsonArtifact("K", "assessment_usage_report.json", report);
+
+      if (!usageOk) {
+        const msg = `Assessment usage policy violated: selected=${usedIds.length} (expected 5-7), missingFromBank=${missingFromBank.length}`;
+        if (adherenceMode === "strict") {
+          throw new Error(msg);
+        }
+        runs.log(runId, msg, "K");
+      }
+    }
+
     let l: SlideWriterOutput | null = null;
     if (shouldRun("L")) {
       if (!j) throw new Error("Missing pacing map context needed for Slide Writer (J)");
@@ -928,11 +967,13 @@ export async function runStudioPipeline(input: RunInput, runs: RunManager, optio
           `TOPIC:\n${topic}\n\n` +
           `KB STORY/CHARACTER CONTEXT (markdown):\n${storyConstraintContext}\n\n` +
           `KB VISUAL STYLE/CONSTRAINTS (markdown):\n${visualConstraintContext}\n\n` +
+          `RUN SETTINGS (json):\n${JSON.stringify(effectiveSettings, null, 2)}\n\n` +
           `PRODUCER BRIEF (json):\n${JSON.stringify(a, null, 2)}\n\n` +
           `CLEAN FACTS (json):\n${JSON.stringify({ facts_library_clean: c.facts_library_clean }, null, 2)}\n\n` +
           `MEDICAL NARRATIVE FLOW (json):\n${JSON.stringify({ medical_narrative_flow: medicalNarrativeFlow }, null, 2)}\n\n` +
           `SLIDE SKELETON (json):\n${JSON.stringify({ slide_skeleton: f.slide_skeleton }, null, 2)}\n\n` +
           `ALIGNMENT PLAN (json):\n${JSON.stringify(k, null, 2)}\n\n` +
+          `ASSESSMENT BANK (json):\n${JSON.stringify(e, null, 2)}\n\n` +
           `STORY BIBLE (json):\n${JSON.stringify({ story_bible: h.story_bible }, null, 2)}\n\n` +
           `SHOT LIST (json):\n${JSON.stringify(i, null, 2)}\n\n` +
           `PACING MAP (json):\n${JSON.stringify(j, null, 2)}`;
