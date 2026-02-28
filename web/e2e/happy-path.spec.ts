@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 type RunState = {
   runId?: string;
-  status: "queued" | "running" | "done" | "error";
+  status: "queued" | "running" | "paused" | "done" | "error";
   derivedFrom?: { runId: string; startFrom: string };
   steps: Record<string, { status: "queued" | "running" | "done" | "error" }>;
 };
@@ -174,4 +174,237 @@ test("cancel flow with real fake backend", async ({ page, request }) => {
       { timeout: 20_000 }
     )
     .toBe(true);
+});
+
+test("v2 workflow run pauses at gates and resumes to final deck spec artifacts", async ({ page, request }) => {
+  await page.goto("/");
+  const topic = `E2E v2 workflow ${Date.now()}`;
+  await page.getByLabel("Topic").fill(topic);
+
+  const workflowSelect = page.locator(".settingsRow > div").filter({ hasText: "Workflow" }).locator("select");
+  await workflowSelect.selectOption("v2_micro_detectives");
+
+  const deckLengthSelect = page.locator(".settingsRow > div").filter({ hasText: "Deck length (main)" }).locator("select");
+  await deckLengthSelect.selectOption("30");
+  const audienceSelect = page.locator(".settingsRow > div").filter({ hasText: "Audience" }).locator("select");
+  await audienceSelect.selectOption("RESIDENT");
+
+  await page.getByRole("button", { name: "Run Episode" }).click();
+  await expect(page).toHaveURL(/\/runs\/[A-Za-z0-9_-]+$/);
+  const runId = page.url().split("/runs/")[1] ?? "";
+  expect(runId.length).toBeGreaterThan(0);
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  let gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_1_PITCH/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  let resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_2_TRUTH_LOCK/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("done");
+
+  const runRes = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+  expect(runRes.ok()).toBeTruthy();
+  const runBody = (await runRes.json()) as RunState & { settings?: { workflow?: string; deckLengthMain?: number } };
+  expect(runBody.settings?.workflow).toBe("v2_micro_detectives");
+  expect(runBody.settings?.deckLengthMain).toBe(30);
+  expect(runBody.steps.C?.status).toBe("done");
+  expect(runBody.steps.D?.status).toBe("queued");
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+        expect(res.ok()).toBeTruthy();
+        const artifacts = (await res.json()) as Array<{ name: string }>;
+        const names = new Set(artifacts.map((a) => a.name));
+        return (
+          names.has("disease_dossier.json") &&
+          names.has("episode_pitch.json") &&
+          names.has("truth_model.json") &&
+          names.has("deck_spec.json") &&
+          names.has("deck_spec_lint_report.json") &&
+          names.has("differential_cast.json") &&
+          names.has("clue_graph.json") &&
+          names.has("reader_sim_report.json") &&
+          names.has("med_factcheck_report.json") &&
+          names.has("qa_report.json") &&
+          names.has("citation_traceability.json") &&
+          names.has("GATE_1_PITCH_REQUIRED.json") &&
+          names.has("GATE_2_TRUTH_LOCK_REQUIRED.json") &&
+          names.has("GATE_3_STORYBOARD_REQUIRED.json") &&
+          names.has("micro_world_map.json") &&
+          names.has("drama_plan.json") &&
+          names.has("setpiece_plan.json") &&
+          names.has("V2_MAIN_DECK_RENDER_PLAN.md") &&
+          names.has("V2_APPENDIX_RENDER_PLAN.md") &&
+          names.has("V2_SPEAKER_NOTES_WITH_CITATIONS.md") &&
+          names.has("trace.json")
+        );
+      },
+      { timeout: 20_000 }
+    )
+    .toBe(true);
+
+  await expect(page.getByText("Storyboard review required")).toBeVisible();
+});
+
+test("v2 fake fallback path records fallback_usage and still packages final outputs", async ({ request }) => {
+  const topic = `E2E v2 force fallback ${Date.now()} FORCE_FALLBACK`;
+  const createRes = await request.post("/api/runs", {
+    data: {
+      topic,
+      settings: {
+        workflow: "v2_micro_detectives",
+        deckLengthMain: 30,
+        audienceLevel: "RESIDENT",
+        adherenceMode: "warn"
+      }
+    }
+  });
+  expect(createRes.ok()).toBeTruthy();
+  const createBody = (await createRes.json()) as { runId: string };
+  const runId = createBody.runId;
+  expect(runId.length).toBeGreaterThan(0);
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+  let gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_1_PITCH/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  let resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_2_TRUTH_LOCK/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("done");
+
+  const fallbackRes = await request.get(`/api/runs/${encodeURIComponent(runId)}/artifacts/fallback_usage.json`);
+  expect(fallbackRes.ok()).toBeTruthy();
+  const fallbackUsage = (await fallbackRes.json()) as { used: boolean; fallback_event_count: number };
+  expect(fallbackUsage.used).toBe(true);
+  expect(fallbackUsage.fallback_event_count).toBeGreaterThan(0);
+
+  const artifactsRes = await request.get(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+  expect(artifactsRes.ok()).toBeTruthy();
+  const artifacts = (await artifactsRes.json()) as Array<{ name: string }>;
+  const names = new Set(artifacts.map((a) => a.name));
+  expect(names.has("deck_spec.json")).toBe(true);
+  expect(names.has("V2_MAIN_DECK_RENDER_PLAN.md")).toBe(true);
+  expect(names.has("V2_APPENDIX_RENDER_PLAN.md")).toBe(true);
+  expect(names.has("V2_SPEAKER_NOTES_WITH_CITATIONS.md")).toBe(true);
 });

@@ -47,8 +47,11 @@ type ChatStartProps = {
 export default function ChatStart({ health }: ChatStartProps) {
   const navigate = useNavigate();
   const [topic, setTopic] = useState<string>("");
+  const [workflow, setWorkflow] = useState<NonNullable<RunSettings["workflow"]>>("legacy");
   const [durationMinutes, setDurationMinutes] = useState<string>("");
   const [targetSlides, setTargetSlides] = useState<string>("120");
+  const [deckLengthMain, setDeckLengthMain] = useState<NonNullable<RunSettings["deckLengthMain"]>>(45);
+  const [audienceLevel, setAudienceLevel] = useState<NonNullable<RunSettings["audienceLevel"]>>("MED_SCHOOL_ADVANCED");
   const [level, setLevel] = useState<NonNullable<RunSettings["level"]>>("student");
   const [adherenceMode, setAdherenceMode] = useState<NonNullable<RunSettings["adherenceMode"]>>("strict");
   const [busy, setBusy] = useState(false);
@@ -137,18 +140,22 @@ export default function ChatStart({ health }: ChatStartProps) {
   }, []);
 
   function buildSettings(): RunSettings {
-    const s: RunSettings = {};
+    const s: RunSettings = { workflow };
     const dur = Number(durationMinutes);
     if (durationMinutes.trim().length > 0 && Number.isFinite(dur) && dur > 0) {
       s.durationMinutes = Math.round(dur);
     }
 
-    const slides = Number(targetSlides);
-    if (targetSlides.trim().length > 0 && Number.isFinite(slides) && slides > 0) {
-      s.targetSlides = Math.round(slides);
+    if (workflow === "v2_micro_detectives") {
+      s.deckLengthMain = deckLengthMain;
+      s.audienceLevel = audienceLevel;
+    } else {
+      const slides = Number(targetSlides);
+      if (targetSlides.trim().length > 0 && Number.isFinite(slides) && slides > 0) {
+        s.targetSlides = Math.round(slides);
+      }
+      s.level = level;
     }
-
-    s.level = level;
     s.adherenceMode = adherenceMode;
     return s;
   }
@@ -267,10 +274,18 @@ export default function ChatStart({ health }: ChatStartProps) {
           <div className="settingsBlock">
             <div className="settingsBlockHeader">
               <div style={{ fontWeight: 600 }}>Run settings</div>
-              <div className="subtle">Passed into Producer (A)</div>
+              <div className="subtle">Workflow-aware settings passed to the backend</div>
             </div>
 
             <div className="settingsRow">
+              <div>
+                <div className="subtle">Workflow</div>
+                <select value={workflow} onChange={(e) => setWorkflow(e.target.value as NonNullable<RunSettings["workflow"]>)}>
+                  <option value="legacy">Legacy</option>
+                  <option value="v2_micro_detectives">Micro-Detectives v2</option>
+                </select>
+              </div>
+
               <div>
                 <div className="subtle">Duration (minutes)</div>
                 <input
@@ -283,25 +298,52 @@ export default function ChatStart({ health }: ChatStartProps) {
                 />
               </div>
 
-              <div>
-                <div className="subtle">Target slides</div>
-                <input
-                  type="number"
-                  min={100}
-                  max={500}
-                  value={targetSlides}
-                  placeholder="e.g. 120"
-                  onChange={(e) => setTargetSlides(e.target.value)}
-                />
-              </div>
+              {workflow === "v2_micro_detectives" ? (
+                <>
+                  <div>
+                    <div className="subtle">Deck length (main)</div>
+                    <select value={String(deckLengthMain)} onChange={(e) => setDeckLengthMain(Number(e.target.value) as NonNullable<RunSettings["deckLengthMain"]>)}>
+                      <option value="30">30</option>
+                      <option value="45">45</option>
+                      <option value="60">60</option>
+                    </select>
+                  </div>
 
-              <div>
-                <div className="subtle">Level</div>
-                <select value={level} onChange={(e) => setLevel(e.target.value as NonNullable<RunSettings["level"]>)}>
-                  <option value="pcp">PCP</option>
-                  <option value="student">Student</option>
-                </select>
-              </div>
+                  <div>
+                    <div className="subtle">Audience</div>
+                    <select
+                      value={audienceLevel}
+                      onChange={(e) => setAudienceLevel(e.target.value as NonNullable<RunSettings["audienceLevel"]>)}
+                    >
+                      <option value="MED_SCHOOL_ADVANCED">Med School (Advanced)</option>
+                      <option value="RESIDENT">Resident</option>
+                      <option value="FELLOWSHIP">Fellowship</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="subtle">Target slides</div>
+                    <input
+                      type="number"
+                      min={100}
+                      max={500}
+                      value={targetSlides}
+                      placeholder="e.g. 120"
+                      onChange={(e) => setTargetSlides(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="subtle">Level</div>
+                    <select value={level} onChange={(e) => setLevel(e.target.value as NonNullable<RunSettings["level"]>)}>
+                      <option value="pcp">PCP</option>
+                      <option value="student">Student</option>
+                    </select>
+                  </div>
+                </>
+              )}
 
               <div>
                 <div className="subtle">Adherence mode</div>
@@ -450,7 +492,9 @@ export default function ChatStart({ health }: ChatStartProps) {
                       <div className="subtle mono">{r.runId}</div>
                       <div className="subtle">{formatTime(r.startedAt)}</div>
                     </div>
-                    <span className={`badge ${r.status === "done" ? "badgeOk" : r.status === "error" ? "badgeErr" : ""}`}>{r.status}</span>
+                    <span className={`badge ${r.status === "done" ? "badgeOk" : r.status === "error" ? "badgeErr" : r.status === "paused" ? "badgeWarn" : ""}`}>
+                      {r.status}
+                    </span>
                   </div>
                 </Link>
               ))}

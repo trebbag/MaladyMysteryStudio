@@ -13,6 +13,17 @@ export type PipelineFn = (
   options: PipelineOptions
 ) => Promise<void>;
 
+export class PipelinePause extends Error {
+  gateId: string;
+  resumeFrom: StepName;
+  constructor(gateId: string, resumeFrom: StepName, message: string) {
+    super(message);
+    this.name = "PipelinePause";
+    this.gateId = gateId;
+    this.resumeFrom = resumeFrom;
+  }
+}
+
 type QueueItem = {
   runId: string;
   startFrom?: StepName;
@@ -97,6 +108,27 @@ export class RunExecutor {
       });
       await this.runs.setRunStatus(item.runId, "done", { finishedAt: nowIso() });
     } catch (err) {
+      if (err instanceof PipelinePause) {
+        this.runs.log(item.runId, `Paused at ${err.gateId}: ${err.message}`);
+        const pausedAt = nowIso();
+        this.runs.gateRequired(item.runId, {
+          gateId: err.gateId,
+          resumeFrom: err.resumeFrom,
+          message: err.message,
+          at: pausedAt
+        });
+        await this.runs.setRunStatus(item.runId, "paused", {
+          activeGate: {
+            gateId: err.gateId,
+            resumeFrom: err.resumeFrom,
+            message: err.message,
+            at: pausedAt,
+            awaiting: "review_submission"
+          }
+        });
+        return;
+      }
+
       const aborted = controller.signal.aborted;
       const msg = aborted ? "Cancelled" : err instanceof Error ? err.message : String(err);
       this.runs.error(item.runId, msg);

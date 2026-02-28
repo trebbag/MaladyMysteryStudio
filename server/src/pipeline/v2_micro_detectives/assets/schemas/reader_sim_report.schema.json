@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReaderSimReport",
+  "description": "Adversarial reader simulation output: solve attempts at checkpoints + story/pacing issues + required fixes suggestions.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "solve_attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "checkpoint": {
+            "type": "string",
+            "enum": [
+              "ACT1_END",
+              "MIDPOINT",
+              "ACT3_START",
+              "ACT3_END"
+            ]
+          },
+          "top_dx_guesses": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "DX ids guessed."
+            }
+          },
+          "confidence_0_to_1": {
+            "type": "number",
+            "description": "Confidence."
+          },
+          "key_clues_used": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Clue IDs used."
+            }
+          },
+          "what_was_confusing": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Confusions."
+            }
+          },
+          "was_twist_predictable": {
+            "type": "string",
+            "enum": [
+              "too_easy",
+              "fairly_guessable",
+              "surprising_but_fair",
+              "felt_like_cheating"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "checkpoint",
+          "top_dx_guesses",
+          "confidence_0_to_1",
+          "key_clues_used",
+          "was_twist_predictable"
+        ],
+        "title": "SolveAttempt"
+      }
+    },
+    "overall_story_dominance_score_0_to_5": {
+      "type": "number"
+    },
+    "overall_twist_quality_score_0_to_5": {
+      "type": "number"
+    },
+    "overall_clarity_score_0_to_5": {
+      "type": "number"
+    },
+    "biggest_strengths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "biggest_risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "slide_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "Slide id."
+          },
+          "issue_type": {
+            "type": "string",
+            "enum": [
+              "too_texty",
+              "no_story_turn",
+              "medical_confusion",
+              "twist_setup_missing",
+              "pacing_slow",
+              "pacing_rushed",
+              "unclear_visual",
+              "tone_break",
+              "other"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "description": "What to fix."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "nice"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "slide_id",
+          "issue_type",
+          "note",
+          "severity"
+        ],
+        "title": "SlideNote"
+      }
+    },
+    "required_fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fix_id": {
+            "type": "string",
+            "description": "FIX-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "regenerate_section",
+              "edit_slide",
+              "edit_clue",
+              "edit_differential",
+              "medical_correction",
+              "reduce_text_density",
+              "increase_story_turn",
+              "add_twist_receipts",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "could"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What must change."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Paths or IDs affected (slide ids, clue ids)."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fix_id",
+          "type",
+          "priority",
+          "description"
+        ],
+        "title": "RequiredFix"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "solve_attempts",
+    "overall_story_dominance_score_0_to_5",
+    "overall_twist_quality_score_0_to_5",
+    "overall_clarity_score_0_to_5",
+    "slide_notes",
+    "required_fixes"
+  ]
+}

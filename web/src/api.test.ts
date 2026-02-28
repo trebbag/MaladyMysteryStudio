@@ -5,13 +5,16 @@ import {
   createRun,
   exportZipUrl,
   fetchArtifact,
+  getGateHistory,
   getHealth,
   getSloPolicy,
   getRunRetention,
   getRun,
   listArtifacts,
   listRuns,
+  resumeRun,
   rerunFrom,
+  submitGateReview,
   updateSloPolicy,
   sseUrl
 } from "./api";
@@ -224,6 +227,60 @@ describe("api", () => {
     expect(call).toBeTruthy();
     const [_url, init] = call as unknown as [string, RequestInit];
     expect(String(init.body)).toContain("\"startFrom\":\"M\"");
+  });
+
+  it("POST /api/runs/:runId/gates/:gateId/submit sends gate decision", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true, gateId: "GATE_1_PITCH", recommendedAction: "resume" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await submitGateReview("r1", "GATE_1_PITCH", { status: "approve", notes: "ok", requested_changes: [] });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/runs/r1/gates/GATE_1_PITCH/submit");
+    expect(init.method).toBe("POST");
+    expect(String(init.body)).toContain("\"status\":\"approve\"");
+  });
+
+  it("POST /api/runs/:runId/resume resumes paused run", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true, runId: "r1", startFrom: "B", resumeMode: "regenerate" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const res = await resumeRun("r1");
+    expect(res.ok).toBe(true);
+    expect(res.startFrom).toBe("B");
+    expect(res.resumeMode).toBe("regenerate");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/runs/r1/resume");
+    expect(init.method).toBe("POST");
+  });
+
+  it("GET /api/runs/:runId/gates/history fetches gate review history", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          schema_version: "1.0.0",
+          latest_by_gate: { GATE_1_PITCH: null },
+          history: []
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const history = await getGateHistory("r1");
+    expect(history.schema_version).toBe("1.0.0");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/runs/r1/gates/history");
+    expect(init.method).toBeUndefined();
   });
 
   it("GET /api/runs/:runId/artifacts lists artifacts", async () => {

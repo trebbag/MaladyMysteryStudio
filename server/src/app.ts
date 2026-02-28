@@ -15,10 +15,13 @@ import {
   resolveArtifactPathAbs,
   runFinalDirAbs,
   runIntermediateDirAbs,
-  runOutputDirAbs
+  runOutputDirAbs,
+  writeJsonFile
 } from "./pipeline/utils.js";
 import { resolveCanonicalProfilePaths } from "./pipeline/canon.js";
 import { episodeMemoryPath } from "./pipeline/memory.js";
+import { gateOwningStep, humanReviewFileName, latestGateDecision, readHumanReviewStore } from "./pipeline/v2_micro_detectives/reviews.js";
+import { HumanReviewEntrySchema, HumanReviewRequestedChangeSchema, HumanReviewDecisionSchema, V2GateIdSchema } from "./pipeline/v2_micro_detectives/schemas.js";
 import {
   defaultStepSloPolicy,
   loadStepSloPolicy,
@@ -43,6 +46,8 @@ type StepSloStatus = "n/a" | "ok" | "warn";
 const RETENTION_KEEP_LAST_DEFAULT = 50;
 const RETENTION_KEEP_LAST_MIN = 0;
 const RETENTION_KEEP_LAST_MAX = 1000;
+const LEGACY_WORKFLOW = "legacy" as const;
+const V2_WORKFLOW = "v2_micro_detectives" as const;
 
 function envConfig(): EnvConfig {
   const hasKey = Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0);
@@ -63,13 +68,64 @@ function envConfig(): EnvConfig {
 
 const RunSettingsSchema = z
   .object({
+    workflow: z.enum([LEGACY_WORKFLOW, V2_WORKFLOW]).optional(),
     durationMinutes: z.number().int().min(5).max(240).optional(),
-    // Long-form decks only; enforce a realistic pilot range while allowing larger runs.
-    targetSlides: z.number().int().min(100).max(500).optional(),
+    // For legacy this remains min=100/max=500. For v2 this field is optional/ignored.
+    targetSlides: z.number().int().optional(),
     level: z.enum(["pcp", "student"]).optional(),
+    deckLengthMain: z
+      .preprocess(
+        (value) => (typeof value === "string" && value.trim().length > 0 ? Number(value) : value),
+        z.union([z.literal(30), z.literal(45), z.literal(60)])
+      )
+      .optional(),
+    audienceLevel: z.enum(["MED_SCHOOL_ADVANCED", "RESIDENT", "FELLOWSHIP"]).optional(),
     adherenceMode: z.enum(["strict", "warn"]).optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const workflow = value.workflow ?? LEGACY_WORKFLOW;
+    if (workflow === V2_WORKFLOW) {
+      if (typeof value.deckLengthMain !== "number") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deckLengthMain"],
+          message: "deckLengthMain is required when workflow=v2_micro_detectives."
+        });
+      }
+      if (typeof value.audienceLevel !== "string") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["audienceLevel"],
+          message: "audienceLevel is required when workflow=v2_micro_detectives."
+        });
+      }
+      return;
+    }
+
+    // Legacy validation branch.
+    if (typeof value.targetSlides === "number" && (value.targetSlides < 100 || value.targetSlides > 500)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetSlides"],
+        message: "targetSlides must be between 100 and 500 for legacy workflow."
+      });
+    }
+    if (typeof value.deckLengthMain === "number") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["deckLengthMain"],
+        message: "deckLengthMain is only valid for workflow=v2_micro_detectives."
+      });
+    }
+    if (typeof value.audienceLevel === "string") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["audienceLevel"],
+        message: "audienceLevel is only valid for workflow=v2_micro_detectives."
+      });
+    }
+  });
 
 const CreateRunBodySchema = z
   .object({
@@ -124,14 +180,30 @@ const UpdateSloPolicyBodySchema = z
   })
   .strict();
 
+const GateReviewBodySchema = z
+  .object({
+    status: HumanReviewDecisionSchema,
+    notes: z.string().max(10000).optional(),
+    requested_changes: z.array(HumanReviewRequestedChangeSchema).optional()
+  })
+  .strict();
+
 function normalizeSettings(settings: RunSettings | undefined): RunSettings | undefined {
   if (!settings) return undefined;
+  const workflow = settings.workflow ?? LEGACY_WORKFLOW;
   const s: RunSettings = {};
+  s.workflow = workflow;
   if (typeof settings.durationMinutes === "number") s.durationMinutes = settings.durationMinutes;
-  if (typeof settings.targetSlides === "number") s.targetSlides = settings.targetSlides;
-  if (settings.level) s.level = settings.level;
+  if (workflow === V2_WORKFLOW) {
+    if (typeof settings.deckLengthMain === "number") s.deckLengthMain = settings.deckLengthMain;
+    if (settings.audienceLevel) s.audienceLevel = settings.audienceLevel;
+  } else {
+    if (typeof settings.targetSlides === "number") s.targetSlides = settings.targetSlides;
+    if (settings.level) s.level = settings.level;
+  }
   if (settings.adherenceMode) s.adherenceMode = settings.adherenceMode;
-  return Object.keys(s).length > 0 ? s : undefined;
+  if (Object.keys(s).length === 1 && s.workflow === LEGACY_WORKFLOW) return undefined;
+  return s;
 }
 
 function parseIsoMs(iso?: string): number | null {
@@ -324,6 +396,153 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
     res.json({ ok: true });
   });
 
+  app.get("/api/runs/:runId/gates/history", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    const store = await readHumanReviewStore(runId);
+    res.json({
+      schema_version: store.schema_version,
+      latest_by_gate: store.latest_by_gate,
+      history: store.history
+    });
+  });
+
+  app.post("/api/runs/:runId/gates/:gateId/submit", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    const gateParsed = V2GateIdSchema.safeParse(req.params.gateId);
+    if (!gateParsed.success) {
+      res.status(400).json({ error: gateParsed.error.flatten() });
+      return;
+    }
+
+    const bodyParsed = GateReviewBodySchema.safeParse(req.body ?? {});
+    if (!bodyParsed.success) {
+      res.status(400).json({ error: bodyParsed.error.flatten() });
+      return;
+    }
+
+    const gateId = gateParsed.data;
+    const entry = HumanReviewEntrySchema.parse({
+      schema_version: "1.0.0",
+      gate_id: gateId,
+      status: bodyParsed.data.status,
+      notes: bodyParsed.data.notes ?? "",
+      requested_changes: bodyParsed.data.requested_changes ?? [],
+      submitted_at: nowIso()
+    });
+
+    const reviewStore = await readHumanReviewStore(runId);
+    const nextStore = {
+      schema_version: reviewStore.schema_version || "1.0.0",
+      latest_by_gate: {
+        ...reviewStore.latest_by_gate,
+        [gateId]: entry
+      },
+      history: [...reviewStore.history, entry]
+    };
+    await writeJsonFile(path.join(runIntermediateDirAbs(runId), humanReviewFileName()), nextStore);
+    await runs.addArtifact(runId, gateOwningStep(gateId), humanReviewFileName());
+    runs.log(runId, `Gate review submitted: ${gateId} => ${entry.status}`, gateOwningStep(gateId));
+    runs.gateSubmitted(runId, {
+      gateId,
+      status: entry.status,
+      submittedAt: entry.submitted_at
+    });
+
+    if (run.status === "paused" && run.activeGate?.gateId === gateId) {
+      const awaiting = entry.status === "request_changes" ? "changes_requested" : "resume";
+      await runs.setRunStatus(runId, "paused", {
+        activeGate: {
+          ...run.activeGate,
+          awaiting,
+          submittedDecision: entry.status,
+          submittedAt: entry.submitted_at,
+          reviewArtifact: path.join("output", runId, "intermediate", humanReviewFileName())
+        }
+      });
+    }
+
+    const recommendedAction = entry.status === "approve" ? "resume" : entry.status === "regenerate" ? "resume_regenerate" : "wait_for_changes";
+    const suggestedResumeFrom = entry.status === "regenerate" ? gateOwningStep(gateId) : run.activeGate?.resumeFrom;
+
+    res.json({
+      ok: true,
+      gateId,
+      review: entry,
+      latest: nextStore.latest_by_gate[gateId],
+      recommendedAction,
+      suggestedResumeFrom
+    });
+  });
+
+  app.post("/api/runs/:runId/resume", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    if (executor.isRunning(runId)) {
+      res.status(409).json({ error: "run is currently running" });
+      return;
+    }
+
+    if (run.status !== "paused" || !run.activeGate) {
+      res.status(409).json({ error: "run is not paused at a gate" });
+      return;
+    }
+
+    const gateIdParsed = V2GateIdSchema.safeParse(run.activeGate.gateId);
+    if (!gateIdParsed.success) {
+      res.status(409).json({ error: `invalid paused gate id: ${run.activeGate.gateId}` });
+      return;
+    }
+    const gateId = gateIdParsed.data;
+    const reviewStore = await readHumanReviewStore(runId);
+    const latest = latestGateDecision(reviewStore, gateId);
+    if (!latest) {
+      res.status(409).json({ error: `gate ${gateId} has no submitted review` });
+      return;
+    }
+
+    if (latest.status === "request_changes") {
+      res.status(409).json({ error: `gate ${gateId} is in request_changes. Submit approve or regenerate before resume.` });
+      return;
+    }
+
+    const resumeFrom = latest.status === "regenerate" ? gateOwningStep(gateId) : run.activeGate.resumeFrom;
+    const gateState = run.activeGate;
+    await runs.setRunStatus(runId, "queued");
+    const queued = executor.enqueue(runId, { startFrom: resumeFrom });
+    if (!queued) {
+      await runs.setRunStatus(runId, "paused", { activeGate: gateState });
+      res.status(409).json({ error: "run could not be resumed" });
+      return;
+    }
+
+    const resumeMode = latest.status === "regenerate" ? "regenerate" : "resume";
+    runs.runResumed(runId, {
+      gateId,
+      startFrom: resumeFrom,
+      mode: resumeMode,
+      resumedAt: nowIso()
+    });
+    runs.log(runId, `Resumed from ${gateId} at ${resumeFrom} (mode=${resumeMode})`);
+    res.json({ ok: true, runId, startFrom: resumeFrom, resumeMode });
+  });
+
   app.post("/api/runs/:runId/rerun", async (req, res) => {
     const parentRunId = req.params.runId;
     const parent = runs.getRun(parentRunId);
@@ -370,6 +589,12 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
           await fs.copyFile(src, dst);
           copied.push(name);
         } catch {
+          if (startFrom === "P") {
+            // Legacy compatibility: very old runs can have stale artifact metadata
+            // (listed names no longer present on disk). For startFrom=P, we tolerate
+            // these misses and still enforce the required patched spec explicitly below.
+            continue;
+          }
           res.status(400).json({ error: `missing artifact in parent run: ${name}` });
           return;
         }

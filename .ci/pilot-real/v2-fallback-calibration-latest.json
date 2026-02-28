@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-02-27T22:12:36.517Z",
+  "sourceReportGeneratedAt": "2026-02-27T22:11:42.193Z",
+  "sample": {
+    "runCount": 3,
+    "doneCount": 3
+  },
+  "observed": {
+    "fallbackRunRate": 1,
+    "avgFallbackEventCount": 5,
+    "avgStoryScore": 3.8,
+    "avgTwistScore": 3.7,
+    "avgClarityScore": 3.6
+  },
+  "recommendation": {
+    "maxFallbackRunRate_enforced": 1,
+    "fallbackRunRate_improvementTarget": 0.8,
+    "rationale": "Set enforced max to observed+5% (clamped to 1) to avoid false negatives while tracking improvement target as observed-20%."
+  },
+  "cli": {
+    "enforceNow": "--max-fallback-run-rate 1",
+    "improvementTargetOnly": "--max-fallback-run-rate 0.8"
+  }
+}

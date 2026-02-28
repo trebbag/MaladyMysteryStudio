@@ -1,0 +1,402 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClueGraph",
+  "description": "All clues, red herrings, exhibits, and twist-support mapping used to build a fair-play, story-dominant deck.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "exhibits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "exhibit_id": {
+            "type": "string",
+            "description": "EX-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "labs_trend",
+              "imaging_panel",
+              "histo_zoom",
+              "pathway_map",
+              "differential_board",
+              "timeline_rail",
+              "vitals_strip",
+              "medication_timeline",
+              "micro_terrain_map",
+              "other"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Short title."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "What question this exhibit answers."
+          },
+          "data_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Key data fields displayed (e.g., WBC, LDH)."
+            }
+          },
+          "how_it_is_visualized": {
+            "type": "string",
+            "description": "Visual description (sparklines, zoom boxes, etc.)."
+          },
+          "produced_on_slide_id": {
+            "type": "string",
+            "description": "Slide where exhibit first appears."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "exhibit_id",
+          "type",
+          "title",
+          "purpose",
+          "produced_on_slide_id",
+          "citations"
+        ],
+        "title": "Exhibit"
+      }
+    },
+    "clues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "clue_id": {
+            "type": "string",
+            "description": "C1, C2, ..."
+          },
+          "macro_or_micro": {
+            "type": "string",
+            "enum": [
+              "macro",
+              "micro"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "description": "What the audience sees/hears (on slide/exhibit)."
+          },
+          "where_found": {
+            "type": "string",
+            "description": "Where/when found (macro location or micro zone)."
+          },
+          "acquisition_method": {
+            "type": "string",
+            "enum": [
+              "history",
+              "physical_exam",
+              "lab",
+              "imaging",
+              "biopsy_path",
+              "bedside_test",
+              "micro_observation",
+              "intervention_response",
+              "other"
+            ]
+          },
+          "wrong_inference": {
+            "type": "string",
+            "description": "Tempting but wrong conclusion."
+          },
+          "correct_inference": {
+            "type": "string",
+            "description": "Correct conclusion."
+          },
+          "implicates_dx_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "DX ids implicated."
+            }
+          },
+          "eliminates_dx_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "DX ids eliminated."
+            }
+          },
+          "first_seen_slide_id": {
+            "type": "string",
+            "description": "Slide where clue appears."
+          },
+          "payoff_slide_id": {
+            "type": "string",
+            "description": "Slide where clue's meaning pays off."
+          },
+          "associated_exhibit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Exhibit IDs supporting it."
+            }
+          },
+          "dossier_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "clue_id",
+          "macro_or_micro",
+          "observed",
+          "wrong_inference",
+          "correct_inference",
+          "first_seen_slide_id",
+          "payoff_slide_id",
+          "dossier_citations"
+        ],
+        "title": "Clue"
+      }
+    },
+    "red_herrings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rh_id": {
+            "type": "string",
+            "description": "RH1, RH2, ..."
+          },
+          "suggests_dx_id": {
+            "type": "string",
+            "description": "DX id suggested by the red herring."
+          },
+          "why_believable": {
+            "type": "string",
+            "description": "Why a smart investigator might believe it."
+          },
+          "rooted_truth": {
+            "type": "string",
+            "description": "What is actually true (non-final explanation) that makes it believable."
+          },
+          "associated_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Clues that feed the herring."
+            }
+          },
+          "payoff_slide_id": {
+            "type": "string",
+            "description": "Slide where it's explained/cleared."
+          },
+          "how_it_advances_story": {
+            "type": "string",
+            "description": "Character conflict, stakes, set-piece, etc."
+          },
+          "dossier_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rh_id",
+          "suggests_dx_id",
+          "why_believable",
+          "rooted_truth",
+          "payoff_slide_id",
+          "dossier_citations"
+        ],
+        "title": "RedHerring"
+      }
+    },
+    "twist_support_matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "twist_id": {
+            "type": "string",
+            "description": "Twist id from TruthModel."
+          },
+          "supporting_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Clues supporting this twist."
+            }
+          },
+          "recontextualized_slide_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Earlier slides whose meaning changes."
+            }
+          },
+          "act1_setup_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Must include at least one clue from Act I."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "twist_id",
+          "supporting_clue_ids",
+          "recontextualized_slide_ids",
+          "act1_setup_clue_ids"
+        ],
+        "title": "TwistSupport"
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "one_major_med_concept_per_story_slide": {
+          "type": "boolean"
+        },
+        "min_clues_per_twist": {
+          "type": "integer"
+        },
+        "require_act1_setup": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "one_major_med_concept_per_story_slide",
+        "min_clues_per_twist",
+        "require_act1_setup"
+      ]
+    },
+    "citations_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "ID of a source in citations[] (e.g., CIT-01)."
+          },
+          "chunk_id": {
+            "type": "string",
+            "description": "Optional chunk locator within the source (e.g., CH-014)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "Optional human-readable locator (chapter/section/page)."
+          },
+          "claim": {
+            "type": "string",
+            "description": "What this citation supports (brief)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "claim"
+        ],
+        "title": "CitationRef"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "exhibits",
+    "clues",
+    "red_herrings",
+    "twist_support_matrix",
+    "constraints",
+    "citations_used"
+  ]
+}

@@ -362,6 +362,34 @@ describe("server app", () => {
     expect(runRes.body.settings).toMatchObject({ durationMinutes: 20, targetSlides: 120, level: "student", adherenceMode: "warn" });
   });
 
+  it("POST /api/runs accepts v2 settings without targetSlides", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post("/api/runs").send({
+      topic: "v2 topic",
+      settings: {
+        workflow: "v2_micro_detectives",
+        deckLengthMain: 45,
+        audienceLevel: "RESIDENT",
+        adherenceMode: "strict"
+      }
+    });
+
+    expect(res.status).toBe(200);
+    const runId = String(res.body.runId);
+
+    const runRes = await request(app).get(`/api/runs/${runId}`);
+    expect(runRes.status).toBe(200);
+    expect(runRes.body.settings).toMatchObject({
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 45,
+      audienceLevel: "RESIDENT",
+      adherenceMode: "strict"
+    });
+    expect(runRes.body.settings.targetSlides).toBeUndefined();
+  });
+
   it("POST /api/runs accepts an empty settings object (stores as undefined)", async () => {
     const runs = new RunManager();
     const app = createApp(runs, makeExecutor() as never);
@@ -380,6 +408,34 @@ describe("server app", () => {
     const app = createApp(runs, makeExecutor() as never);
 
     const res = await request(app).post("/api/runs").send({ topic: "ok topic", settings: { durationMinutes: 1 } });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/runs rejects v2 settings missing deckLengthMain", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app)
+      .post("/api/runs")
+      .send({ topic: "ok topic", settings: { workflow: "v2_micro_detectives", audienceLevel: "MED_SCHOOL_ADVANCED" } });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/runs rejects v2 settings missing audienceLevel", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post("/api/runs").send({ topic: "ok topic", settings: { workflow: "v2_micro_detectives", deckLengthMain: 45 } });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/runs still enforces legacy targetSlides bounds", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app)
+      .post("/api/runs")
+      .send({ topic: "ok topic", settings: { workflow: "legacy", targetSlides: 50 } });
     expect(res.status).toBe(400);
   });
 
@@ -413,6 +469,156 @@ describe("server app", () => {
     const res = await request(app).post(`/api/runs/${run.runId}/cancel`).send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+  });
+
+  it("POST /api/runs/:runId/gates/:gateId/submit validates run, gate id, and body", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const missing = await request(app).post("/api/runs/nope/gates/GATE_1_PITCH/submit").send({ status: "approve" });
+    expect(missing.status).toBe(404);
+
+    const run = await runs.createRun("topic");
+    const badGate = await request(app).post(`/api/runs/${run.runId}/gates/NOPE/submit`).send({ status: "approve" });
+    expect(badGate.status).toBe(400);
+
+    const badBody = await request(app).post(`/api/runs/${run.runId}/gates/GATE_1_PITCH/submit`).send({ status: "nope" });
+    expect(badBody.status).toBe(400);
+  });
+
+  it("POST /api/runs/:runId/gates/:gateId/submit writes human_review.json and tracks artifact", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("topic");
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post(`/api/runs/${run.runId}/gates/GATE_1_PITCH/submit`).send({
+      status: "approve",
+      notes: "looks good",
+      requested_changes: []
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.gateId).toBe("GATE_1_PITCH");
+    expect(res.body.recommendedAction).toBe("resume");
+
+    const reviewPath = path.join(runIntermediateDirAbs(run.runId), "human_review.json");
+    await expect(fs.stat(reviewPath)).resolves.toBeTruthy();
+
+    const updated = runs.getRun(run.runId);
+    expect(updated?.steps.A.artifacts).toContain("human_review.json");
+  });
+
+  it("GET /api/runs/:runId/gates/history returns stored gate review history", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("topic");
+    const app = createApp(runs, makeExecutor() as never);
+
+    const missing = await request(app).get("/api/runs/nope/gates/history");
+    expect(missing.status).toBe(404);
+
+    await request(app).post(`/api/runs/${run.runId}/gates/GATE_1_PITCH/submit`).send({
+      status: "approve",
+      notes: "approved",
+      requested_changes: []
+    });
+
+    const res = await request(app).get(`/api/runs/${run.runId}/gates/history`);
+    expect(res.status).toBe(200);
+    expect(res.body.schema_version).toBe("1.0.0");
+    expect(Array.isArray(res.body.history)).toBe(true);
+    expect(res.body.history[0].gate_id).toBe("GATE_1_PITCH");
+    expect(res.body.history[0].status).toBe("approve");
+  });
+
+  it("POST /api/runs/:runId/resume enforces paused+approved gate and enqueues on success", async () => {
+    const runs = new RunManager();
+    const enqueue = vi.fn(() => true);
+    const app = createApp(runs, makeExecutor({ enqueue }) as never);
+    const run = await runs.createRun("topic");
+
+    const notPaused = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(notPaused.status).toBe(409);
+
+    await runs.setRunStatus(run.runId, "paused", {
+      activeGate: {
+        gateId: "GATE_1_PITCH",
+        resumeFrom: "B",
+        message: "review required",
+        at: new Date().toISOString(),
+        awaiting: "review_submission"
+      }
+    });
+
+    const notApproved = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(notApproved.status).toBe(409);
+
+    await request(app).post(`/api/runs/${run.runId}/gates/GATE_1_PITCH/submit`).send({
+      status: "approve",
+      requested_changes: []
+    });
+
+    const resumed = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.resumeMode).toBe("resume");
+    expect(enqueue).toHaveBeenCalledWith(run.runId, { startFrom: "B" });
+    expect(runs.getRun(run.runId)?.status).toBe("queued");
+  });
+
+  it("POST /api/runs/:runId/resume supports regenerate decision by restarting from gate owning step", async () => {
+    const runs = new RunManager();
+    const enqueue = vi.fn(() => true);
+    const app = createApp(runs, makeExecutor({ enqueue }) as never);
+    const run = await runs.createRun("topic");
+
+    await runs.setRunStatus(run.runId, "paused", {
+      activeGate: {
+        gateId: "GATE_2_TRUTH_LOCK",
+        resumeFrom: "C",
+        message: "review required",
+        at: new Date().toISOString(),
+        awaiting: "review_submission"
+      }
+    });
+
+    const submit = await request(app).post(`/api/runs/${run.runId}/gates/GATE_2_TRUTH_LOCK/submit`).send({
+      status: "regenerate",
+      requested_changes: [{ path: "$.twist_blueprint", instruction: "strengthen setup", severity: "must" }]
+    });
+    expect(submit.status).toBe(200);
+    expect(submit.body.recommendedAction).toBe("resume_regenerate");
+    expect(submit.body.suggestedResumeFrom).toBe("B");
+
+    const resumed = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.resumeMode).toBe("regenerate");
+    expect(resumed.body.startFrom).toBe("B");
+    expect(enqueue).toHaveBeenCalledWith(run.runId, { startFrom: "B" });
+  });
+
+  it("POST /api/runs/:runId/resume blocks request_changes decisions", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("topic");
+
+    await runs.setRunStatus(run.runId, "paused", {
+      activeGate: {
+        gateId: "GATE_1_PITCH",
+        resumeFrom: "B",
+        message: "review required",
+        at: new Date().toISOString(),
+        awaiting: "review_submission"
+      }
+    });
+
+    await request(app).post(`/api/runs/${run.runId}/gates/GATE_1_PITCH/submit`).send({
+      status: "request_changes",
+      notes: "tighten teaser",
+      requested_changes: []
+    });
+
+    const resumed = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(resumed.status).toBe(409);
+    expect(String(resumed.body.error)).toContain("request_changes");
   });
 
   it("POST /api/runs/:runId/rerun returns 404 if parent missing", async () => {
@@ -600,6 +806,175 @@ describe("server app", () => {
     const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
     expect(res.status).toBe(400);
     expect(String(res.body.error)).toContain("missing required artifact in parent run for startFrom=P");
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P copies patched spec when it exists only under final/", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy final-only parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const payload = {
+      final_slide_spec_patched: {
+        title: "final only",
+        reusable_visual_primer: {
+          character_descriptions: ["c"],
+          recurring_scene_descriptions: ["s"],
+          reusable_visual_elements: ["e"],
+          continuity_rules: ["r"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["src"]
+      }
+    };
+
+    await fs.writeFile(path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
+    expect(JSON.parse(copiedRaw)).toEqual(payload);
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P prefers final/ artifact over stale root duplicate", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy duplicate artifact locations");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const staleRootPayload = {
+      final_slide_spec_patched: {
+        title: "stale-root-version",
+        reusable_visual_primer: {
+          character_descriptions: ["old"],
+          recurring_scene_descriptions: ["old"],
+          reusable_visual_elements: ["old"],
+          continuity_rules: ["old"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["old"]
+      }
+    };
+    const canonicalFinalPayload = {
+      final_slide_spec_patched: {
+        title: "canonical-final-version",
+        reusable_visual_primer: {
+          character_descriptions: ["new"],
+          recurring_scene_descriptions: ["new"],
+          reusable_visual_elements: ["new"],
+          continuity_rules: ["new"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["new"]
+      }
+    };
+
+    await fs.writeFile(path.join(runOutputDirAbs(parent.runId), "final_slide_spec_patched.json"), `${JSON.stringify(staleRootPayload, null, 2)}\n`, "utf8");
+    await fs.writeFile(path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched.json"), `${JSON.stringify(canonicalFinalPayload, null, 2)}\n`, "utf8");
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
+    expect(JSON.parse(copiedRaw)).toEqual(canonicalFinalPayload);
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P tolerates stale missing artifact metadata in legacy parents", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy stale artifact metadata");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      p.steps[step].artifacts = [`missing_${String(step).toLowerCase()}.json`];
+    }
+
+    await fs.writeFile(
+      path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched.json"),
+      JSON.stringify({
+        final_slide_spec_patched: {
+          title: "stale-metadata",
+          reusable_visual_primer: {
+            character_descriptions: ["c"],
+            recurring_scene_descriptions: ["s"],
+            reusable_visual_elements: ["e"],
+            continuity_rules: ["r"]
+          },
+          story_arc_contract: {
+            intro_slide_ids: ["S1", "S2", "S3"],
+            outro_slide_ids: ["S4", "S5"],
+            entry_to_body_slide_id: "S3",
+            return_to_office_slide_id: "S4",
+            callback_slide_id: "S5"
+          },
+          slides: [],
+          sources: ["src"]
+        }
+      }, null, 2) + "\n",
+      "utf8"
+    );
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+
+    const child = await request(app).get(`/api/runs/${childRunId}`);
+    expect(child.status).toBe(200);
+    expect(child.body.steps.N.artifacts).toContain("final_slide_spec_patched.json");
+    // Missing legacy metadata entries should not block startFrom=P compatibility.
+    expect(child.body.steps.KB0.artifacts).toEqual([]);
+    expect(child.body.steps.O.artifacts).toEqual([]);
   });
 
   it("GET /api/runs/:runId/export returns 404 for missing run", async () => {

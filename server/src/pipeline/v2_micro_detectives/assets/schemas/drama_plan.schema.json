@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DramaPlan",
+  "description": "Story-first character and relationship arc plan ensuring the deck remains narrative-dominant.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "series_bible_constraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "World rules/limits that create stakes (e.g., time-limited shrinking)."
+      }
+    },
+    "character_arcs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "character_id": {
+            "type": "string",
+            "enum": [
+              "detective",
+              "deputy",
+              "patient",
+              "clinician_lead",
+              "antagonist_institution",
+              "other"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Name (or label)."
+          },
+          "core_need": {
+            "type": "string",
+            "description": "Internal need."
+          },
+          "core_fear": {
+            "type": "string",
+            "description": "Internal fear."
+          },
+          "wound_or_backstory": {
+            "type": "string",
+            "description": "Backstory that explains behavior."
+          },
+          "moral_line": {
+            "type": "string",
+            "description": "Line they won't cross (or think they won't)."
+          },
+          "act_turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "act_id": {
+                  "type": "string",
+                  "enum": [
+                    "ACT1",
+                    "ACT2",
+                    "ACT3",
+                    "ACT4"
+                  ]
+                },
+                "pressure": {
+                  "type": "string",
+                  "description": "What presses on them."
+                },
+                "choice": {
+                  "type": "string",
+                  "description": "Choice they must make."
+                },
+                "change": {
+                  "type": "string",
+                  "description": "How they evolve."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "act_id",
+                "pressure",
+                "choice",
+                "change"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "character_id",
+          "name",
+          "core_need",
+          "core_fear",
+          "moral_line",
+          "act_turns"
+        ],
+        "title": "CharacterArc"
+      }
+    },
+    "relationship_arcs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "enum": [
+              "detective_deputy",
+              "aliens_patient",
+              "aliens_clinicians",
+              "detective_authority",
+              "deputy_authority"
+            ]
+          },
+          "starting_dynamic": {
+            "type": "string",
+            "description": "How it begins."
+          },
+          "friction_points": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Conflicts that will occur."
+            }
+          },
+          "repair_moments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Moments of trust-building."
+            }
+          },
+          "climax_resolution": {
+            "type": "string",
+            "description": "How it resolves by end."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "pair",
+          "starting_dynamic",
+          "climax_resolution"
+        ],
+        "title": "RelationshipArc"
+      }
+    },
+    "pressure_ladder": {
+      "type": "object",
+      "properties": {
+        "physical": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "How physical danger escalates by act."
+          }
+        },
+        "institutional": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "How institutional pressure escalates by act."
+          }
+        },
+        "relational": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "How relationships strain by act."
+          }
+        },
+        "moral": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "How moral dilemmas intensify by act."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "physical",
+        "institutional",
+        "relational",
+        "moral"
+      ]
+    },
+    "chapter_or_act_setups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4"
+            ]
+          },
+          "required_emotional_beats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Beats that must happen."
+            }
+          },
+          "required_choices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Key decisions."
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "act_id",
+          "required_emotional_beats",
+          "required_choices"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "character_arcs",
+    "relationship_arcs",
+    "pressure_ladder"
+  ]
+}

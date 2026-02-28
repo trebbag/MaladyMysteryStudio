@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QAReport",
+  "description": "Combined deterministic lint + LLM grader results; used for Gate 4 approval and fix-loop control.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "lint_pass": {
+      "type": "boolean"
+    },
+    "lint_errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable code."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "slide_id": {
+            "type": "string",
+            "description": "Optional slide id affected."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "severity"
+        ],
+        "title": "LintError"
+      }
+    },
+    "grader_scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "MedicalAccuracy",
+              "StoryDominance",
+              "TwistQuality",
+              "SlideClarity",
+              "PacingTurnRate",
+              "MicroMacroCoherence"
+            ]
+          },
+          "score_0_to_5": {
+            "type": "number",
+            "description": "Score 0-5."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Brief rationale."
+          },
+          "critical": {
+            "type": "boolean",
+            "description": "If true, failing this category rejects output."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "score_0_to_5",
+          "rationale",
+          "critical"
+        ],
+        "title": "GraderScore"
+      }
+    },
+    "accept": {
+      "type": "boolean",
+      "description": "True when ready to render final PPTX."
+    },
+    "required_fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fix_id": {
+            "type": "string",
+            "description": "FIX-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "regenerate_section",
+              "edit_slide",
+              "edit_clue",
+              "edit_differential",
+              "medical_correction",
+              "reduce_text_density",
+              "increase_story_turn",
+              "add_twist_receipts",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "could"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What must change."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Paths or IDs affected (slide ids, clue ids)."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fix_id",
+          "type",
+          "priority",
+          "description"
+        ],
+        "title": "RequiredFix"
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-paragraph summary of quality and remaining risks."
+    },
+    "citations_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "ID of a source in citations[] (e.g., CIT-01)."
+          },
+          "chunk_id": {
+            "type": "string",
+            "description": "Optional chunk locator within the source (e.g., CH-014)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "Optional human-readable locator (chapter/section/page)."
+          },
+          "claim": {
+            "type": "string",
+            "description": "What this citation supports (brief)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "claim"
+        ],
+        "title": "CitationRef"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "lint_pass",
+    "lint_errors",
+    "grader_scores",
+    "accept",
+    "required_fixes",
+    "summary",
+    "citations_used"
+  ]
+}

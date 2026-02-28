@@ -1,0 +1,30 @@
+[
+  {
+    "at": "2026-02-27T22:11:42.193Z",
+    "runId": "local",
+    "runNumber": "local",
+    "refName": "local",
+    "sha": "local",
+    "runCount": 3,
+    "doneCount": 3,
+    "errorCount": 0,
+    "timeoutCount": 0,
+    "qaAcceptRate": 1,
+    "medPassRate": 1,
+    "avgStoryScore": 3.8,
+    "avgTwistScore": 3.7,
+    "avgClarityScore": 3.6,
+    "avgStoryForwardRatio": 1,
+    "avgPackagingCompleteness": 1,
+    "avgMainRenderPlanCoverage": 1,
+    "avgCluePayoffCoverage": 1,
+    "renderPlanMarkerPassRate": 1,
+    "placeholderRunRate": 0,
+    "fallbackRunRate": 1,
+    "avgFallbackEventCount": 5,
+    "errorRate": 0,
+    "timeoutRate": 0,
+    "sloPass": true,
+    "violations": []
+  }
+]

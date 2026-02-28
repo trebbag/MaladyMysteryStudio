@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EpisodePitch",
+  "description": "Short pitch + teaser storyboard used for Gate 1 human approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "pitch_id": {
+      "type": "string",
+      "description": "Stable id, e.g., PITCH-2026-0001."
+    },
+    "episode_title": {
+      "type": "string",
+      "description": "Working title."
+    },
+    "logline": {
+      "type": "string",
+      "description": "One-sentence hook."
+    },
+    "target_deck_length": {
+      "type": "string",
+      "enum": [
+        "30",
+        "45",
+        "60"
+      ],
+      "description": "Main narrative deck slide count."
+    },
+    "tone": {
+      "type": "string",
+      "enum": [
+        "noir",
+        "brisk",
+        "comedic_dry",
+        "thriller",
+        "awe"
+      ]
+    },
+    "patient_stub": {
+      "type": "object",
+      "properties": {
+        "age": {
+          "type": "integer",
+          "description": "Age in years."
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "female",
+            "male",
+            "intersex",
+            "unknown"
+          ]
+        },
+        "one_sentence_context": {
+          "type": "string",
+          "description": "High-level context (occupation/exposure/etc.)."
+        },
+        "presenting_problem": {
+          "type": "string",
+          "description": "Chief complaint / presenting syndrome."
+        },
+        "stakes_if_missed": {
+          "type": "string",
+          "description": "Why time matters."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "one_sentence_context",
+        "presenting_problem",
+        "stakes_if_missed"
+      ]
+    },
+    "macro_hook": {
+      "type": "string",
+      "description": "What clinicians observe first."
+    },
+    "micro_hook": {
+      "type": "string",
+      "description": "What the aliens observe first at cell scale."
+    },
+    "proposed_twist_type": {
+      "type": "string",
+      "enum": [
+        "mimic",
+        "iatrogenic_overlay",
+        "dual_process",
+        "localization_switch",
+        "immune_twist",
+        "toxin_exposure",
+        "genetic_variant",
+        "other"
+      ]
+    },
+    "why_this_case_is_cinematically_micro_scale": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Specific micro-scale visuals/sets that will wow."
+      }
+    },
+    "core_stakes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Story stakes (physical/institutional/relational/moral)."
+      }
+    },
+    "detective_arc": {
+      "type": "string",
+      "description": "Detective internal arc in one paragraph."
+    },
+    "deputy_arc": {
+      "type": "string",
+      "description": "Deputy internal arc in one paragraph."
+    },
+    "teaser_storyboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "S01.."
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Template identifier, e.g., T01_COLD_OPEN_MICRO_CRIME_SCENE."
+          },
+          "title": {
+            "type": "string",
+            "description": "Slide title."
+          },
+          "one_line_story": {
+            "type": "string",
+            "description": "One sentence of what happens."
+          },
+          "visual": {
+            "type": "string",
+            "description": "What is shown visually."
+          },
+          "hook": {
+            "type": "string",
+            "description": "The question this slide leaves hanging."
+          },
+          "medical_payload_brief": {
+            "type": "string",
+            "description": "Optional: the single major concept this slide would implicitly carry."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "slide_id",
+          "template_id",
+          "title",
+          "one_line_story",
+          "visual",
+          "hook"
+        ],
+        "title": "TeaserSlide"
+      }
+    },
+    "must_have_learning_objectives": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "LO ids from dossier (if available)."
+      }
+    },
+    "citations_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "ID of a source in citations[] (e.g., CIT-01)."
+          },
+          "chunk_id": {
+            "type": "string",
+            "description": "Optional chunk locator within the source (e.g., CH-014)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "Optional human-readable locator (chapter/section/page)."
+          },
+          "claim": {
+            "type": "string",
+            "description": "What this citation supports (brief)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "claim"
+        ],
+        "title": "CitationRef"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pitch_id",
+    "episode_title",
+    "logline",
+    "target_deck_length",
+    "tone",
+    "patient_stub",
+    "macro_hook",
+    "micro_hook",
+    "proposed_twist_type",
+    "teaser_storyboard",
+    "citations_used"
+  ]
+}

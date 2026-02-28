@@ -1,0 +1,153 @@
+{
+  "generatedAt": "2026-02-27T22:11:42.193Z",
+  "options": {
+    "baseUrl": "http://localhost:5050",
+    "deckLengthMain": 30,
+    "audienceLevel": "RESIDENT",
+    "adherenceMode": "warn",
+    "timeoutMinutes": 30,
+    "outputDir": ".ci/pilot-real",
+    "topics": [
+      "Community-acquired pneumonia in adults",
+      "Diabetic ketoacidosis in adults",
+      "Nephrotic syndrome in adults"
+    ],
+    "enforceSlo": false,
+    "sloTargets": {
+      "minQaAcceptRate": 0.66,
+      "minMedPassRate": 0.66,
+      "minAvgStoryScore": 3.2,
+      "minAvgTwistScore": 3,
+      "minAvgClarityScore": 3.4,
+      "minAvgStoryForwardRatio": 0.7,
+      "minAvgPackagingCompleteness": 1,
+      "minAvgMainRenderPlanCoverage": 0.95,
+      "minAvgCluePayoffCoverage": 1,
+      "minRenderPlanMarkerPassRate": 1,
+      "maxPlaceholderRunRate": 0.15,
+      "maxFallbackRunRate": 1,
+      "maxErrorRate": 0.2,
+      "maxTimeoutRate": 0.1
+    }
+  },
+  "summary": {
+    "runCount": 3,
+    "doneCount": 3,
+    "errorCount": 0,
+    "timeoutCount": 0,
+    "qaAcceptRate": 1,
+    "medPassRate": 1,
+    "avgStoryScore": 3.8,
+    "avgTwistScore": 3.7,
+    "avgClarityScore": 3.6,
+    "avgStoryForwardRatio": 1,
+    "avgPackagingCompleteness": 1,
+    "avgMainRenderPlanCoverage": 1,
+    "avgCluePayoffCoverage": 1,
+    "renderPlanMarkerPassRate": 1,
+    "placeholderRunRate": 0,
+    "fallbackRunRate": 1,
+    "avgFallbackEventCount": 5
+  },
+  "slo": {
+    "targets": {
+      "minQaAcceptRate": 0.66,
+      "minMedPassRate": 0.66,
+      "minAvgStoryScore": 3.2,
+      "minAvgTwistScore": 3,
+      "minAvgClarityScore": 3.4,
+      "minAvgStoryForwardRatio": 0.7,
+      "minAvgPackagingCompleteness": 1,
+      "minAvgMainRenderPlanCoverage": 0.95,
+      "minAvgCluePayoffCoverage": 1,
+      "minRenderPlanMarkerPassRate": 1,
+      "maxPlaceholderRunRate": 0.15,
+      "maxFallbackRunRate": 1,
+      "maxErrorRate": 0.2,
+      "maxTimeoutRate": 0.1
+    },
+    "evaluation": {
+      "pass": true,
+      "errorRate": 0,
+      "timeoutRate": 0,
+      "violations": []
+    }
+  },
+  "results": [
+    {
+      "runId": "community-acquired-pneumonia-in-adults-84n3akit",
+      "topic": "Community-acquired pneumonia in adults",
+      "status": "done",
+      "startedAt": "2026-02-27T21:01:35.835Z",
+      "finishedAt": "2026-02-27T21:24:48.696Z",
+      "qaAccept": true,
+      "medPass": true,
+      "storyScore": 3.8,
+      "twistScore": 3.7,
+      "clarityScore": 3.6,
+      "requiredFixes": 1,
+      "storyForwardRatio": 1,
+      "packagingCompleteness": 1,
+      "mainRenderPlanCoverage": 1,
+      "cluePayoffCoverage": 1,
+      "renderPlanMarkerPass": true,
+      "placeholderSignals": [],
+      "fallbackUsed": true,
+      "fallbackEventCount": 5,
+      "errorAgents": [
+        "plotDirectorDeckSpec"
+      ],
+      "maxAgentMs": 420371
+    },
+    {
+      "runId": "diabetic-ketoacidosis-in-adults-n8q3tyjj",
+      "topic": "Diabetic ketoacidosis in adults",
+      "status": "done",
+      "startedAt": "2026-02-27T21:24:49.678Z",
+      "finishedAt": "2026-02-27T21:48:32.480Z",
+      "qaAccept": true,
+      "medPass": true,
+      "storyScore": 3.8,
+      "twistScore": 3.7,
+      "clarityScore": 3.6,
+      "requiredFixes": 1,
+      "storyForwardRatio": 1,
+      "packagingCompleteness": 1,
+      "mainRenderPlanCoverage": 1,
+      "cluePayoffCoverage": 1,
+      "renderPlanMarkerPass": true,
+      "placeholderSignals": [],
+      "fallbackUsed": true,
+      "fallbackEventCount": 5,
+      "errorAgents": [
+        "plotDirectorDeckSpec"
+      ],
+      "maxAgentMs": 420350
+    },
+    {
+      "runId": "nephrotic-syndrome-in-adults-ro2zcy07",
+      "topic": "Nephrotic syndrome in adults",
+      "status": "done",
+      "startedAt": "2026-02-27T21:48:33.459Z",
+      "finishedAt": "2026-02-27T22:11:41.210Z",
+      "qaAccept": true,
+      "medPass": true,
+      "storyScore": 3.8,
+      "twistScore": 3.7,
+      "clarityScore": 3.6,
+      "requiredFixes": 1,
+      "storyForwardRatio": 1,
+      "packagingCompleteness": 1,
+      "mainRenderPlanCoverage": 1,
+      "cluePayoffCoverage": 1,
+      "renderPlanMarkerPass": true,
+      "placeholderSignals": [],
+      "fallbackUsed": true,
+      "fallbackEventCount": 5,
+      "errorAgents": [
+        "plotDirectorDeckSpec"
+      ],
+      "maxAgentMs": 420300
+    }
+  ]
+}

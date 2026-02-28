@@ -82,4 +82,23 @@ describe("StepTimeline", () => {
     expect(screen.getByText(/SLO warning at L/i)).toBeInTheDocument();
     expect(screen.getByText(/done \(slow\)/i)).toBeInTheDocument();
   });
+
+  it("uses phase-1 ordering/labels for v2 workflow", () => {
+    render(
+      <StepTimeline
+        workflow="v2_micro_detectives"
+        steps={{
+          KB0: { name: "KB0", status: "done", artifacts: [] },
+          A: { name: "A", status: "done", artifacts: [] },
+          B: { name: "B", status: "done", artifacts: [] },
+          C: { name: "C", status: "done", artifacts: [] }
+        }}
+      />
+    );
+
+    expect(screen.getByText("Disease Dossier + Gate 1")).toBeInTheDocument();
+    expect(screen.getByText("Truth Model + Gate 2")).toBeInTheDocument();
+    expect(screen.getByText("DeckSpec + QA + Gate 3 + Packaging")).toBeInTheDocument();
+    expect(screen.queryByText("P")).not.toBeInTheDocument();
+  });
 });

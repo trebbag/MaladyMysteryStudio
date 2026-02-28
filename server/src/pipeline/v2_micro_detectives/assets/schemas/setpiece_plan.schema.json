@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetPiecePlan",
+  "description": "Act-by-act action and set-piece plan to keep the story thrilling at cell scale while staying medically correct.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "setpieces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "setpiece_id": {
+            "type": "string",
+            "description": "SP-01."
+          },
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "transit_peril",
+              "immune_chase",
+              "barrier_infiltration",
+              "environmental_hazard",
+              "intervention_shockwave",
+              "moral_confrontation",
+              "proof_trap",
+              "other"
+            ]
+          },
+          "location_zone_id": {
+            "type": "string",
+            "description": "MicroWorld zone id where it occurs."
+          },
+          "story_purpose": {
+            "type": "string",
+            "description": "What it does for plot/characters."
+          },
+          "medical_mechanism_anchor": {
+            "type": "string",
+            "description": "Which pathophysiology makes it happen."
+          },
+          "visual_signature": {
+            "type": "string",
+            "description": "How it will look on slides."
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "What makes it hard (time, energy, hostile immune system)."
+            }
+          },
+          "outcome_turn": {
+            "type": "string",
+            "description": "The reversal/outcome."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "setpiece_id",
+          "act_id",
+          "type",
+          "story_purpose",
+          "medical_mechanism_anchor",
+          "visual_signature",
+          "outcome_turn",
+          "citations"
+        ],
+        "title": "SetPiece"
+      }
+    },
+    "quotas": {
+      "type": "object",
+      "properties": {
+        "act1_social_or_ethics_confrontation": {
+          "type": "boolean"
+        },
+        "act2_micro_action_setpiece": {
+          "type": "boolean"
+        },
+        "act3_truth_bomb": {
+          "type": "boolean"
+        },
+        "act4_proof_or_showdown": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "act1_social_or_ethics_confrontation",
+        "act2_micro_action_setpiece",
+        "act3_truth_bomb",
+        "act4_proof_or_showdown"
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Optional notes."
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "setpieces",
+    "quotas"
+  ]
+}

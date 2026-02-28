@@ -158,9 +158,114 @@ Optional envs:
 - `MMS_SMOKE_TIMEOUT_MS` (default 25 minutes)
 - `MMS_SMOKE_POLL_MS` (default 5000)
 
+## V2 pilot quality harness
+
+Runs multiple real v2 episodes sequentially, auto-approves gates, and writes a scored report.
+
+```bash
+# Start app first in another shell: npm run dev (or npm run start)
+npm run pilot:v2:quality -- --topic "Community-acquired pneumonia in adults" --topic "Diabetic ketoacidosis in adults"
+```
+
+Optional SLO enforcement (fails with non-zero exit when thresholds are missed):
+
+```bash
+npm run pilot:v2:quality -- --enforce-slo \
+  --min-qa-accept-rate 0.66 \
+  --min-med-pass-rate 0.66 \
+  --min-story-score 3.2 \
+  --min-twist-score 3.0 \
+  --min-clarity-score 3.4 \
+  --min-story-forward-ratio 0.7 \
+  --min-packaging-completeness 1 \
+  --min-main-render-coverage 0.95 \
+  --min-clue-payoff-coverage 1 \
+  --min-render-plan-marker-pass-rate 1 \
+  --max-placeholder-run-rate 0.15 \
+  --max-fallback-run-rate 0.05 \
+  --max-error-rate 0.2 \
+  --max-timeout-rate 0.1
+```
+
+Promotion gate mode (hard requirement: no deterministic DeckSpec fallback in the batch):
+
+```bash
+npm run pilot:v2:quality:promotion -- \
+  --base-url http://localhost:5050 \
+  --topic "Community-acquired pneumonia in adults" \
+  --topic "Diabetic ketoacidosis in adults"
+```
+
+No-agent local batch (starts a temporary fake backend, runs the same harness, then shuts down):
+
+```bash
+npm run pilot:v2:quality:fake -- --topic "Community-acquired pneumonia in adults" --topic "Diabetic ketoacidosis in adults"
+```
+
+Qualitative gates added to the pilot harness:
+
+- Packaging completeness (`micro_world_map`, `drama_plan`, `setpiece_plan`, both render plans, citation notes, template registry).
+- Main render-plan slide coverage (ratio of `deck_spec.slides[].slide_id` represented in `V2_MAIN_DECK_RENDER_PLAN.md`).
+- Clue payoff coverage (red herrings with explicit payoff slide IDs).
+- Render-plan marker pass (required sections: recurring constraints, zone/setpiece mapping, slide blocks).
+- Placeholder run rate (rejects excessive TBD/TODO/placeholder/lorem style artifacts).
+- Fallback usage visibility (`fallback_usage.json`): deterministic fallback run rate + average deterministic fallback event count + agent retry event count.
+
+Outputs:
+
+- `.ci/pilot/v2-pilot-quality-latest.json`
+- `.ci/pilot/v2-pilot-quality-latest.md`
+- timestamped JSON/MD snapshots per run batch under `.ci/pilot/`
+- Note: `.ci/pilot/` and `.ci/pilot-report/` are local/generated artifacts and are git-ignored; CI publishes them as workflow artifacts instead of storing them in-repo.
+
+Build/update trend history HTML from the latest run:
+
+```bash
+npm run pilot:v2:trend
+```
+
+Calibrate fallback SLO from the latest real-key report:
+
+```bash
+npm run pilot:v2:calibrate:fallback
+```
+
+Step C DeckSpec generation modes:
+
+- `MMS_V2_DECKSPEC_MODE=deterministic_refine` (default in `warn`): deterministic seeded deck + lightweight model refinement.
+- `MMS_V2_DECKSPEC_MODE=agent_full` (default in `strict`): full model-generated DeckSpec with compact retries.
+
+Run a full prompt-tuning cycle (quality harness + trend build + prompt lock regeneration):
+
+```bash
+# start app first in another shell
+npm run pilot:v2:tune
+```
+
+Verify prompt/schema lock integrity (used by runtime strict lock checks):
+
+```bash
+npm run v2:assets:lock
+npm run v2:assets:lock:check
+```
+
+Run the one-command pre-pilot checklist (typecheck, lint, unit tests, coverage, build, targeted v2 gate e2e):
+
+```bash
+npm run pilot:checklist
+```
+
+Checklist outputs:
+
+- `.ci/pilot/prepilot-checklist-latest.json`
+- `.ci/pilot/prepilot-checklist-latest.md`
+
 ## CI
 
 - `validate` job (push/PR): typecheck + lint + unit tests + build
+- `e2e_v2_gate` job (push/PR): targeted Playwright journey for v2 gate pause/resume (`GATE_1 -> GATE_2 -> GATE_3 -> done`)
+  - Publishes artifact:
+    - `v2-gate-playwright-report` (Playwright HTML report)
 - `e2e_soak` job (nightly UTC + optional workflow_dispatch input `run_e2e_soak=true`): executes the fake-backend soak Playwright suite
   - Publishes artifacts:
     - `soak-playwright-html-report` (Playwright HTML report)
@@ -170,6 +275,12 @@ Optional envs:
 - `live_smoke` job (manual only): optional `workflow_dispatch` input `run_live_smoke=true`
   - Requires repo secrets `OPENAI_API_KEY` and `KB_VECTOR_STORE_ID`
   - Starts app in single-process pilot mode (`npm run start`) and runs `npm run smoke:live`
+- `v2_pilot_quality` job (manual only): optional `workflow_dispatch` input `run_v2_pilot_quality=true`
+  - Requires repo secrets `OPENAI_API_KEY` and `KB_VECTOR_STORE_ID`
+  - Starts app, runs v2 pilot harness with `--enforce-slo` and pinned SLO targets (`qaAccept`, `medPass`, story/twist/clarity/story-forward, packaging completeness, render-plan coverage, clue payoff coverage, marker pass rate, placeholder run rate, error/timeout) and publishes:
+    - `v2-pilot-quality-report` (`v2-pilot-quality-latest.json/.md`)
+    - `v2-pilot-trend-history` (`v2-pilot-trend-history.html/.json`)
+  - Restores and appends prior trend history artifact when available
 
 ### Smoke troubleshooting
 

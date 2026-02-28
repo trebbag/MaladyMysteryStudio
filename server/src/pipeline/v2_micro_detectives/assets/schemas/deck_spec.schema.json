@@ -1,0 +1,931 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeckSpec",
+  "description": "Slide-by-slide specification for the main narrative deck + optional appendix. Story beats define slide count; medical depth is layered via exhibits/notes/appendix.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "deck_meta": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "Schema version."
+        },
+        "episode_slug": {
+          "type": "string",
+          "description": "Short slug for filenames."
+        },
+        "episode_title": {
+          "type": "string",
+          "description": "Deck title."
+        },
+        "deck_length_main": {
+          "type": "string",
+          "enum": [
+            "30",
+            "45",
+            "60"
+          ]
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "noir",
+            "brisk",
+            "comedic_dry",
+            "thriller",
+            "awe"
+          ]
+        },
+        "audience_level": {
+          "type": "string",
+          "enum": [
+            "MED_SCHOOL_ADVANCED",
+            "RESIDENT",
+            "FELLOWSHIP"
+          ]
+        },
+        "story_dominance_target_ratio": {
+          "type": "number",
+          "description": "Target ratio of story slides in main deck (e.g., 0.7)."
+        },
+        "max_words_on_slide": {
+          "type": "integer",
+          "description": "Maximum on-slide words (enforced by linter)."
+        },
+        "one_major_med_concept_per_slide": {
+          "type": "boolean"
+        },
+        "appendix_unlimited": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "episode_slug",
+        "episode_title",
+        "deck_length_main",
+        "tone",
+        "audience_level",
+        "story_dominance_target_ratio",
+        "max_words_on_slide",
+        "one_major_med_concept_per_slide",
+        "appendix_unlimited"
+      ],
+      "title": "DeckMeta"
+    },
+    "characters": {
+      "type": "object",
+      "properties": {
+        "detective": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "species_or_origin": {
+              "type": "string",
+              "description": "Alien origin/affiliation."
+            },
+            "voice_style": {
+              "type": "string",
+              "description": "How they speak."
+            },
+            "competency": {
+              "type": "string",
+              "description": "Core skill."
+            },
+            "blind_spot": {
+              "type": "string",
+              "description": "Core weakness."
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "species_or_origin",
+            "voice_style",
+            "competency",
+            "blind_spot"
+          ]
+        },
+        "deputy": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "species_or_origin": {
+              "type": "string"
+            },
+            "voice_style": {
+              "type": "string"
+            },
+            "competency": {
+              "type": "string"
+            },
+            "blind_spot": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "species_or_origin",
+            "voice_style",
+            "competency",
+            "blind_spot"
+          ]
+        },
+        "patient": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "How patient is referenced on slides."
+            },
+            "macro_context": {
+              "type": "string",
+              "description": "Setting context (ER, ICU, clinic)."
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "label",
+            "macro_context"
+          ]
+        },
+        "macro_supporting_cast": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "description": "Clinician role."
+              },
+              "name_or_label": {
+                "type": "string",
+                "description": "Name or label."
+              },
+              "function": {
+                "type": "string",
+                "description": "Story function."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "name_or_label",
+              "function"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "detective",
+        "deputy",
+        "patient",
+        "macro_supporting_cast"
+      ],
+      "title": "CharacterSpec"
+    },
+    "acts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Act name."
+          },
+          "slide_start": {
+            "type": "integer",
+            "description": "1-indexed start slide number in main deck."
+          },
+          "slide_end": {
+            "type": "integer",
+            "description": "1-indexed end slide number in main deck."
+          },
+          "act_goal": {
+            "type": "string",
+            "description": "What this act must accomplish narratively."
+          },
+          "required_pressure_channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "physical",
+                "institutional",
+                "relational",
+                "moral"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "act_id",
+          "name",
+          "slide_start",
+          "slide_end",
+          "act_goal",
+          "required_pressure_channels"
+        ],
+        "title": "ActSpec"
+      }
+    },
+    "slides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "S01.."
+          },
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4",
+              "APPENDIX"
+            ]
+          },
+          "beat_type": {
+            "type": "string",
+            "enum": [
+              "cold_open",
+              "case_intake",
+              "first_dive",
+              "clue_discovery",
+              "suspect_intro",
+              "red_herring",
+              "setback",
+              "reversal",
+              "action_setpiece",
+              "theory_update",
+              "false_theory_lock_in",
+              "false_theory_collapse",
+              "twist",
+              "proof",
+              "showdown",
+              "aftermath",
+              "appendix"
+            ]
+          },
+          "template_id": {
+            "type": "string",
+            "enum": [
+              "T01_COLD_OPEN_MICRO_CRIME_SCENE",
+              "T02_CASE_INTAKE_MACRO",
+              "T03_SHRINK_DIVE_SEQUENCE",
+              "T04_CLUE_DISCOVERY",
+              "T05_INTERROGATION_CELL_ACTOR",
+              "T06_DIFFERENTIAL_BOARD_UPDATE",
+              "T07_RED_HERRING_REVERSAL",
+              "T08_ACTION_SET_PIECE_MICRO_HAZARD",
+              "T09_TWIST_RECONTEXTUALIZATION",
+              "T10_PROOF_TRAP",
+              "T11_AFTERCARE_AFTERMATH",
+              "T90_APPENDIX_DEEP_DIVE"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Internal title."
+          },
+          "on_slide_text": {
+            "type": "object",
+            "properties": {
+              "headline": {
+                "type": "string",
+                "description": "Short headline."
+              },
+              "subtitle": {
+                "type": "string",
+                "description": "Short subtitle."
+              },
+              "callouts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Very short callouts anchored to visuals."
+                }
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Optional micro labels: molecules/cells; keep minimal."
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "headline"
+            ],
+            "title": "OnSlideText"
+          },
+          "visual_description": {
+            "type": "string",
+            "description": "Describe what appears on the slide visually."
+          },
+          "exhibit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Exhibit IDs shown on slide."
+            }
+          },
+          "story_panel": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string",
+                "description": "What the protagonist(s) want in this slide."
+              },
+              "opposition": {
+                "type": "string",
+                "description": "What blocks them."
+              },
+              "turn": {
+                "type": "string",
+                "description": "What changes (reversal, new info, setback)."
+              },
+              "decision": {
+                "type": "string",
+                "description": "What they decide/do next because of the turn."
+              },
+              "consequence": {
+                "type": "string",
+                "description": "Immediate consequence that raises stakes or opens the next question."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "goal",
+              "opposition",
+              "turn",
+              "decision"
+            ],
+            "title": "StoryPanel"
+          },
+          "medical_payload": {
+            "type": "object",
+            "properties": {
+              "major_concept_id": {
+                "type": "string",
+                "description": "Concept ID introduced (or 'NONE' if no new concept on this slide)."
+              },
+              "supporting_details": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Up to 2 short details."
+                }
+              },
+              "delivery_mode": {
+                "type": "string",
+                "enum": [
+                  "clue",
+                  "exhibit",
+                  "dialogue",
+                  "action",
+                  "note_only",
+                  "none"
+                ]
+              },
+              "linked_learning_objectives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "LO ids satisfied (may be empty)."
+                }
+              },
+              "dossier_citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "major_concept_id",
+              "delivery_mode",
+              "dossier_citations"
+            ],
+            "title": "MedicalPayload"
+          },
+          "pressure_channels_advanced": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "physical",
+                "institutional",
+                "relational",
+                "moral"
+              ]
+            }
+          },
+          "hook": {
+            "type": "string",
+            "description": "What question/impulse pulls to next slide."
+          },
+          "appendix_links": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Appendix slide ids for deeper details."
+            }
+          },
+          "speaker_notes": {
+            "type": "object",
+            "properties": {
+              "narrative_notes": {
+                "type": "string",
+                "description": "Optional: what to say narratively."
+              },
+              "medical_reasoning": {
+                "type": "string",
+                "description": "Med-school level reasoning: mechanism, ddx, why tests matter."
+              },
+              "what_this_slide_teaches": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Key takeaways (optional)."
+                }
+              },
+              "differential_update": {
+                "type": "object",
+                "properties": {
+                  "top_dx_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "Current top differentials."
+                    }
+                  },
+                  "eliminated_dx_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "Eliminated this slide."
+                    }
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "1\u20133 sentence reasoning for the update."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "top_dx_ids",
+                  "eliminated_dx_ids",
+                  "why"
+                ],
+                "title": "DifferentialUpdate"
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "medical_reasoning",
+              "differential_update",
+              "citations"
+            ],
+            "title": "SpeakerNotes"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "slide_id",
+          "act_id",
+          "beat_type",
+          "template_id",
+          "on_slide_text",
+          "visual_description",
+          "story_panel",
+          "medical_payload",
+          "hook",
+          "speaker_notes"
+        ],
+        "title": "SlideSpec"
+      }
+    },
+    "appendix_slides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "S01.."
+          },
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4",
+              "APPENDIX"
+            ]
+          },
+          "beat_type": {
+            "type": "string",
+            "enum": [
+              "cold_open",
+              "case_intake",
+              "first_dive",
+              "clue_discovery",
+              "suspect_intro",
+              "red_herring",
+              "setback",
+              "reversal",
+              "action_setpiece",
+              "theory_update",
+              "false_theory_lock_in",
+              "false_theory_collapse",
+              "twist",
+              "proof",
+              "showdown",
+              "aftermath",
+              "appendix"
+            ]
+          },
+          "template_id": {
+            "type": "string",
+            "enum": [
+              "T01_COLD_OPEN_MICRO_CRIME_SCENE",
+              "T02_CASE_INTAKE_MACRO",
+              "T03_SHRINK_DIVE_SEQUENCE",
+              "T04_CLUE_DISCOVERY",
+              "T05_INTERROGATION_CELL_ACTOR",
+              "T06_DIFFERENTIAL_BOARD_UPDATE",
+              "T07_RED_HERRING_REVERSAL",
+              "T08_ACTION_SET_PIECE_MICRO_HAZARD",
+              "T09_TWIST_RECONTEXTUALIZATION",
+              "T10_PROOF_TRAP",
+              "T11_AFTERCARE_AFTERMATH",
+              "T90_APPENDIX_DEEP_DIVE"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Internal title."
+          },
+          "on_slide_text": {
+            "type": "object",
+            "properties": {
+              "headline": {
+                "type": "string",
+                "description": "Short headline."
+              },
+              "subtitle": {
+                "type": "string",
+                "description": "Short subtitle."
+              },
+              "callouts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Very short callouts anchored to visuals."
+                }
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Optional micro labels: molecules/cells; keep minimal."
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "headline"
+            ],
+            "title": "OnSlideText"
+          },
+          "visual_description": {
+            "type": "string",
+            "description": "Describe what appears on the slide visually."
+          },
+          "exhibit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Exhibit IDs shown on slide."
+            }
+          },
+          "story_panel": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string",
+                "description": "What the protagonist(s) want in this slide."
+              },
+              "opposition": {
+                "type": "string",
+                "description": "What blocks them."
+              },
+              "turn": {
+                "type": "string",
+                "description": "What changes (reversal, new info, setback)."
+              },
+              "decision": {
+                "type": "string",
+                "description": "What they decide/do next because of the turn."
+              },
+              "consequence": {
+                "type": "string",
+                "description": "Immediate consequence that raises stakes or opens the next question."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "goal",
+              "opposition",
+              "turn",
+              "decision"
+            ],
+            "title": "StoryPanel"
+          },
+          "medical_payload": {
+            "type": "object",
+            "properties": {
+              "major_concept_id": {
+                "type": "string",
+                "description": "Concept ID introduced (or 'NONE' if no new concept on this slide)."
+              },
+              "supporting_details": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Up to 2 short details."
+                }
+              },
+              "delivery_mode": {
+                "type": "string",
+                "enum": [
+                  "clue",
+                  "exhibit",
+                  "dialogue",
+                  "action",
+                  "note_only",
+                  "none"
+                ]
+              },
+              "linked_learning_objectives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "LO ids satisfied (may be empty)."
+                }
+              },
+              "dossier_citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "major_concept_id",
+              "delivery_mode",
+              "dossier_citations"
+            ],
+            "title": "MedicalPayload"
+          },
+          "pressure_channels_advanced": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "physical",
+                "institutional",
+                "relational",
+                "moral"
+              ]
+            }
+          },
+          "hook": {
+            "type": "string",
+            "description": "What question/impulse pulls to next slide."
+          },
+          "appendix_links": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Appendix slide ids for deeper details."
+            }
+          },
+          "speaker_notes": {
+            "type": "object",
+            "properties": {
+              "narrative_notes": {
+                "type": "string",
+                "description": "Optional: what to say narratively."
+              },
+              "medical_reasoning": {
+                "type": "string",
+                "description": "Med-school level reasoning: mechanism, ddx, why tests matter."
+              },
+              "what_this_slide_teaches": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "Key takeaways (optional)."
+                }
+              },
+              "differential_update": {
+                "type": "object",
+                "properties": {
+                  "top_dx_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "Current top differentials."
+                    }
+                  },
+                  "eliminated_dx_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "Eliminated this slide."
+                    }
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "1\u20133 sentence reasoning for the update."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "top_dx_ids",
+                  "eliminated_dx_ids",
+                  "why"
+                ],
+                "title": "DifferentialUpdate"
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "medical_reasoning",
+              "differential_update",
+              "citations"
+            ],
+            "title": "SpeakerNotes"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "slide_id",
+          "act_id",
+          "beat_type",
+          "template_id",
+          "on_slide_text",
+          "visual_description",
+          "story_panel",
+          "medical_payload",
+          "hook",
+          "speaker_notes"
+        ],
+        "title": "SlideSpec"
+      }
+    }
+  },
+  "required": [
+    "deck_meta",
+    "characters",
+    "acts",
+    "slides",
+    "appendix_slides"
+  ]
+}

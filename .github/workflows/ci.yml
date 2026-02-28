@@ -18,6 +18,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_v2_pilot_quality:
+        description: "Run optional v2 pilot-quality harness stage (requires OPENAI_API_KEY and KB_VECTOR_STORE_ID secrets)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   validate:
@@ -48,6 +53,42 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e_v2_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npm --workspace web run e2e:install
+
+      - name: Run v2 gate journey e2e
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: web/playwright-report
+          PLAYWRIGHT_HTML_OPEN: never
+        run: npm --workspace web run test:e2e -- -g "v2 workflow run pauses at gates and resumes to final deck spec artifacts" --reporter=line,html
+
+      - name: Upload v2 gate Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-gate-playwright-report
+          path: web/playwright-report
+          if-no-files-found: warn
+          retention-days: 14
 
   live_smoke:
     runs-on: ubuntu-latest
@@ -89,6 +130,130 @@ jobs:
 
       - name: Live smoke test
         run: npm run smoke:live
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f app.pid ]; then
+            kill "$(cat app.pid)" || true
+          fi
+          cat app.log || true
+
+  v2_pilot_quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_v2_pilot_quality == true && secrets.OPENAI_API_KEY != '' && secrets.KB_VECTOR_STORE_ID != '' }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      KB_VECTOR_STORE_ID: ${{ secrets.KB_VECTOR_STORE_ID }}
+      PORT: 5050
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Start app (pilot mode)
+        run: |
+          npm run start > app.log 2>&1 &
+          echo $! > app.pid
+          for i in {1..120}; do
+            if curl -sf "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server did not start in time"
+          cat app.log || true
+          exit 1
+
+      - name: Restore latest v2 pilot trend history (best effort)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/pilot .ci/pilot-prev
+          printf '[]\n' > .ci/pilot/v2-pilot-trend-history.json
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq not found; skipping previous-history restore"
+            exit 0
+          fi
+          API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=v2-pilot-trend-history&per_page=1"
+          ARTIFACTS_JSON="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "${API_URL}" || true)"
+          if [ -z "${ARTIFACTS_JSON}" ]; then
+            echo "No artifact listing returned; skipping previous-history restore"
+            exit 0
+          fi
+          DOWNLOAD_URL="$(printf "%s" "${ARTIFACTS_JSON}" | jq -r '.artifacts[0].archive_download_url // empty')"
+          if [ -n "${DOWNLOAD_URL}" ]; then
+            curl -fsSL -L -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "${DOWNLOAD_URL}" -o /tmp/v2-pilot-trend-history.zip || true
+            unzip -o /tmp/v2-pilot-trend-history.zip -d .ci/pilot-prev >/dev/null 2>&1 || true
+            if [ -f .ci/pilot-prev/v2-pilot-trend-history.json ]; then
+              cp .ci/pilot-prev/v2-pilot-trend-history.json .ci/pilot/v2-pilot-trend-history.json
+            fi
+          fi
+
+      - name: Run v2 pilot quality harness (SLO enforced)
+        run: |
+          node scripts/v2_pilot_quality_harness.mjs \
+            --base-url "http://127.0.0.1:${PORT}" \
+            --enforce-slo \
+            --min-qa-accept-rate 0.66 \
+            --min-med-pass-rate 0.66 \
+            --min-story-score 3.2 \
+            --min-twist-score 3.0 \
+            --min-clarity-score 3.4 \
+            --min-story-forward-ratio 0.7 \
+            --min-packaging-completeness 1 \
+            --min-main-render-coverage 0.95 \
+            --min-clue-payoff-coverage 1 \
+            --min-render-plan-marker-pass-rate 1 \
+            --max-placeholder-run-rate 0.15 \
+            --max-error-rate 0.2 \
+            --max-timeout-rate 0.1 \
+            --deck-length 30 \
+            --timeout-minutes 35 \
+            --topic "Community-acquired pneumonia in adults" \
+            --topic "Diabetic ketoacidosis in adults" \
+            --topic "Acute decompensated heart failure"
+
+      - name: Build v2 pilot trend report
+        if: always()
+        run: |
+          node scripts/build_v2_pilot_trend_report.mjs \
+            --report .ci/pilot/v2-pilot-quality-latest.json \
+            --history .ci/pilot/v2-pilot-trend-history.json \
+            --outDir .ci/pilot-report
+
+      - name: Upload v2 pilot quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-pilot-quality-report
+          path: |
+            .ci/pilot/v2-pilot-quality-latest.json
+            .ci/pilot/v2-pilot-quality-latest.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload v2 pilot trend history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-pilot-trend-history
+          path: .ci/pilot-report
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Stop app
         if: always()

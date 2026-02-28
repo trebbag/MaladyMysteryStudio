@@ -15,7 +15,16 @@
     "test:e2e": "npm --workspace web run test:e2e",
     "test:e2e:soak": "npm --workspace web run test:e2e:soak",
     "test:coverage": "npm --workspace server run test:coverage && npm --workspace web run test:coverage",
-    "smoke:live": "node scripts/live_smoke_test.mjs"
+    "smoke:live": "node scripts/live_smoke_test.mjs",
+    "pilot:v2:quality": "node scripts/v2_pilot_quality_harness.mjs",
+    "pilot:v2:quality:promotion": "node scripts/v2_pilot_quality_harness.mjs --phase promotion --enforce-slo",
+    "pilot:v2:quality:fake": "node scripts/v2_pilot_quality_fake_batch.mjs",
+    "pilot:v2:trend": "node scripts/build_v2_pilot_trend_report.mjs",
+    "pilot:v2:calibrate:fallback": "node scripts/calibrate_v2_fallback_slo.mjs",
+    "pilot:v2:tune": "node scripts/v2_prompt_tuning_cycle.mjs",
+    "pilot:checklist": "node scripts/run_prepilot_checklist.mjs",
+    "v2:assets:lock": "node scripts/build_v2_asset_lock.mjs",
+    "v2:assets:lock:check": "node scripts/build_v2_asset_lock.mjs --check"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

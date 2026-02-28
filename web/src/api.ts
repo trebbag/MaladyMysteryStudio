@@ -8,10 +8,32 @@ export type HealthResponse = {
 };
 
 export type RunSettings = {
+  workflow?: "legacy" | "v2_micro_detectives";
   durationMinutes?: number;
   targetSlides?: number;
   level?: "pcp" | "student";
+  deckLengthMain?: 30 | 45 | 60;
+  audienceLevel?: "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP";
   adherenceMode?: "strict" | "warn";
+};
+
+export type GateReviewEntry = {
+  schema_version: string;
+  gate_id: string;
+  status: "approve" | "request_changes" | "regenerate";
+  notes: string;
+  requested_changes: Array<{
+    path: string;
+    instruction: string;
+    severity: "must" | "should" | "nice";
+  }>;
+  submitted_at: string;
+};
+
+export type GateHistoryResponse = {
+  schema_version: string;
+  latest_by_gate: Record<string, GateReviewEntry | null>;
+  history: GateReviewEntry[];
 };
 
 export type RunDerivedFrom = {
@@ -34,6 +56,17 @@ export type RunStatus = {
   topic: string;
   settings?: RunSettings;
   derivedFrom?: RunDerivedFrom;
+  activeGate?: {
+    gateId: string;
+    resumeFrom: string;
+    message: string;
+    at: string;
+    awaiting?: "review_submission" | "resume" | "changes_requested";
+    submittedDecision?: "approve" | "request_changes" | "regenerate";
+    submittedAt?: string;
+    reviewArtifact?: string;
+    resumedAt?: string;
+  };
   canonicalSources?: {
     foundAny: boolean;
     templateRoot?: string;
@@ -47,7 +80,7 @@ export type RunStatus = {
     warningCount: number;
     checkedAt: string;
   };
-  status: "queued" | "running" | "done" | "error";
+  status: "queued" | "running" | "paused" | "done" | "error";
   startedAt: string;
   finishedAt?: string;
   traceId?: string;
@@ -215,6 +248,42 @@ export async function rerunFrom(runId: string, startFrom: string): Promise<{ run
     method: "POST",
     body: JSON.stringify({ startFrom })
   });
+}
+
+export async function submitGateReview(
+  runId: string,
+  gateId: string,
+  body: {
+    status: "approve" | "request_changes" | "regenerate";
+    notes?: string;
+    requested_changes?: Array<{ path: string; instruction: string; severity: "must" | "should" | "nice" }>;
+  }
+): Promise<{
+  ok: true;
+  gateId: string;
+  recommendedAction?: "resume" | "resume_regenerate" | "wait_for_changes";
+  suggestedResumeFrom?: string;
+}> {
+  return httpJson<{
+    ok: true;
+    gateId: string;
+    recommendedAction?: "resume" | "resume_regenerate" | "wait_for_changes";
+    suggestedResumeFrom?: string;
+  }>(`/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+export async function resumeRun(runId: string): Promise<{ ok: true; runId: string; startFrom: string; resumeMode?: "resume" | "regenerate" }> {
+  return httpJson<{ ok: true; runId: string; startFrom: string; resumeMode?: "resume" | "regenerate" }>(
+    `/api/runs/${encodeURIComponent(runId)}/resume`,
+    { method: "POST" }
+  );
+}
+
+export async function getGateHistory(runId: string): Promise<GateHistoryResponse> {
+  return httpJson<GateHistoryResponse>(`/api/runs/${encodeURIComponent(runId)}/gates/history`);
 }
 
 export function sseUrl(runId: string): string {

@@ -5,10 +5,14 @@ import {
   cancelRun,
   exportZipUrl,
   fetchArtifact,
+  GateHistoryResponse,
   getRun,
+  getGateHistory,
   listArtifacts,
+  resumeRun,
   rerunFrom,
   RunStatus,
+  submitGateReview,
   sseUrl,
   ArtifactInfo,
   StepStatus
@@ -78,11 +82,130 @@ type ReusableVisualPrimer = {
   };
 };
 
+type V2DeckSpecSlide = {
+  slide_id: string;
+  title?: string;
+  act_id?: string;
+  beat_type?: string;
+  template_id?: string;
+  visual_description?: string;
+  exhibit_ids?: string[];
+  on_slide_text?: {
+    headline?: string;
+    subtitle?: string;
+    callouts?: string[];
+    labels?: string[];
+  };
+  story_panel?: {
+    goal?: string;
+    opposition?: string;
+    turn?: string;
+    decision?: string;
+  };
+  medical_payload?: {
+    major_concept_id?: string;
+    delivery_mode?: string;
+    dossier_citations?: Array<{ citation_id?: string; claim?: string }>;
+  };
+  speaker_notes?: {
+    medical_reasoning?: string;
+    narrative_notes?: string;
+  };
+};
+
+type V2DeckSpecPreview = {
+  deck_meta?: {
+    episode_title?: string;
+    deck_length_main?: string;
+  };
+  slides: V2DeckSpecSlide[];
+  appendix_slides: V2DeckSpecSlide[];
+};
+
+type V2TemplateRegistryPreview = {
+  templates: Array<{
+    template_id: string;
+    purpose?: string;
+    renderer_instructions?: string[];
+    allowed_beat_types?: string[];
+  }>;
+};
+
+type V2ClueGraphPreview = {
+  exhibits: Array<{
+    exhibit_id: string;
+    purpose?: string;
+  }>;
+};
+
+type V2MicroWorldMapPreview = {
+  zones: Array<{
+    zone_id: string;
+    name?: string;
+    anatomic_location?: string;
+    resident_actors?: string[];
+    environmental_gradients?: string[];
+    narrative_motifs?: string[];
+  }>;
+  hazards: Array<{
+    hazard_id: string;
+    type?: string;
+    description?: string;
+    links_to_pathophysiology?: string;
+  }>;
+  routes: Array<{
+    route_id: string;
+    from_zone_id?: string;
+    to_zone_id?: string;
+    mode?: string;
+    story_use?: string;
+  }>;
+};
+
+type V2DramaPlanPreview = {
+  character_arcs: Array<{
+    character_id?: string;
+    name?: string;
+    core_need?: string;
+    core_fear?: string;
+    act_turns?: Array<{
+      act_id?: string;
+      pressure?: string;
+      choice?: string;
+      change?: string;
+    }>;
+  }>;
+  relationship_arcs: Array<{
+    pair?: string;
+    starting_dynamic?: string;
+    friction_points?: string[];
+    repair_moments?: string[];
+    climax_resolution?: string;
+  }>;
+  pressure_ladder?: Record<string, string[]>;
+};
+
+type V2SetpiecePlanPreview = {
+  setpieces: Array<{
+    setpiece_id: string;
+    act_id?: string;
+    type?: string;
+    location_zone_id?: string;
+    story_purpose?: string;
+    outcome_turn?: string;
+    constraints?: string[];
+  }>;
+  quotas?: Record<string, boolean>;
+};
+
+type V2InspectorTab = "world" | "drama" | "setpieces" | "templates";
+
 type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
 type ArtifactFolderFilter = "all" | "root" | "intermediate" | "final";
 type SummaryTab = "narrative" | "visual";
 
-const STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
+const LEGACY_STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
+const V2_PHASE1_STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C"];
 const DEFAULT_STUCK_THRESHOLD_SECONDS = 90;
 const STUCK_THRESHOLD_MIN_SECONDS = 10;
 const STUCK_THRESHOLD_MAX_SECONDS = 1200;
@@ -134,6 +257,201 @@ function parseJsonOrThrow(text: string): unknown {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function normalizeV2Slide(value: unknown): V2DeckSpecSlide {
+  const row = asRecord(value);
+  return {
+    slide_id: typeof row.slide_id === "string" ? row.slide_id : "",
+    title: typeof row.title === "string" ? row.title : undefined,
+    act_id: typeof row.act_id === "string" ? row.act_id : undefined,
+    beat_type: typeof row.beat_type === "string" ? row.beat_type : undefined,
+    template_id: typeof row.template_id === "string" ? row.template_id : undefined,
+    visual_description: typeof row.visual_description === "string" ? row.visual_description : undefined,
+    exhibit_ids: asStringArray(row.exhibit_ids),
+    on_slide_text: asRecord(row.on_slide_text),
+    story_panel: asRecord(row.story_panel),
+    medical_payload: asRecord(row.medical_payload),
+    speaker_notes: asRecord(row.speaker_notes)
+  };
+}
+
+function normalizeV2DeckSpec(value: unknown): V2DeckSpecPreview {
+  const root = asRecord(value);
+  const slides = Array.isArray(root.slides) ? root.slides.map(normalizeV2Slide).filter((slide) => slide.slide_id.length > 0) : [];
+  const appendixSlides = Array.isArray(root.appendix_slides)
+    ? root.appendix_slides.map(normalizeV2Slide).filter((slide) => slide.slide_id.length > 0)
+    : [];
+  if (slides.length === 0 && appendixSlides.length === 0) {
+    throw new Error("deck_spec.json has no slide records.");
+  }
+  return {
+    deck_meta: asRecord(root.deck_meta),
+    slides,
+    appendix_slides: appendixSlides
+  };
+}
+
+function normalizeV2TemplateRegistry(value: unknown): V2TemplateRegistryPreview {
+  const root = asRecord(value);
+  const templates = Array.isArray(root.templates)
+    ? root.templates
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            template_id: typeof rec.template_id === "string" ? rec.template_id : "",
+            purpose: typeof rec.purpose === "string" ? rec.purpose : undefined,
+            renderer_instructions: asStringArray(rec.renderer_instructions),
+            allowed_beat_types: asStringArray(rec.allowed_beat_types)
+          };
+        })
+        .filter((row) => row.template_id.length > 0)
+    : [];
+  return { templates };
+}
+
+function normalizeV2ClueGraph(value: unknown): V2ClueGraphPreview {
+  const root = asRecord(value);
+  const exhibits = Array.isArray(root.exhibits)
+    ? root.exhibits
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            exhibit_id: typeof rec.exhibit_id === "string" ? rec.exhibit_id : "",
+            purpose: typeof rec.purpose === "string" ? rec.purpose : undefined
+          };
+        })
+        .filter((row) => row.exhibit_id.length > 0)
+    : [];
+  return { exhibits };
+}
+
+function normalizeV2MicroWorldMap(value: unknown): V2MicroWorldMapPreview {
+  const root = asRecord(value);
+  const zones = Array.isArray(root.zones)
+    ? root.zones
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            zone_id: typeof rec.zone_id === "string" ? rec.zone_id : "",
+            name: typeof rec.name === "string" ? rec.name : undefined,
+            anatomic_location: typeof rec.anatomic_location === "string" ? rec.anatomic_location : undefined,
+            resident_actors: asStringArray(rec.resident_actors),
+            environmental_gradients: asStringArray(rec.environmental_gradients),
+            narrative_motifs: asStringArray(rec.narrative_motifs)
+          };
+        })
+        .filter((row) => row.zone_id.length > 0)
+    : [];
+  const hazards = Array.isArray(root.hazards)
+    ? root.hazards
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            hazard_id: typeof rec.hazard_id === "string" ? rec.hazard_id : "",
+            type: typeof rec.type === "string" ? rec.type : undefined,
+            description: typeof rec.description === "string" ? rec.description : undefined,
+            links_to_pathophysiology:
+              typeof rec.links_to_pathophysiology === "string" ? rec.links_to_pathophysiology : undefined
+          };
+        })
+        .filter((row) => row.hazard_id.length > 0)
+    : [];
+  const routes = Array.isArray(root.routes)
+    ? root.routes
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            route_id: typeof rec.route_id === "string" ? rec.route_id : "",
+            from_zone_id: typeof rec.from_zone_id === "string" ? rec.from_zone_id : undefined,
+            to_zone_id: typeof rec.to_zone_id === "string" ? rec.to_zone_id : undefined,
+            mode: typeof rec.mode === "string" ? rec.mode : undefined,
+            story_use: typeof rec.story_use === "string" ? rec.story_use : undefined
+          };
+        })
+        .filter((row) => row.route_id.length > 0)
+    : [];
+  return { zones, hazards, routes };
+}
+
+function normalizeV2DramaPlan(value: unknown): V2DramaPlanPreview {
+  const root = asRecord(value);
+  const characterArcs = Array.isArray(root.character_arcs)
+    ? root.character_arcs.map((row) => {
+        const rec = asRecord(row);
+        const turnsRaw = Array.isArray(rec.act_turns) ? rec.act_turns : [];
+        return {
+          character_id: typeof rec.character_id === "string" ? rec.character_id : undefined,
+          name: typeof rec.name === "string" ? rec.name : undefined,
+          core_need: typeof rec.core_need === "string" ? rec.core_need : undefined,
+          core_fear: typeof rec.core_fear === "string" ? rec.core_fear : undefined,
+          act_turns: turnsRaw.map((turn) => {
+            const turnRec = asRecord(turn);
+            return {
+              act_id: typeof turnRec.act_id === "string" ? turnRec.act_id : undefined,
+              pressure: typeof turnRec.pressure === "string" ? turnRec.pressure : undefined,
+              choice: typeof turnRec.choice === "string" ? turnRec.choice : undefined,
+              change: typeof turnRec.change === "string" ? turnRec.change : undefined
+            };
+          })
+        };
+      })
+    : [];
+  const relationshipArcs = Array.isArray(root.relationship_arcs)
+    ? root.relationship_arcs.map((row) => {
+        const rec = asRecord(row);
+        return {
+          pair: typeof rec.pair === "string" ? rec.pair : undefined,
+          starting_dynamic: typeof rec.starting_dynamic === "string" ? rec.starting_dynamic : undefined,
+          friction_points: asStringArray(rec.friction_points),
+          repair_moments: asStringArray(rec.repair_moments),
+          climax_resolution: typeof rec.climax_resolution === "string" ? rec.climax_resolution : undefined
+        };
+      })
+    : [];
+  const pressureLadder = asRecord(root.pressure_ladder);
+  return {
+    character_arcs: characterArcs,
+    relationship_arcs: relationshipArcs,
+    pressure_ladder: Object.keys(pressureLadder).length > 0 ? pressureLadder as Record<string, string[]> : undefined
+  };
+}
+
+function normalizeV2SetpiecePlan(value: unknown): V2SetpiecePlanPreview {
+  const root = asRecord(value);
+  const setpieces = Array.isArray(root.setpieces)
+    ? root.setpieces
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            setpiece_id: typeof rec.setpiece_id === "string" ? rec.setpiece_id : "",
+            act_id: typeof rec.act_id === "string" ? rec.act_id : undefined,
+            type: typeof rec.type === "string" ? rec.type : undefined,
+            location_zone_id: typeof rec.location_zone_id === "string" ? rec.location_zone_id : undefined,
+            story_purpose: typeof rec.story_purpose === "string" ? rec.story_purpose : undefined,
+            outcome_turn: typeof rec.outcome_turn === "string" ? rec.outcome_turn : undefined,
+            constraints: asStringArray(rec.constraints)
+          };
+        })
+        .filter((row) => row.setpiece_id.length > 0)
+    : [];
+  const quotas = asRecord(root.quotas);
+  return {
+    setpieces,
+    quotas: Object.keys(quotas).length > 0 ? quotas as Record<string, boolean> : undefined
+  };
+}
+
 function extractKeyOrFallback(obj: unknown, key: string): unknown {
   if (obj && typeof obj === "object" && key in (obj as Record<string, unknown>)) {
     return (obj as Record<string, unknown>)[key];
@@ -177,6 +495,7 @@ function initialWatchdogThresholdSeconds(): number {
 
 function statusBadgeClass(status: RunStatus["status"]): string {
   if (status === "done") return "badge badgeOk";
+  if (status === "paused") return "badge badgeWarn";
   if (status === "error") return "badge badgeErr";
   return "badge";
 }
@@ -186,6 +505,31 @@ function constraintBadgeClass(status: NonNullable<RunStatus["constraintAdherence
   if (status === "pass") return "badge badgeOk";
   return "badge";
 }
+
+export const __runViewerTestables = {
+  iterationNumber,
+  isPatchedIter,
+  stableSort,
+  stableJson,
+  parseJsonOrThrow,
+  asRecord,
+  asStringArray,
+  normalizeV2Slide,
+  normalizeV2DeckSpec,
+  normalizeV2TemplateRegistry,
+  normalizeV2ClueGraph,
+  normalizeV2MicroWorldMap,
+  normalizeV2DramaPlan,
+  normalizeV2SetpiecePlan,
+  extractKeyOrFallback,
+  formatTime,
+  parseIsoMs,
+  formatElapsed,
+  clampWatchdogThresholdSeconds,
+  initialWatchdogThresholdSeconds,
+  statusBadgeClass,
+  constraintBadgeClass
+};
 
 export default function RunViewer() {
   const { runId } = useParams();
@@ -217,10 +561,56 @@ export default function RunViewer() {
   const [visualPrimer, setVisualPrimer] = useState<ReusableVisualPrimer | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryErr, setSummaryErr] = useState<string | null>(null);
+  const [v2DeckSpecPreview, setV2DeckSpecPreview] = useState<V2DeckSpecPreview | null>(null);
+  const [v2TemplateRegistryPreview, setV2TemplateRegistryPreview] = useState<V2TemplateRegistryPreview | null>(null);
+  const [v2ClueGraphPreview, setV2ClueGraphPreview] = useState<V2ClueGraphPreview | null>(null);
+  const [v2MicroWorldPreview, setV2MicroWorldPreview] = useState<V2MicroWorldMapPreview | null>(null);
+  const [v2DramaPlanPreview, setV2DramaPlanPreview] = useState<V2DramaPlanPreview | null>(null);
+  const [v2SetpiecePlanPreview, setV2SetpiecePlanPreview] = useState<V2SetpiecePlanPreview | null>(null);
+  const [v2InspectorTab, setV2InspectorTab] = useState<V2InspectorTab>("world");
+  const [v2DrilldownBusy, setV2DrilldownBusy] = useState(false);
+  const [v2DrilldownErr, setV2DrilldownErr] = useState<string | null>(null);
+  const [v2DrilldownSlideId, setV2DrilldownSlideId] = useState<string>("");
+  const [v2ZoneId, setV2ZoneId] = useState<string>("");
+  const [v2DramaCharacterId, setV2DramaCharacterId] = useState<string>("");
+  const [gateDecision, setGateDecision] = useState<"approve" | "request_changes" | "regenerate">("approve");
+  const [gateNotes, setGateNotes] = useState<string>("");
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateErr, setGateErr] = useState<string | null>(null);
+  const [gateMsg, setGateMsg] = useState<string | null>(null);
+  const [gateRecoveryHint, setGateRecoveryHint] = useState<string | null>(null);
+  const [gateHistory, setGateHistory] = useState<GateHistoryResponse | null>(null);
+  const [gateHistoryErr, setGateHistoryErr] = useState<string | null>(null);
+  const [gateHistoryBusy, setGateHistoryBusy] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const previousStuckRef = useRef<Map<string, number>>(new Map());
 
   const safeRunId = useMemo(() => runId ?? "", [runId]);
+  const workflow = run?.settings?.workflow ?? "legacy";
+  const stepOrder = useMemo(() => (workflow === "v2_micro_detectives" ? V2_PHASE1_STEP_ORDER : LEGACY_STEP_ORDER), [workflow]);
+  const v2PackagingNames = useMemo(
+    () => [
+      "micro_world_map.json",
+      "drama_plan.json",
+      "setpiece_plan.json",
+      "V2_MAIN_DECK_RENDER_PLAN.md",
+      "V2_APPENDIX_RENDER_PLAN.md",
+      "V2_SPEAKER_NOTES_WITH_CITATIONS.md",
+      "v2_template_registry.json"
+    ],
+    []
+  );
+  const storyboardReviewRequired = useMemo(
+    () => workflow === "v2_micro_detectives" && artifacts.some((a) => a.name === "GATE_3_STORYBOARD_REQUIRED.json"),
+    [workflow, artifacts]
+  );
+  const v2PackagingReadyCount = useMemo(() => {
+    if (workflow !== "v2_micro_detectives") return 0;
+    const names = new Set(artifacts.map((a) => a.name));
+    return v2PackagingNames.filter((name) => names.has(name)).length;
+  }, [workflow, artifacts, v2PackagingNames]);
+  const gateHistoryRows = gateHistory?.history ?? [];
 
   const baselineSpecName = useMemo(() => {
     return artifacts.some((a) => a.name === "final_slide_spec.json") ? "final_slide_spec.json" : null;
@@ -269,6 +659,21 @@ export default function RunViewer() {
     }
   }
 
+  async function refreshGateHistory() {
+    if (!safeRunId) return;
+    setGateHistoryBusy(true);
+    try {
+      const history = await getGateHistory(safeRunId);
+      setGateHistory(history);
+      setGateHistoryErr(null);
+    } catch (e) {
+      setGateHistory(null);
+      setGateHistoryErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGateHistoryBusy(false);
+    }
+  }
+
   useEffect(() => {
     setRun(null);
     setRunErr(null);
@@ -297,10 +702,38 @@ export default function RunViewer() {
     setVisualPrimer(null);
     setSummaryBusy(false);
     setSummaryErr(null);
+    setV2DeckSpecPreview(null);
+    setV2TemplateRegistryPreview(null);
+    setV2ClueGraphPreview(null);
+    setV2MicroWorldPreview(null);
+    setV2DramaPlanPreview(null);
+    setV2SetpiecePlanPreview(null);
+    setV2InspectorTab("world");
+    setV2DrilldownBusy(false);
+    setV2DrilldownErr(null);
+    setV2DrilldownSlideId("");
+    setV2ZoneId("");
+    setV2DramaCharacterId("");
+    setGateDecision("approve");
+    setGateNotes("");
+    setGateBusy(false);
+    setGateErr(null);
+    setGateMsg(null);
+    setGateRecoveryHint(null);
+    setGateHistory(null);
+    setGateHistoryErr(null);
+    setGateHistoryBusy(false);
+    setResumeBusy(false);
 
     void refreshRun();
     void refreshArtifacts();
+    void refreshGateHistory();
   }, [safeRunId]);
+
+  useEffect(() => {
+    if (stepOrder.includes(rerunStartFrom)) return;
+    setRerunStartFrom(stepOrder[0] ?? "KB0");
+  }, [stepOrder, rerunStartFrom]);
 
   useEffect(() => {
     const hasDiagnosticsArtifact = artifacts.some((a) => a.name === "constraint_adherence_report.json");
@@ -385,10 +818,86 @@ export default function RunViewer() {
   }, [safeRunId, artifacts]);
 
   useEffect(() => {
+    const hasDeckSpec = artifacts.some((a) => a.name === "deck_spec.json");
+    const hasTemplateRegistry = artifacts.some((a) => a.name === "v2_template_registry.json");
+    const hasClueGraph = artifacts.some((a) => a.name === "clue_graph.json");
+    const hasMicroWorld = artifacts.some((a) => a.name === "micro_world_map.json");
+    const hasDramaPlan = artifacts.some((a) => a.name === "drama_plan.json");
+    const hasSetpiecePlan = artifacts.some((a) => a.name === "setpiece_plan.json");
+
+    if (!safeRunId || workflow !== "v2_micro_detectives" || !hasDeckSpec) {
+      setV2DeckSpecPreview(null);
+      setV2TemplateRegistryPreview(null);
+      setV2ClueGraphPreview(null);
+      setV2MicroWorldPreview(null);
+      setV2DramaPlanPreview(null);
+      setV2SetpiecePlanPreview(null);
+      setV2DrilldownErr(null);
+      setV2DrilldownBusy(false);
+      return;
+    }
+
+    let cancelled = false;
+    setV2DrilldownBusy(true);
+    setV2DrilldownErr(null);
+
+    void (async () => {
+      try {
+        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw] = await Promise.all([
+          fetchArtifact(safeRunId, "deck_spec.json"),
+          hasTemplateRegistry ? fetchArtifact(safeRunId, "v2_template_registry.json") : Promise.resolve(null),
+          hasClueGraph ? fetchArtifact(safeRunId, "clue_graph.json") : Promise.resolve(null),
+          hasMicroWorld ? fetchArtifact(safeRunId, "micro_world_map.json") : Promise.resolve(null),
+          hasDramaPlan ? fetchArtifact(safeRunId, "drama_plan.json") : Promise.resolve(null),
+          hasSetpiecePlan ? fetchArtifact(safeRunId, "setpiece_plan.json") : Promise.resolve(null)
+        ]);
+        if (cancelled) return;
+
+        const deckParsed = normalizeV2DeckSpec(parseJsonOrThrow(deckRaw.text));
+        const templateParsed = templateRaw ? normalizeV2TemplateRegistry(parseJsonOrThrow(templateRaw.text)) : null;
+        const clueParsed = clueRaw ? normalizeV2ClueGraph(parseJsonOrThrow(clueRaw.text)) : null;
+        const microWorldParsed = microWorldRaw ? normalizeV2MicroWorldMap(parseJsonOrThrow(microWorldRaw.text)) : null;
+        const dramaParsed = dramaRaw ? normalizeV2DramaPlan(parseJsonOrThrow(dramaRaw.text)) : null;
+        const setpieceParsed = setpieceRaw ? normalizeV2SetpiecePlan(parseJsonOrThrow(setpieceRaw.text)) : null;
+
+        setV2DeckSpecPreview(deckParsed);
+        setV2TemplateRegistryPreview(templateParsed);
+        setV2ClueGraphPreview(clueParsed);
+        setV2MicroWorldPreview(microWorldParsed);
+        setV2DramaPlanPreview(dramaParsed);
+        setV2SetpiecePlanPreview(setpieceParsed);
+        setV2DrilldownErr(null);
+      } catch (e) {
+        if (cancelled) return;
+        setV2DeckSpecPreview(null);
+        setV2TemplateRegistryPreview(null);
+        setV2ClueGraphPreview(null);
+        setV2MicroWorldPreview(null);
+        setV2DramaPlanPreview(null);
+        setV2SetpiecePlanPreview(null);
+        setV2DrilldownErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setV2DrilldownBusy(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [safeRunId, artifacts, workflow]);
+
+  useEffect(() => {
     if (patchedIterNames.length > 0 && !diffTarget) {
       setDiffTarget(patchedIterNames[patchedIterNames.length - 1]!);
     }
   }, [patchedIterNames, diffTarget]);
+
+  useEffect(() => {
+    if (!safeRunId) return;
+    if (run?.status === "paused" || artifacts.some((a) => a.name === "human_review.json")) {
+      void refreshGateHistory();
+    }
+  }, [safeRunId, run?.status, artifacts]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -448,6 +957,38 @@ export default function RunViewer() {
         pushLog("artifact_written (unparseable)");
       }
       void refreshArtifacts();
+      void refreshRun();
+    });
+
+    es.addEventListener("gate_required", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as { gateId: string; resumeFrom: string; message: string };
+        pushLog(`gate required: ${data.gateId} (resumeFrom=${data.resumeFrom}) ${data.message}`);
+      } catch {
+        pushLog("gate_required (unparseable)");
+      }
+      void refreshRun();
+      void refreshGateHistory();
+    });
+
+    es.addEventListener("gate_submitted", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as { gateId: string; status: string };
+        pushLog(`gate submitted: ${data.gateId} => ${data.status}`);
+      } catch {
+        pushLog("gate_submitted (unparseable)");
+      }
+      void refreshRun();
+      void refreshGateHistory();
+    });
+
+    es.addEventListener("run_resumed", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as { gateId: string; startFrom: string; mode: string };
+        pushLog(`run resumed from ${data.gateId} at ${data.startFrom} (mode=${data.mode})`);
+      } catch {
+        pushLog("run_resumed (unparseable)");
+      }
       void refreshRun();
     });
 
@@ -527,6 +1068,58 @@ export default function RunViewer() {
     }
   }
 
+  async function onSubmitGateReview() {
+    if (!safeRunId || !run?.activeGate) return;
+    setGateErr(null);
+    setGateMsg(null);
+    setGateRecoveryHint(null);
+    setGateBusy(true);
+    try {
+      const res = await submitGateReview(safeRunId, run.activeGate.gateId, {
+        status: gateDecision,
+        notes: gateNotes,
+        requested_changes: []
+      });
+      setGateMsg(`Submitted ${gateDecision} for ${run.activeGate.gateId}.`);
+      if (res.recommendedAction === "resume") {
+        setGateRecoveryHint(`Ready to resume from ${res.suggestedResumeFrom ?? run.activeGate.resumeFrom}.`);
+      } else if (res.recommendedAction === "resume_regenerate") {
+        setGateRecoveryHint(`Ready to regenerate from ${res.suggestedResumeFrom ?? "gate step"}. Click Resume run to restart that step.`);
+      } else {
+        setGateRecoveryHint("Feedback saved. Run will stay paused until you submit approve or regenerate.");
+      }
+      await refreshArtifacts();
+      await refreshRun();
+      await refreshGateHistory();
+    } catch (e) {
+      setGateErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGateBusy(false);
+    }
+  }
+
+  async function onResume() {
+    if (!safeRunId) return;
+    setGateErr(null);
+    setGateMsg(null);
+    setGateRecoveryHint(null);
+    setResumeBusy(true);
+    try {
+      const res = await resumeRun(safeRunId);
+      setGateMsg(
+        res.resumeMode === "regenerate"
+          ? `Regeneration requested from ${res.startFrom}.`
+          : `Resume requested from ${res.startFrom}.`
+      );
+      await refreshRun();
+      await refreshGateHistory();
+    } catch (e) {
+      setGateErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResumeBusy(false);
+    }
+  }
+
   async function onComputeDiff() {
     if (!safeRunId) return;
     // The Diff button is only rendered when both are present.
@@ -576,7 +1169,7 @@ export default function RunViewer() {
   const stuckRunningSteps = useMemo(() => {
     if (!run) return [] as Array<{ step: string; elapsedMs: number }>;
 
-    return STEP_ORDER.map((step) => ({ step, status: run.steps[step] }))
+    return stepOrder.map((step) => ({ step, status: run.steps[step] }))
       .filter((row) => row.status?.status === "running")
       .map((row) => {
         const startedMs = parseIsoMs(row.status?.startedAt);
@@ -586,9 +1179,78 @@ export default function RunViewer() {
         };
       })
       .filter((row) => row.elapsedMs >= stuckThresholdMs);
-  }, [run, nowMs, stuckThresholdMs]);
+  }, [run, nowMs, stuckThresholdMs, stepOrder]);
 
   const recoveredStepNames = useMemo(() => recoveredSteps.map((r) => r.step), [recoveredSteps]);
+
+  const v2DrilldownSlides = useMemo(() => {
+    if (!v2DeckSpecPreview) return [] as V2DeckSpecSlide[];
+    return [...v2DeckSpecPreview.slides, ...v2DeckSpecPreview.appendix_slides];
+  }, [v2DeckSpecPreview]);
+
+  useEffect(() => {
+    if (v2DrilldownSlides.length === 0) {
+      setV2DrilldownSlideId("");
+      return;
+    }
+    if (v2DrilldownSlides.some((slide) => slide.slide_id === v2DrilldownSlideId)) return;
+    setV2DrilldownSlideId(v2DrilldownSlides[0]!.slide_id);
+  }, [v2DrilldownSlides, v2DrilldownSlideId]);
+
+  const v2SelectedSlide = useMemo(() => {
+    if (v2DrilldownSlides.length === 0) return null;
+    return v2DrilldownSlides.find((slide) => slide.slide_id === v2DrilldownSlideId) ?? v2DrilldownSlides[0]!;
+  }, [v2DrilldownSlides, v2DrilldownSlideId]);
+
+  const v2SelectedTemplate = useMemo(() => {
+    if (!v2SelectedSlide?.template_id || !v2TemplateRegistryPreview) return null;
+    return v2TemplateRegistryPreview.templates.find((template) => template.template_id === v2SelectedSlide.template_id) ?? null;
+  }, [v2SelectedSlide, v2TemplateRegistryPreview]);
+
+  const v2SelectedExhibits = useMemo(() => {
+    const ids = v2SelectedSlide?.exhibit_ids ?? [];
+    if (ids.length === 0) return [] as Array<{ exhibitId: string; purpose?: string }>;
+    const purposeMap = new Map(
+      (v2ClueGraphPreview?.exhibits ?? []).map((row) => [row.exhibit_id, row.purpose] as const)
+    );
+    return ids.map((exhibitId) => ({ exhibitId, purpose: purposeMap.get(exhibitId) }));
+  }, [v2SelectedSlide, v2ClueGraphPreview]);
+
+  useEffect(() => {
+    const zones = v2MicroWorldPreview?.zones ?? [];
+    if (zones.length === 0) {
+      setV2ZoneId("");
+      return;
+    }
+    if (zones.some((zone) => zone.zone_id === v2ZoneId)) return;
+    setV2ZoneId(zones[0]!.zone_id);
+  }, [v2MicroWorldPreview, v2ZoneId]);
+
+  const v2SelectedZone = useMemo(() => {
+    const zones = v2MicroWorldPreview?.zones ?? [];
+    if (zones.length === 0) return null;
+    return zones.find((zone) => zone.zone_id === v2ZoneId) ?? zones[0]!;
+  }, [v2MicroWorldPreview, v2ZoneId]);
+
+  useEffect(() => {
+    const characters = v2DramaPlanPreview?.character_arcs ?? [];
+    if (characters.length === 0) {
+      setV2DramaCharacterId("");
+      return;
+    }
+    const hasCurrent = characters.some((arc) => (arc.character_id ?? arc.name) === v2DramaCharacterId);
+    if (hasCurrent) return;
+    setV2DramaCharacterId(characters[0]?.character_id ?? characters[0]?.name ?? "");
+  }, [v2DramaPlanPreview, v2DramaCharacterId]);
+
+  const v2SelectedDramaArc = useMemo(() => {
+    const characters = v2DramaPlanPreview?.character_arcs ?? [];
+    if (characters.length === 0) return null;
+    return (
+      characters.find((arc) => (arc.character_id ?? arc.name) === v2DramaCharacterId) ??
+      characters[0]!
+    );
+  }, [v2DramaPlanPreview, v2DramaCharacterId]);
 
   useEffect(() => {
     if (!run) return;
@@ -667,7 +1329,7 @@ export default function RunViewer() {
                     style={{ width: 120 }}
                     disabled={rerunBusy || run.status === "running"}
                   >
-                    {STEP_ORDER.map((s) => (
+                    {stepOrder.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
@@ -682,6 +1344,125 @@ export default function RunViewer() {
               </div>
             </div>
           </div>
+
+          {run.status === "paused" && run.activeGate && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>Gate review required</div>
+                <span className="badge badgeWarn">{run.activeGate.gateId}</span>
+              </div>
+              <div className="panelBody">
+                <div className="subtle" style={{ marginBottom: 10 }}>
+                  {run.activeGate.message}
+                </div>
+                <div className="mono" style={{ marginBottom: 10 }}>
+                  resumeFrom={run.activeGate.resumeFrom}
+                </div>
+                <div className="mono subtle" style={{ marginBottom: 10 }}>
+                  awaiting={run.activeGate.awaiting ?? "review_submission"}
+                  {run.activeGate.submittedDecision ? ` · submitted=${run.activeGate.submittedDecision}` : ""}
+                </div>
+                <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div>
+                    <div className="subtle">Decision</div>
+                    <select aria-label="Gate decision" value={gateDecision} onChange={(e) => setGateDecision(e.target.value as typeof gateDecision)}>
+                      <option value="approve">approve</option>
+                      <option value="request_changes">request_changes</option>
+                      <option value="regenerate">regenerate</option>
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 320, flex: 1 }}>
+                    <div className="subtle">Notes</div>
+                    <textarea
+                      aria-label="Gate notes"
+                      value={gateNotes}
+                      onChange={(e) => setGateNotes(e.target.value)}
+                      placeholder="Optional feedback for this gate"
+                      style={{ minHeight: 78 }}
+                    />
+                  </div>
+                  <button disabled={gateBusy} onClick={() => void onSubmitGateReview()}>
+                    {gateBusy ? "Submitting..." : "Submit gate review"}
+                  </button>
+                  <div className="subtle" style={{ minWidth: 220 }}>
+                    {gateDecision === "request_changes" && "request_changes keeps this run paused for further edits."}
+                    {gateDecision === "regenerate" && "regenerate restarts from the gate-owning step after Resume."}
+                  </div>
+                  <button disabled={resumeBusy} onClick={() => void onResume()}>
+                    {resumeBusy ? "Resuming..." : "Resume run"}
+                  </button>
+                </div>
+                {gateErr && (
+                  <div style={{ marginTop: 10 }}>
+                    <span className="badge badgeErr">{gateErr}</span>
+                  </div>
+                )}
+                {gateMsg && (
+                  <div style={{ marginTop: 10 }}>
+                    <span className="badge badgeOk">{gateMsg}</span>
+                  </div>
+                )}
+                {gateRecoveryHint && (
+                  <div style={{ marginTop: 10 }}>
+                    <span className="badge">{gateRecoveryHint}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>Gate history</div>
+                <button onClick={() => void refreshGateHistory()}>Refresh</button>
+              </div>
+              <div className="panelBody">
+                {gateHistoryBusy && <div className="subtle">Loading gate history…</div>}
+                {gateHistoryErr && <span className="badge badgeErr">{gateHistoryErr}</span>}
+                {!gateHistoryBusy && !gateHistoryErr && gateHistoryRows.length === 0 && (
+                  <div className="subtle">No gate reviews submitted yet.</div>
+                )}
+                {!gateHistoryBusy && !gateHistoryErr && gateHistoryRows.length > 0 && (
+                  <div className="log mono" style={{ maxHeight: 180 }}>
+                    {gateHistoryRows
+                      .slice()
+                      .reverse()
+                      .slice(0, 10)
+                      .map((entry, idx) => (
+                        <div key={`${entry.gate_id}-${entry.submitted_at}-${idx}`} className="logLine">
+                          {entry.submitted_at} [{entry.gate_id}] {entry.status}
+                          {entry.notes ? ` — ${entry.notes}` : ""}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 packaging status</div>
+              </div>
+              <div className="panelBody">
+                <div className="subtle" style={{ marginBottom: 10 }}>
+                  {v2PackagingReadyCount}/{v2PackagingNames.length} packaging artifacts present
+                </div>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  {v2PackagingNames.map((name) => {
+                    const ok = artifacts.some((a) => a.name === name);
+                    return (
+                      <span key={name} className={`badge ${ok ? "badgeOk" : ""}`}>
+                        {ok ? "ready" : "pending"} · {name}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="panel runMetaCard">
             <div className="panelHeader">
@@ -748,6 +1529,17 @@ export default function RunViewer() {
             </div>
           </div>
 
+          {storyboardReviewRequired && run.status === "done" && (
+            <div className="panel runGateCard">
+              <div className="panelBody">
+                <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <span className="badge badgeWarn">Storyboard review required</span>
+                  <span className="mono">Phase 1 complete. Review `deck_spec.json`, then rerun from A or B after edits.</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {stuckRunningSteps.length > 0 && (
             <div className="panel runWatchdogCard">
               <div className="panelBody">
@@ -807,6 +1599,7 @@ export default function RunViewer() {
 
           <StepTimeline
             steps={run.steps}
+            workflow={workflow}
             nowMs={nowMs}
             stuckThresholdMs={stuckThresholdMs}
             recoveredSteps={recoveredStepNames}
@@ -1018,6 +1811,339 @@ export default function RunViewer() {
                   )}
                 </div>
               </div>
+
+              {workflow === "v2_micro_detectives" && (
+                <div className="panel">
+                  <div className="panelHeader">
+                    <div style={{ fontWeight: 600 }}>V2 slide drilldown</div>
+                  </div>
+                  <div className="panelBody">
+                    {v2DrilldownBusy && <div className="subtle">Loading deck drilldown…</div>}
+                    {v2DrilldownErr && <span className="badge badgeErr">{v2DrilldownErr}</span>}
+                    {!v2DrilldownBusy && !v2DrilldownErr && !v2DeckSpecPreview && (
+                      <div className="subtle">No deck_spec.json artifact yet.</div>
+                    )}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2DeckSpecPreview && (
+                      <div className="v2DrilldownWrap">
+                        <div className="subtle">
+                          {v2DeckSpecPreview.deck_meta?.episode_title ?? "Deck"} · main{" "}
+                          {v2DeckSpecPreview.deck_meta?.deck_length_main ?? String(v2DeckSpecPreview.slides.length)} slides
+                        </div>
+                        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                          <span className="subtle">Slide</span>
+                          <select
+                            aria-label="V2 drilldown slide"
+                            value={v2SelectedSlide?.slide_id ?? ""}
+                            onChange={(e) => setV2DrilldownSlideId(e.target.value)}
+                            style={{ minWidth: 240, flex: 1 }}
+                          >
+                            {v2DrilldownSlides.map((slide) => (
+                              <option key={slide.slide_id} value={slide.slide_id}>
+                                {slide.slide_id} · {slide.title ?? slide.on_slide_text?.headline ?? "Untitled"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {v2SelectedSlide && (
+                          <>
+                            <div className="row v2DrilldownBadges">
+                              <span className="badge">{v2SelectedSlide.act_id ?? "ACT?"}</span>
+                              <span className="badge">{v2SelectedSlide.beat_type ?? "beat?"}</span>
+                              <span className="badge badgeOk">{v2SelectedSlide.template_id ?? "template?"}</span>
+                              <span className="badge">{v2SelectedSlide.medical_payload?.delivery_mode ?? "delivery?"}</span>
+                            </div>
+
+                            <details className="diagnosticDetails" open>
+                              <summary>Template + panel details</summary>
+                              <div className="diagnosticKv">
+                                <div>headline</div>
+                                <div>{v2SelectedSlide.on_slide_text?.headline ?? "-"}</div>
+                                <div>subtitle</div>
+                                <div>{v2SelectedSlide.on_slide_text?.subtitle ?? "-"}</div>
+                                <div>major concept</div>
+                                <div className="mono">{v2SelectedSlide.medical_payload?.major_concept_id ?? "-"}</div>
+                                <div>visual description</div>
+                                <div>{v2SelectedSlide.visual_description ?? "-"}</div>
+                              </div>
+                            </details>
+
+                            <details className="diagnosticDetails">
+                              <summary>Story turn + notes</summary>
+                              <div className="diagnosticKv">
+                                <div>goal</div>
+                                <div>{v2SelectedSlide.story_panel?.goal ?? "-"}</div>
+                                <div>opposition</div>
+                                <div>{v2SelectedSlide.story_panel?.opposition ?? "-"}</div>
+                                <div>turn</div>
+                                <div>{v2SelectedSlide.story_panel?.turn ?? "-"}</div>
+                                <div>decision</div>
+                                <div>{v2SelectedSlide.story_panel?.decision ?? "-"}</div>
+                                <div>medical reasoning</div>
+                                <div>{v2SelectedSlide.speaker_notes?.medical_reasoning ?? "-"}</div>
+                              </div>
+                            </details>
+
+                            <details className="diagnosticDetails" open>
+                              <summary>Exhibits + citations</summary>
+                              <div className="diagnosticKv">
+                                <div>exhibit count</div>
+                                <div className="mono">{v2SelectedExhibits.length}</div>
+                                <div>citations</div>
+                                <div className="mono">{v2SelectedSlide.medical_payload?.dossier_citations?.length ?? 0}</div>
+                              </div>
+                              {v2SelectedExhibits.length === 0 ? (
+                                <div className="subtle">No exhibit IDs on this slide.</div>
+                              ) : (
+                                <ul className="diagnosticList">
+                                  {v2SelectedExhibits.map((row) => (
+                                    <li key={row.exhibitId}>
+                                      <span className="mono">{row.exhibitId}</span>
+                                      {row.purpose ? ` — ${row.purpose}` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </details>
+
+                            {v2SelectedTemplate && (
+                              <details className="diagnosticDetails" open>
+                                <summary>Template guidance</summary>
+                                <div className="diagnosticKv">
+                                  <div>purpose</div>
+                                  <div>{v2SelectedTemplate.purpose ?? "-"}</div>
+                                  <div>allowed beats</div>
+                                  <div>{v2SelectedTemplate.allowed_beat_types?.join(", ") || "-"}</div>
+                                </div>
+                                {v2SelectedTemplate.renderer_instructions && v2SelectedTemplate.renderer_instructions.length > 0 && (
+                                  <ul className="diagnosticList">
+                                    {v2SelectedTemplate.renderer_instructions.map((instruction, idx) => (
+                                      <li key={`tpl-ins-${idx}`}>{instruction}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </details>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {workflow === "v2_micro_detectives" && (
+                <div className="panel">
+                  <div className="panelHeader">
+                    <div style={{ fontWeight: 600 }}>V2 artifact inspectors</div>
+                  </div>
+                  <div className="panelBody">
+                    <div className="summaryTabs">
+                      <button
+                        className={`summaryTabButton ${v2InspectorTab === "world" ? "summaryTabButtonActive" : ""}`}
+                        onClick={() => setV2InspectorTab("world")}
+                      >
+                        Micro World
+                      </button>
+                      <button
+                        className={`summaryTabButton ${v2InspectorTab === "drama" ? "summaryTabButtonActive" : ""}`}
+                        onClick={() => setV2InspectorTab("drama")}
+                      >
+                        Drama Plan
+                      </button>
+                      <button
+                        className={`summaryTabButton ${v2InspectorTab === "setpieces" ? "summaryTabButtonActive" : ""}`}
+                        onClick={() => setV2InspectorTab("setpieces")}
+                      >
+                        Setpieces
+                      </button>
+                      <button
+                        className={`summaryTabButton ${v2InspectorTab === "templates" ? "summaryTabButtonActive" : ""}`}
+                        onClick={() => setV2InspectorTab("templates")}
+                      >
+                        Templates
+                      </button>
+                    </div>
+
+                    {v2DrilldownBusy && <div className="subtle">Loading v2 inspectors…</div>}
+                    {v2DrilldownErr && <span className="badge badgeErr">{v2DrilldownErr}</span>}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2InspectorTab === "world" && (
+                      <>
+                        {!v2MicroWorldPreview && <div className="subtle">No micro_world_map.json artifact yet.</div>}
+                        {v2MicroWorldPreview && (
+                          <div className="summaryCardList">
+                            <div className="row" style={{ gap: 8 }}>
+                              <span className="subtle">Zone</span>
+                              <select
+                                aria-label="V2 inspector zone"
+                                value={v2SelectedZone?.zone_id ?? ""}
+                                onChange={(e) => setV2ZoneId(e.target.value)}
+                                style={{ flex: 1 }}
+                              >
+                                {(v2MicroWorldPreview.zones ?? []).map((zone) => (
+                                  <option key={zone.zone_id} value={zone.zone_id}>
+                                    {zone.zone_id} · {zone.name ?? "Unnamed zone"}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {v2SelectedZone && (
+                              <details className="diagnosticDetails" open>
+                                <summary>Zone details</summary>
+                                <div className="diagnosticKv">
+                                  <div>name</div>
+                                  <div>{v2SelectedZone.name ?? "-"}</div>
+                                  <div>anatomic location</div>
+                                  <div>{v2SelectedZone.anatomic_location ?? "-"}</div>
+                                  <div>resident actors</div>
+                                  <div>{v2SelectedZone.resident_actors?.join(", ") || "-"}</div>
+                                  <div>environmental gradients</div>
+                                  <div>{v2SelectedZone.environmental_gradients?.join(", ") || "-"}</div>
+                                </div>
+                              </details>
+                            )}
+                            <details className="diagnosticDetails">
+                              <summary>Hazards ({v2MicroWorldPreview.hazards.length})</summary>
+                              <ul className="diagnosticList">
+                                {v2MicroWorldPreview.hazards.map((hazard) => (
+                                  <li key={hazard.hazard_id}>
+                                    <strong>{hazard.hazard_id}</strong>
+                                    {hazard.type ? ` (${hazard.type})` : ""}: {hazard.description ?? "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                            <details className="diagnosticDetails">
+                              <summary>Routes ({v2MicroWorldPreview.routes.length})</summary>
+                              <ul className="diagnosticList">
+                                {v2MicroWorldPreview.routes.map((route) => (
+                                  <li key={route.route_id}>
+                                    <span className="mono">{route.route_id}</span>: {route.from_zone_id ?? "?"} →{" "}
+                                    {route.to_zone_id ?? "?"} ({route.mode ?? "mode?"})
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2InspectorTab === "drama" && (
+                      <>
+                        {!v2DramaPlanPreview && <div className="subtle">No drama_plan.json artifact yet.</div>}
+                        {v2DramaPlanPreview && (
+                          <div className="summaryCardList">
+                            <div className="row" style={{ gap: 8 }}>
+                              <span className="subtle">Character</span>
+                              <select
+                                aria-label="V2 inspector character"
+                                value={v2SelectedDramaArc?.character_id ?? v2SelectedDramaArc?.name ?? ""}
+                                onChange={(e) => setV2DramaCharacterId(e.target.value)}
+                                style={{ flex: 1 }}
+                              >
+                                {(v2DramaPlanPreview.character_arcs ?? []).map((arc, idx) => {
+                                  const value = arc.character_id ?? arc.name ?? `arc-${idx}`;
+                                  return (
+                                    <option key={value} value={value}>
+                                      {arc.name ?? arc.character_id ?? `Character ${idx + 1}`}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                            {v2SelectedDramaArc && (
+                              <details className="diagnosticDetails" open>
+                                <summary>Character arc details</summary>
+                                <div className="diagnosticKv">
+                                  <div>core need</div>
+                                  <div>{v2SelectedDramaArc.core_need ?? "-"}</div>
+                                  <div>core fear</div>
+                                  <div>{v2SelectedDramaArc.core_fear ?? "-"}</div>
+                                </div>
+                                <ul className="diagnosticList">
+                                  {(v2SelectedDramaArc.act_turns ?? []).map((turn, idx) => (
+                                    <li key={`turn-${idx}`}>
+                                      <strong>{turn.act_id ?? "ACT?"}</strong>: {turn.pressure ?? "-"} / {turn.choice ?? "-"} /{" "}
+                                      {turn.change ?? "-"}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                            <details className="diagnosticDetails">
+                              <summary>Relationship arcs ({v2DramaPlanPreview.relationship_arcs.length})</summary>
+                              <ul className="diagnosticList">
+                                {v2DramaPlanPreview.relationship_arcs.map((arc, idx) => (
+                                  <li key={`rel-${idx}`}>
+                                    <strong>{arc.pair ?? `Pair ${idx + 1}`}</strong>: {arc.starting_dynamic ?? "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2InspectorTab === "setpieces" && (
+                      <>
+                        {!v2SetpiecePlanPreview && <div className="subtle">No setpiece_plan.json artifact yet.</div>}
+                        {v2SetpiecePlanPreview && (
+                          <div className="summaryCardList">
+                            <details className="diagnosticDetails" open>
+                              <summary>Setpieces ({v2SetpiecePlanPreview.setpieces.length})</summary>
+                              <ul className="diagnosticList">
+                                {v2SetpiecePlanPreview.setpieces.map((item) => (
+                                  <li key={item.setpiece_id}>
+                                    <strong>{item.setpiece_id}</strong> [{item.act_id ?? "ACT?"}] {item.type ?? "type?"}:{" "}
+                                    {item.story_purpose ?? "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                            {v2SetpiecePlanPreview.quotas && (
+                              <details className="diagnosticDetails">
+                                <summary>Quota checks</summary>
+                                <div className="diagnosticKv">
+                                  {Object.entries(v2SetpiecePlanPreview.quotas).map(([key, value]) => (
+                                    <div key={key} style={{ display: "contents" }}>
+                                      <div>{key}</div>
+                                      <div className="mono">{value ? "yes" : "no"}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2InspectorTab === "templates" && (
+                      <>
+                        {!v2TemplateRegistryPreview && <div className="subtle">No v2_template_registry.json artifact yet.</div>}
+                        {v2TemplateRegistryPreview && (
+                          <div className="summaryCardList">
+                            <details className="diagnosticDetails" open>
+                              <summary>Template registry ({v2TemplateRegistryPreview.templates.length})</summary>
+                              <ul className="diagnosticList">
+                                {v2TemplateRegistryPreview.templates.map((template) => (
+                                  <li key={template.template_id}>
+                                    <span className="mono">{template.template_id}</span>: {template.purpose ?? "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="panel">
                 <div className="panelHeader">

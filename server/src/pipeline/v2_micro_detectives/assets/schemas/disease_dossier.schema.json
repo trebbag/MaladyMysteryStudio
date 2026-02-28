@@ -1,0 +1,1395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiseaseDossier",
+  "description": "Grounded, citation-backed medical dossier for one disease-case episode. Use as the only source of truth for medical facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version, e.g., 1.0.0."
+    },
+    "created_at": {
+      "type": "string",
+      "description": "ISO-8601 timestamp."
+    },
+    "disease_request": {
+      "type": "object",
+      "properties": {
+        "disease_topic": {
+          "type": "string",
+          "description": "User-provided topic prompt."
+        },
+        "target_level": {
+          "type": "string",
+          "enum": [
+            "MED_SCHOOL_ADVANCED",
+            "RESIDENT",
+            "FELLOWSHIP"
+          ]
+        },
+        "setting_focus": {
+          "type": "string",
+          "enum": [
+            "lung",
+            "kidney",
+            "neuro",
+            "heme",
+            "gi",
+            "cardio",
+            "derm",
+            "rheum",
+            "multi_system",
+            "other"
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Additional constraints, e.g., 'no gore', 'more action set-pieces'."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "disease_topic",
+        "target_level",
+        "setting_focus",
+        "constraints"
+      ]
+    },
+    "canonical_name": {
+      "type": "string",
+      "description": "Canonical disease name."
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Alternative names/abbreviations."
+      }
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variant name."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Clinically important differences."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "citations"
+        ]
+      }
+    },
+    "epidemiology": {
+      "type": "object",
+      "properties": {
+        "prevalence_context": {
+          "type": "string",
+          "description": "High-level prevalence/incidence notes."
+        },
+        "risk_factors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Key risk factors relevant to plot/differential."
+          }
+        },
+        "typical_age_range": {
+          "type": "string",
+          "description": "Typical age range."
+        },
+        "sex_skew": {
+          "type": "string",
+          "description": "Sex distribution notes."
+        },
+        "geography_notes": {
+          "type": "string",
+          "description": "Geographic/seasonal notes if relevant."
+        },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "citation_id": {
+                "type": "string",
+                "description": "ID of a source in citations[] (e.g., CIT-01)."
+              },
+              "chunk_id": {
+                "type": "string",
+                "description": "Optional chunk locator within the source (e.g., CH-014)."
+              },
+              "locator": {
+                "type": "string",
+                "description": "Optional human-readable locator (chapter/section/page)."
+              },
+              "claim": {
+                "type": "string",
+                "description": "What this citation supports (brief)."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "citation_id",
+              "claim"
+            ],
+            "title": "CitationRef"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "citations"
+      ]
+    },
+    "learning_objectives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "objective_id": {
+            "type": "string",
+            "description": "Stable id, e.g., LO-01."
+          },
+          "statement": {
+            "type": "string",
+            "description": "What the learner should understand."
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "must_have",
+              "nice_to_have"
+            ]
+          },
+          "mapped_concepts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Concept IDs that fulfill this objective."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "objective_id",
+          "statement",
+          "priority",
+          "mapped_concepts",
+          "citations"
+        ]
+      }
+    },
+    "concept_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "concept_id": {
+            "type": "string",
+            "description": "Stable concept id, e.g., CON-IMM-001."
+          },
+          "name": {
+            "type": "string",
+            "description": "Concept name."
+          },
+          "summary": {
+            "type": "string",
+            "description": "1\u20133 sentence summary."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "MED_SCHOOL_ADVANCED",
+              "RESIDENT",
+              "FELLOWSHIP"
+            ]
+          },
+          "common_mistake": {
+            "type": "string",
+            "description": "A common mistake or confusion point (optional)."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "concept_id",
+          "name",
+          "summary",
+          "level",
+          "citations"
+        ],
+        "title": "Concept"
+      }
+    },
+    "pathogenesis_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "description": "Stable id, e.g., PATH-01."
+          },
+          "stage_name": {
+            "type": "string",
+            "description": "Stage name."
+          },
+          "time_from_trigger": {
+            "type": "string",
+            "description": "Time from trigger (e.g., minutes-hours, day 3\u20135)."
+          },
+          "primary_locations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Organ/tissue/microenvironment location(s)."
+            }
+          },
+          "key_events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Key event."
+            }
+          },
+          "key_players": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Cells/mediators."
+            }
+          },
+          "expected_micro_findings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Expected microscopic findings."
+            }
+          },
+          "expected_macro_manifestations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Expected clinical manifestations."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "step_id",
+          "stage_name",
+          "time_from_trigger",
+          "key_events",
+          "citations"
+        ],
+        "title": "PathogenesisStep"
+      }
+    },
+    "key_cells_mediators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of cell/mediator/antibody/etc."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "cell",
+              "cytokine",
+              "chemokine",
+              "antibody",
+              "receptor",
+              "enzyme",
+              "toxin",
+              "pathogen_factor",
+              "metabolite",
+              "other"
+            ]
+          },
+          "role_in_disease": {
+            "type": "string",
+            "description": "Role in pathogenesis."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Optional clarifying notes."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "category",
+          "role_in_disease",
+          "citations"
+        ]
+      }
+    },
+    "micro_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "description": "Stable id, e.g., MF-01."
+          },
+          "tissue": {
+            "type": "string",
+            "description": "Tissue/organ."
+          },
+          "description": {
+            "type": "string",
+            "description": "What is seen at micro scale (histology/ultrastructure/cell behavior)."
+          },
+          "modality": {
+            "type": "string",
+            "enum": [
+              "histology",
+              "immunofluorescence",
+              "electron_microscopy",
+              "flow_cytometry",
+              "microbiology",
+              "imaging_micro",
+              "functional_micro",
+              "other"
+            ]
+          },
+          "supports_dx_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "DX ids supported."
+            }
+          },
+          "rules_out_dx_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "DX ids argued against."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "finding_id",
+          "tissue",
+          "description",
+          "modality",
+          "citations"
+        ],
+        "title": "MicroFinding"
+      }
+    },
+    "macro_presentation": {
+      "type": "object",
+      "properties": {
+        "symptoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Symptom/sign."
+              },
+              "timing": {
+                "type": "string",
+                "description": "Onset/duration."
+              },
+              "severity_course": {
+                "type": "string",
+                "description": "How it evolves."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "citations"
+            ],
+            "title": "Symptom"
+          }
+        },
+        "signs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Symptom/sign."
+              },
+              "timing": {
+                "type": "string",
+                "description": "Onset/duration."
+              },
+              "severity_course": {
+                "type": "string",
+                "description": "How it evolves."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "citations"
+            ],
+            "title": "Symptom"
+          }
+        },
+        "vitals_patterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "Vitals pattern (e.g., fever curve, shock physiology)."
+              },
+              "why_it_matters": {
+                "type": "string",
+                "description": "Diagnostic/severity relevance."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "pattern",
+              "citations"
+            ]
+          }
+        },
+        "labs_core": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Lab name/panel."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Direction/pattern over time."
+              },
+              "why_it_matters": {
+                "type": "string",
+                "description": "How it updates differential or severity."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "pattern",
+              "why_it_matters",
+              "citations"
+            ],
+            "title": "LabPattern"
+          }
+        },
+        "imaging_core": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "modality": {
+                "type": "string",
+                "enum": [
+                  "xray",
+                  "ct",
+                  "mri",
+                  "ultrasound",
+                  "echo",
+                  "angiography",
+                  "nuclear",
+                  "other"
+                ]
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Key imaging pattern."
+              },
+              "discriminates": {
+                "type": "string",
+                "description": "How it helps differential."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "modality",
+              "pattern",
+              "citations"
+            ]
+          }
+        },
+        "exam_clues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "clue": {
+                "type": "string",
+                "description": "Physical exam clue."
+              },
+              "why_it_matters": {
+                "type": "string",
+                "description": "Differential relevance."
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "description": "ID of a source in citations[] (e.g., CIT-01)."
+                    },
+                    "chunk_id": {
+                      "type": "string",
+                      "description": "Optional chunk locator within the source (e.g., CH-014)."
+                    },
+                    "locator": {
+                      "type": "string",
+                      "description": "Optional human-readable locator (chapter/section/page)."
+                    },
+                    "claim": {
+                      "type": "string",
+                      "description": "What this citation supports (brief)."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "claim"
+                  ],
+                  "title": "CitationRef"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "clue",
+              "citations"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "differential": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dx_id": {
+            "type": "string",
+            "description": "Stable differential id, e.g., DX-01."
+          },
+          "name": {
+            "type": "string",
+            "description": "Diagnosis name."
+          },
+          "why_tempting": {
+            "type": "string",
+            "description": "Why this diagnosis is plausible early."
+          },
+          "signature_fingerprint": {
+            "type": "string",
+            "description": "Short fingerprint of typical mechanism/pattern."
+          },
+          "discriminators_positive": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A positive finding that supports this dx."
+            }
+          },
+          "discriminators_negative": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A negative finding that argues against this dx."
+            }
+          },
+          "danger_if_wrong": {
+            "type": "string",
+            "description": "What goes wrong if you treat as this dx when it's not."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "dx_id",
+          "name",
+          "why_tempting",
+          "signature_fingerprint",
+          "citations"
+        ],
+        "title": "DxCandidate"
+      }
+    },
+    "tests_and_confounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "description": "Stable id, e.g., TEST-01."
+          },
+          "name": {
+            "type": "string",
+            "description": "Test name."
+          },
+          "what_it_measures": {
+            "type": "string",
+            "description": "What physiologic/pathologic variable it measures."
+          },
+          "expected_in_true_dx": {
+            "type": "string",
+            "description": "Expected result/pattern in the true diagnosis."
+          },
+          "common_confouders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Confounder."
+            }
+          },
+          "false_positive_modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "How false positives happen."
+            }
+          },
+          "false_negative_modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "How false negatives happen."
+            }
+          },
+          "interpretation_notes": {
+            "type": "string",
+            "description": "How to interpret in context, incl. timing."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "test_id",
+          "name",
+          "what_it_measures",
+          "expected_in_true_dx",
+          "citations"
+        ],
+        "title": "TestAndConfound"
+      }
+    },
+    "treatments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "intervention_id": {
+            "type": "string",
+            "description": "Stable id, e.g., TX-01."
+          },
+          "name": {
+            "type": "string",
+            "description": "Intervention name."
+          },
+          "mechanism": {
+            "type": "string",
+            "description": "Mechanism of action at a clinically useful level."
+          },
+          "indications": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Indication."
+            }
+          },
+          "expected_response": {
+            "type": "string",
+            "description": "Expected clinical response if correct diagnosis."
+          },
+          "time_to_response": {
+            "type": "string",
+            "description": "Typical time course to improvement/worsening."
+          },
+          "adverse_effects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Notable adverse effects relevant to plot/differential."
+            }
+          },
+          "how_response_informs_ddx": {
+            "type": "string",
+            "description": "How response or non-response updates the differential."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "intervention_id",
+          "name",
+          "mechanism",
+          "expected_response",
+          "citations"
+        ],
+        "title": "Intervention"
+      }
+    },
+    "misconceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "misconception_id": {
+            "type": "string",
+            "description": "Stable id, e.g., MIS-01."
+          },
+          "wrong_statement": {
+            "type": "string",
+            "description": "Tempting but incorrect statement."
+          },
+          "why_tempting": {
+            "type": "string",
+            "description": "Why a smart person might believe it."
+          },
+          "correction": {
+            "type": "string",
+            "description": "Correct statement."
+          },
+          "how_it_misleads_ddx": {
+            "type": "string",
+            "description": "How this misconception would push the differential in the wrong direction."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "misconception_id",
+          "wrong_statement",
+          "correction",
+          "citations"
+        ],
+        "title": "Misconception"
+      }
+    },
+    "do_not_misstate": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "description": "Stable id, e.g., DNMS-01."
+          },
+          "statement": {
+            "type": "string",
+            "description": "Statement that must not appear in story/notes because it would be incorrect."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it would be incorrect or misleading."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rule_id",
+          "statement",
+          "reason",
+          "citations"
+        ],
+        "title": "DoNotMisstate"
+      }
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "Stable id, e.g., CIT-01."
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "textbook",
+              "review",
+              "guideline",
+              "primary_research",
+              "lecture_notes",
+              "other"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the source."
+          },
+          "authors_or_org": {
+            "type": "string",
+            "description": "Authors or issuing organization."
+          },
+          "year": {
+            "type": "integer",
+            "description": "Publication year if known."
+          },
+          "publisher_or_journal": {
+            "type": "string",
+            "description": "Publisher/journal if known."
+          },
+          "url": {
+            "type": "string",
+            "description": "Optional URL (store in app; avoid showing on slides)."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Optional notes on why this source is trustworthy/relevant."
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Chunk identifier used by retrieval/indexing."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Page/section/figure reference if available."
+                },
+                "excerpt": {
+                  "type": "string",
+                  "description": "Short excerpt/paraphrase of the chunk for audit (keep concise)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "chunk_id"
+              ],
+              "title": "SourceChunkRef"
+            },
+            "description": "Indexed chunks used from this source."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "source_type",
+          "title",
+          "authors_or_org",
+          "chunks"
+        ],
+        "title": "CitationSource"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "created_at",
+    "disease_request",
+    "canonical_name",
+    "concept_index",
+    "pathogenesis_steps",
+    "differential",
+    "tests_and_confounds",
+    "treatments",
+    "misconceptions",
+    "do_not_misstate",
+    "citations"
+  ]
+}

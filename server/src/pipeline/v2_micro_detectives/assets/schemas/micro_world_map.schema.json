@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MicroWorldMap",
+  "description": "Slide-visualization-focused map of the body/tissue at cell scale for this episode: zones, hazards, routes, motifs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "episode_slug": {
+      "type": "string",
+      "description": "Short slug for filenames."
+    },
+    "primary_organs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Primary organs/tissues involved."
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string",
+            "description": "Stable id, e.g., Z-LUNG-ALV-01."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for narrative use."
+          },
+          "anatomic_location": {
+            "type": "string",
+            "description": "Precise anatomic location."
+          },
+          "scale_notes": {
+            "type": "string",
+            "description": "What sizes/distances mean here (cell scale framing)."
+          },
+          "physical_properties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Viscosity, flow, compliance, ECM density, etc."
+            }
+          },
+          "resident_actors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Common cells/structures encountered."
+            }
+          },
+          "environmental_gradients": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "O2, pH, cytokines, osmolarity, etc."
+            }
+          },
+          "narrative_motifs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Recurring sensory/visual metaphors, kept consistent."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "zone_id",
+          "name",
+          "anatomic_location",
+          "citations"
+        ],
+        "title": "TissueZone"
+      }
+    },
+    "hazards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "hazard_id": {
+            "type": "string",
+            "description": "Stable id, e.g., HZ-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "shear_flow",
+              "hypoxia",
+              "acidity",
+              "enzymatic_damage",
+              "immune_attack",
+              "thrombus_maze",
+              "edema_pressure",
+              "toxin_cloud",
+              "barrier_checkpoint",
+              "biofilm_trap",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What makes it dangerous at cell scale."
+          },
+          "how_it_appears_visually": {
+            "type": "string",
+            "description": "How it will be visualized on slides."
+          },
+          "how_characters_survive": {
+            "type": "string",
+            "description": "Non-actionable survival logic (avoid procedural harm info)."
+          },
+          "links_to_pathophysiology": {
+            "type": "string",
+            "description": "Which disease mechanisms create this hazard."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "hazard_id",
+          "type",
+          "description",
+          "links_to_pathophysiology",
+          "citations"
+        ],
+        "title": "MicroHazard"
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "description": "Stable id."
+          },
+          "from_zone_id": {
+            "type": "string",
+            "description": "Zone id."
+          },
+          "to_zone_id": {
+            "type": "string",
+            "description": "Zone id."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "bloodstream",
+              "lymph",
+              "mucus_surface",
+              "interstitial",
+              "neuronal_track",
+              "duct_system",
+              "airflow",
+              "other"
+            ]
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Barriers, checkpoints, time limits."
+            }
+          },
+          "story_use": {
+            "type": "string",
+            "description": "What dramatic purpose this route serves (chase, stealth, etc.)."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "route_id",
+          "from_zone_id",
+          "to_zone_id",
+          "mode",
+          "citations"
+        ],
+        "title": "TransitRoute"
+      }
+    },
+    "immune_law_enforcement_metaphors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Immune component (e.g., neutrophils, complement)."
+          },
+          "metaphor": {
+            "type": "string",
+            "description": "How it behaves in-story (riot squad, drones, etc.)."
+          },
+          "accuracy_notes": {
+            "type": "string",
+            "description": "How to keep the metaphor medically correct."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "metaphor",
+          "citations"
+        ]
+      }
+    },
+    "visual_style_guide": {
+      "type": "object",
+      "properties": {
+        "palette_notes": {
+          "type": "string",
+          "description": "High-level aesthetic notes (no specific colors required)."
+        },
+        "recurring_ui_elements": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Badges, evidence stamps, timers, etc."
+          }
+        },
+        "labeling_rules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "How to label molecules/cells without clutter."
+          }
+        },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "citation_id": {
+                "type": "string",
+                "description": "ID of a source in citations[] (e.g., CIT-01)."
+              },
+              "chunk_id": {
+                "type": "string",
+                "description": "Optional chunk locator within the source (e.g., CH-014)."
+              },
+              "locator": {
+                "type": "string",
+                "description": "Optional human-readable locator (chapter/section/page)."
+              },
+              "claim": {
+                "type": "string",
+                "description": "What this citation supports (brief)."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "citation_id",
+              "claim"
+            ],
+            "title": "CitationRef"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "citations"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "episode_slug",
+    "zones",
+    "hazards",
+    "routes",
+    "visual_style_guide"
+  ]
+}

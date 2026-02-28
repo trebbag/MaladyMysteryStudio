@@ -13,10 +13,15 @@ const FINAL_ARTIFACT_NAMES = new Set([
   "medical_story_traceability_report.json",
   "qa_report.json",
   "constraint_adherence_report.json",
+  "deck_spec.json",
   "GENSPARK_ASSET_BIBLE.md",
   "GENSPARK_SLIDE_GUIDE.md",
   "GENSPARK_BUILD_SCRIPT.txt",
-  "GENSPARK_MASTER_RENDER_PLAN.md"
+  "GENSPARK_MASTER_RENDER_PLAN.md",
+  "V2_MAIN_DECK_RENDER_PLAN.md",
+  "V2_APPENDIX_RENDER_PLAN.md",
+  "V2_SPEAKER_NOTES_WITH_CITATIONS.md",
+  "v2_template_registry.json"
 ]);
 
 export function nowIso(): string {
@@ -69,12 +74,12 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 export async function resolveArtifactPathAbs(runId: string, name: string): Promise<string | null> {
+  const preferredCandidate = artifactAbsPath(runId, name);
+  if (await fileExists(preferredCandidate)) return preferredCandidate;
+
   // Keep legacy compatibility: older runs stored artifacts at the run root.
   const rootCandidate = path.join(runOutputDirAbs(runId), name);
   if (await fileExists(rootCandidate)) return rootCandidate;
-
-  const preferredCandidate = artifactAbsPath(runId, name);
-  if (await fileExists(preferredCandidate)) return preferredCandidate;
 
   const intermediateCandidate = path.join(runIntermediateDirAbs(runId), name);
   if (intermediateCandidate !== preferredCandidate && (await fileExists(intermediateCandidate))) return intermediateCandidate;

@@ -10,6 +10,8 @@ web/dist/
 
 # runtime outputs
 output/
+.ci/pilot/
+.ci/pilot-report/
 
 # misc
 .DS_Store

@@ -95,6 +95,25 @@ describe("RunManager", () => {
     expect(loaded?.topic).toBe("topic 4");
   });
 
+  it("initFromDisk recovers stale queued/running runs to error", async () => {
+    const runs1 = new RunManager();
+    const run = await runs1.createRun("stale run");
+    await runs1.setRunStatus(run.runId, "running");
+    await runs1.setStepNoEvent(run.runId, "KB0", {
+      status: "running",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      artifacts: []
+    });
+
+    const runs2 = new RunManager();
+    await runs2.initFromDisk();
+
+    const loaded = runs2.getRun(run.runId);
+    expect(loaded?.status).toBe("error");
+    expect(loaded?.steps.KB0.status).toBe("error");
+    expect(String(loaded?.steps.KB0.error)).toContain("Recovered after server restart");
+  });
+
   it("initFromDisk skips non-directories and invalid/missing run.json files", async () => {
     // Create a valid run on disk.
     const runs1 = new RunManager();

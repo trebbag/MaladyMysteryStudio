@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DifferentialCast",
+  "description": "Differential diagnosis suspects cast + planned rotation and elimination milestones for the story.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "primary_suspects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dx_id": {
+            "type": "string",
+            "description": "DX id."
+          },
+          "name": {
+            "type": "string",
+            "description": "Diagnosis name."
+          },
+          "why_tempting": {
+            "type": "string",
+            "description": "Why plausible to a smart clinician."
+          },
+          "signature_fingerprint": {
+            "type": "string",
+            "description": "Mechanism/tissue signature."
+          },
+          "timeline_signature": {
+            "type": "string",
+            "description": "Typical timing (acute/subacute/chronic)."
+          },
+          "localization_logic": {
+            "type": "string",
+            "description": "Why it affects particular tissue/organ."
+          },
+          "key_discriminators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "positive",
+                    "negative",
+                    "temporal",
+                    "response_to_treatment",
+                    "imaging",
+                    "micro"
+                  ]
+                },
+                "statement": {
+                  "type": "string",
+                  "description": "Discriminator."
+                },
+                "why_it_matters": {
+                  "type": "string",
+                  "description": "How it rules in/out."
+                },
+                "citations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "citation_id": {
+                        "type": "string",
+                        "description": "ID of a source in citations[] (e.g., CIT-01)."
+                      },
+                      "chunk_id": {
+                        "type": "string",
+                        "description": "Optional chunk locator within the source (e.g., CH-014)."
+                      },
+                      "locator": {
+                        "type": "string",
+                        "description": "Optional human-readable locator (chapter/section/page)."
+                      },
+                      "claim": {
+                        "type": "string",
+                        "description": "What this citation supports (brief)."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "citation_id",
+                      "claim"
+                    ],
+                    "title": "CitationRef"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "statement",
+                "citations"
+              ]
+            }
+          },
+          "danger_if_wrong": {
+            "type": "string",
+            "description": "Risk of anchoring on this dx incorrectly."
+          },
+          "what_it_mimics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Other DX ids it mimics/frames."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "dx_id",
+          "name",
+          "why_tempting",
+          "signature_fingerprint",
+          "citations"
+        ],
+        "title": "DxSuspect"
+      }
+    },
+    "rotation_plan": {
+      "type": "object",
+      "properties": {
+        "act1_focus_dx_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "DX ids emphasized in Act I."
+          }
+        },
+        "act2_expansion_dx_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "New suspects introduced Act II."
+          }
+        },
+        "act3_collapse_dx_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Suspects eliminated/false theory collapses Act III."
+          }
+        },
+        "act4_final_dx_id": {
+          "type": "string",
+          "description": "Final diagnosis dx id."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "act4_final_dx_id"
+      ]
+    },
+    "elimination_milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "milestone_id": {
+            "type": "string",
+            "description": "MS-01."
+          },
+          "slide_id": {
+            "type": "string",
+            "description": "Slide where elimination is shown."
+          },
+          "eliminated_dx_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Eliminated suspects."
+            }
+          },
+          "evidence_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Clue IDs justifying elimination."
+            }
+          },
+          "reasoning_summary": {
+            "type": "string",
+            "description": "One-paragraph reasoning."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "milestone_id",
+          "slide_id",
+          "eliminated_dx_ids",
+          "evidence_clue_ids",
+          "citations"
+        ]
+      }
+    },
+    "citations_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "ID of a source in citations[] (e.g., CIT-01)."
+          },
+          "chunk_id": {
+            "type": "string",
+            "description": "Optional chunk locator within the source (e.g., CH-014)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "Optional human-readable locator (chapter/section/page)."
+          },
+          "claim": {
+            "type": "string",
+            "description": "What this citation supports (brief)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "claim"
+        ],
+        "title": "CitationRef"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "primary_suspects",
+    "rotation_plan",
+    "citations_used"
+  ]
+}

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { RunExecutor, type PipelineFn } from "../src/executor.js";
+import { PipelinePause, RunExecutor, type PipelineFn } from "../src/executor.js";
 import { RunManager } from "../src/run_manager.js";
 import { artifactAbsPath } from "../src/pipeline/utils.js";
 
@@ -271,5 +271,25 @@ describe("RunExecutor", () => {
     const runs = new RunManager();
     const exec = new RunExecutor(runs, async () => undefined, { concurrency: 1 });
     expect(exec.enqueue("missing")).toBe(false);
+  });
+
+  it("marks run as paused when pipeline requests a gate pause", async () => {
+    const runs = new RunManager();
+    const pipeline: PipelineFn = async () => {
+      throw new PipelinePause("GATE_1_PITCH", "B", "review required");
+    };
+    const exec = new RunExecutor(runs, pipeline, { concurrency: 1 });
+    const r1 = await runs.createRun("t1");
+
+    exec.enqueue(r1.runId);
+    await waitFor(() => runs.getRun(r1.runId)?.status === "paused");
+    const run = runs.getRun(r1.runId);
+    expect(run?.activeGate).toMatchObject({
+      gateId: "GATE_1_PITCH",
+      resumeFrom: "B",
+      message: "review required"
+    });
+
+    await expect(fs.stat(artifactAbsPath(r1.runId, "CANCELLED.txt"))).rejects.toBeTruthy();
   });
 });

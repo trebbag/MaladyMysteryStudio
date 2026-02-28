@@ -875,6 +875,18 @@ select:focus {
   gap: 8px;
 }
 
+.v2DrilldownWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v2DrilldownBadges {
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 .summaryCard {
   border: 1px solid var(--border);
   border-radius: 12px;

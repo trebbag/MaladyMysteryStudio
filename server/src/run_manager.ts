@@ -40,11 +40,17 @@ export type StepName = (typeof STEP_ORDER)[number];
 
 export type RunLevel = "pcp" | "student";
 export type RunAdherenceMode = "strict" | "warn";
+export type RunWorkflow = "legacy" | "v2_micro_detectives";
+export type RunV2DeckLengthMain = 30 | 45 | 60;
+export type RunV2AudienceLevel = "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP";
 
 export type RunSettings = {
+  workflow?: RunWorkflow;
   durationMinutes?: number;
   targetSlides?: number;
   level?: RunLevel;
+  deckLengthMain?: RunV2DeckLengthMain;
+  audienceLevel?: RunV2AudienceLevel;
   adherenceMode?: RunAdherenceMode;
 };
 
@@ -52,6 +58,18 @@ export type RunDerivedFrom = {
   runId: string;
   startFrom: StepName;
   createdAt: string;
+};
+
+export type RunGateState = {
+  gateId: string;
+  resumeFrom: StepName;
+  message: string;
+  at: string;
+  awaiting: "review_submission" | "resume" | "changes_requested";
+  submittedDecision?: "approve" | "request_changes" | "regenerate";
+  submittedAt?: string;
+  reviewArtifact?: string;
+  resumedAt?: string;
 };
 
 export type StepRecord = {
@@ -68,9 +86,10 @@ export type RunStatus = {
   topic: string;
   settings?: RunSettings;
   derivedFrom?: RunDerivedFrom;
+  activeGate?: RunGateState;
   canonicalSources?: CanonicalProfilePaths & { foundAny: boolean };
   constraintAdherence?: ConstraintAdherenceSummary;
-  status: "queued" | "running" | "done" | "error";
+  status: "queued" | "running" | "paused" | "done" | "error";
   startedAt: string;
   finishedAt?: string;
   traceId?: string;
@@ -133,6 +152,36 @@ function randomRunSuffix(length: number): string {
     out += RUN_ID_SUFFIX_ALPHABET[bytes[i] % RUN_ID_SUFFIX_ALPHABET.length];
   }
   return out;
+}
+
+function isTerminalRunStatus(status: RunStatus["status"]): boolean {
+  return status === "done" || status === "error";
+}
+
+function recoverStaleLoadedRun(run: RunStatus): RunStatus {
+  if (isTerminalRunStatus(run.status) || run.status === "paused") return run;
+  const recoveredAt = nowIso();
+  const recoveredSteps = { ...run.steps };
+
+  for (const stepName of STEP_ORDER) {
+    const step = recoveredSteps[stepName];
+    if (!step) continue;
+    if (step.status === "running" || step.status === "queued") {
+      recoveredSteps[stepName] = {
+        ...step,
+        status: "error",
+        error: step.error ?? "Recovered after server restart while run was active.",
+        finishedAt: step.finishedAt ?? recoveredAt
+      };
+    }
+  }
+
+  return {
+    ...run,
+    status: "error",
+    finishedAt: run.finishedAt ?? recoveredAt,
+    steps: recoveredSteps
+  };
 }
 
 export class RunManager {
@@ -199,11 +248,15 @@ export class RunManager {
       const runJsonPath = path.join(runOutputDirAbs(runId), "run.json");
       const data = await tryReadJsonFile<RunStatus>(runJsonPath);
       if (!data) continue;
+      const recovered = recoverStaleLoadedRun(data);
+      if (recovered !== data) {
+        await writeJsonFile(runJsonPath, recovered).catch(() => undefined);
+      }
       const emitter = new EventEmitter();
       // Node treats "error" events specially: if nobody is listening, it throws.
       // We always want errors to be an optional event stream, never a process crash.
       emitter.on("error", () => undefined);
-      this.runs.set(runId, { ...data, emitter });
+      this.runs.set(runId, { ...recovered, emitter });
     }
   }
 
@@ -324,10 +377,12 @@ export class RunManager {
     const r = this.runs.get(runId);
     if (!r) return;
     r.status = status;
+    if (status !== "paused") delete r.activeGate;
     if (patch?.finishedAt) r.finishedAt = patch.finishedAt;
     if (patch?.traceId) r.traceId = patch.traceId;
     if (patch?.settings) r.settings = patch.settings;
     if (patch?.derivedFrom) r.derivedFrom = patch.derivedFrom;
+    if (patch?.activeGate) r.activeGate = patch.activeGate;
     if (patch?.canonicalSources) r.canonicalSources = patch.canonicalSources;
     if (patch?.constraintAdherence) r.constraintAdherence = patch.constraintAdherence;
     await this.persist(r);
@@ -423,6 +478,9 @@ export class RunManager {
       step_started: handler("step_started"),
       step_finished: handler("step_finished"),
       artifact_written: handler("artifact_written"),
+      gate_required: handler("gate_required"),
+      gate_submitted: handler("gate_submitted"),
+      run_resumed: handler("run_resumed"),
       log: handler("log"),
       error: handler("error")
     };
@@ -430,6 +488,9 @@ export class RunManager {
     r.emitter.on("step_started", evHandlers.step_started);
     r.emitter.on("step_finished", evHandlers.step_finished);
     r.emitter.on("artifact_written", evHandlers.artifact_written);
+    r.emitter.on("gate_required", evHandlers.gate_required);
+    r.emitter.on("gate_submitted", evHandlers.gate_submitted);
+    r.emitter.on("run_resumed", evHandlers.run_resumed);
     r.emitter.on("log", evHandlers.log);
     r.emitter.on("error", evHandlers.error);
 
@@ -437,9 +498,54 @@ export class RunManager {
       r.emitter.off("step_started", evHandlers.step_started);
       r.emitter.off("step_finished", evHandlers.step_finished);
       r.emitter.off("artifact_written", evHandlers.artifact_written);
+      r.emitter.off("gate_required", evHandlers.gate_required);
+      r.emitter.off("gate_submitted", evHandlers.gate_submitted);
+      r.emitter.off("run_resumed", evHandlers.run_resumed);
       r.emitter.off("log", evHandlers.log);
       r.emitter.off("error", evHandlers.error);
     };
+  }
+
+  gateRequired(
+    runId: string,
+    payload: {
+      gateId: string;
+      resumeFrom: StepName;
+      message: string;
+      at: string;
+      reviewArtifact?: string;
+    }
+  ): void {
+    const r = this.runs.get(runId);
+    if (!r) return;
+    r.emitter.emit("gate_required", payload);
+  }
+
+  gateSubmitted(
+    runId: string,
+    payload: {
+      gateId: string;
+      status: "approve" | "request_changes" | "regenerate";
+      submittedAt: string;
+    }
+  ): void {
+    const r = this.runs.get(runId);
+    if (!r) return;
+    r.emitter.emit("gate_submitted", payload);
+  }
+
+  runResumed(
+    runId: string,
+    payload: {
+      gateId: string;
+      startFrom: StepName;
+      mode: "resume" | "regenerate";
+      resumedAt: string;
+    }
+  ): void {
+    const r = this.runs.get(runId);
+    if (!r) return;
+    r.emitter.emit("run_resumed", payload);
   }
 
   private snapshot(run: RunInternal): RunStatus {

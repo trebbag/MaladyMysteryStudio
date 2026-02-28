@@ -184,6 +184,7 @@ describe("ChatStart", () => {
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
     expect(createRun).toHaveBeenCalledWith("DKA management", {
+      workflow: "legacy",
       durationMinutes: 25,
       targetSlides: 150,
       level: "pcp",
@@ -210,7 +211,7 @@ describe("ChatStart", () => {
     await user.type(screen.getByPlaceholderText("e.g. 120"), "-5");
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
-    expect(createRun).toHaveBeenCalledWith("DKA management", { level: "student", adherenceMode: "strict" });
+    expect(createRun).toHaveBeenCalledWith("DKA management", { workflow: "legacy", level: "student", adherenceMode: "strict" });
   });
 
   it("allows warn-only adherence mode", async () => {
@@ -229,7 +230,37 @@ describe("ChatStart", () => {
     await user.selectOptions(screen.getByDisplayValue("Strict (block on fail)"), "warn");
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
-    expect(createRun).toHaveBeenCalledWith("DKA management", { level: "student", adherenceMode: "warn", targetSlides: 120 });
+    expect(createRun).toHaveBeenCalledWith("DKA management", { workflow: "legacy", level: "student", adherenceMode: "warn", targetSlides: 120 });
+  });
+
+  it("submits v2 settings and hides legacy targetSlides/level controls", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<ChatStart />} />
+          <Route path="/runs/:runId" element={<div>run viewer</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.type(screen.getByPlaceholderText(/Example:/), "DKA management");
+    await user.selectOptions(screen.getByDisplayValue("Legacy"), "v2_micro_detectives");
+
+    expect(screen.queryByPlaceholderText("e.g. 120")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Student")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByDisplayValue("45"), "60");
+    await user.selectOptions(screen.getByDisplayValue("Med School (Advanced)"), "RESIDENT");
+    await user.click(screen.getByRole("button", { name: "Run Episode" }));
+
+    expect(createRun).toHaveBeenCalledWith("DKA management", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 60,
+      audienceLevel: "RESIDENT",
+      adherenceMode: "strict"
+    });
   });
 
   it("shows an error when createRun fails (non-Error throw)", async () => {
@@ -598,5 +629,22 @@ describe("ChatStart", () => {
     expect(await screen.findByText(/slo load failed/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save policy" }));
     expect(await screen.findByText(/slo save failed/i)).toBeInTheDocument();
+  });
+
+  it("shows reset errors when reset defaults fails with non-Error value", async () => {
+    const user = userEvent.setup();
+    vi.mocked(updateSloPolicy).mockRejectedValueOnce("reset failed");
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<ChatStart />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Step SLO policy")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset defaults" }));
+    expect(await screen.findByText(/reset failed/i)).toBeInTheDocument();
   });
 });

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HumanReview",
+  "description": "Human-in-the-loop decision at a gate (approve, request changes, or regenerate).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "gate_id": {
+      "type": "string",
+      "enum": [
+        "GATE_1_PITCH",
+        "GATE_2_TRUTH_LOCK",
+        "GATE_3_STORYBOARD",
+        "GATE_4_FINAL"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "approve",
+        "request_changes",
+        "regenerate"
+      ]
+    },
+    "notes": {
+      "type": "string",
+      "description": "Freeform feedback."
+    },
+    "requested_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "JSON path to the field being commented on (e.g., $.slides[12].on_slide_text.headline)."
+          },
+          "instruction": {
+            "type": "string",
+            "description": "What to change."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "nice"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "instruction",
+          "severity"
+        ],
+        "title": "RequestedChange"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "gate_id",
+    "status",
+    "requested_changes"
+  ]
+}

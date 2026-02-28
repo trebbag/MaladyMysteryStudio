@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MedFactCheckReport",
+  "description": "Medical correctness audit of DeckSpec against DiseaseDossier. Flags critical errors and unsupported inferences.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "pass": {
+      "type": "boolean",
+      "description": "True if no critical issues."
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "description": "MED-ERR-01."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "major",
+              "minor"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "incorrect_fact",
+              "unsupported_inference",
+              "misused_term",
+              "wrong_timecourse",
+              "wrong_test_interpretation",
+              "wrong_treatment_response",
+              "contradiction_with_dossier",
+              "other"
+            ]
+          },
+          "claim": {
+            "type": "string",
+            "description": "The problematic claim/inference."
+          },
+          "where": {
+            "type": "object",
+            "properties": {
+              "slide_id": {
+                "type": "string",
+                "description": "Slide id if applicable."
+              },
+              "notes_field": {
+                "type": "string",
+                "description": "Which field (e.g., speaker_notes.medical_reasoning)."
+              },
+              "exhibit_id": {
+                "type": "string",
+                "description": "Exhibit id if applicable."
+              }
+            },
+            "additionalProperties": false
+          },
+          "why_wrong": {
+            "type": "string",
+            "description": "Explanation grounded in dossier."
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "How to correct."
+          },
+          "supporting_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "issue_id",
+          "severity",
+          "type",
+          "claim",
+          "why_wrong",
+          "suggested_fix",
+          "supporting_citations"
+        ],
+        "title": "MedIssue"
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-paragraph summary."
+    },
+    "required_fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fix_id": {
+            "type": "string",
+            "description": "FIX-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "regenerate_section",
+              "edit_slide",
+              "edit_clue",
+              "edit_differential",
+              "medical_correction",
+              "reduce_text_density",
+              "increase_story_turn",
+              "add_twist_receipts",
+              "other"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "could"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What must change."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Paths or IDs affected (slide ids, clue ids)."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fix_id",
+          "type",
+          "priority",
+          "description"
+        ],
+        "title": "RequiredFix"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pass",
+    "issues",
+    "summary",
+    "required_fixes"
+  ]
+}

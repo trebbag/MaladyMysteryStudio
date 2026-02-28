@@ -1,0 +1,529 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TruthModel",
+  "description": "Locked 'what really happens' model: final diagnosis, aligned macro/micro timelines, interventions, twist blueprints, fairness contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version."
+    },
+    "episode_title": {
+      "type": "string",
+      "description": "Working title."
+    },
+    "final_diagnosis": {
+      "type": "object",
+      "properties": {
+        "dx_id": {
+          "type": "string",
+          "description": "DX id from dossier differential or final."
+        },
+        "name": {
+          "type": "string",
+          "description": "Diagnosis name."
+        },
+        "one_sentence_mechanism": {
+          "type": "string",
+          "description": "High-level mechanism summary."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dx_id",
+        "name",
+        "one_sentence_mechanism"
+      ]
+    },
+    "case_logline": {
+      "type": "string",
+      "description": "One-sentence case hook."
+    },
+    "patient_profile": {
+      "type": "object",
+      "properties": {
+        "age": {
+          "type": "integer"
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "female",
+            "male",
+            "intersex",
+            "unknown"
+          ]
+        },
+        "key_history": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Comorbidities, meds, exposures, social history relevant to case."
+          }
+        },
+        "baseline_state": {
+          "type": "string",
+          "description": "Baseline functional status."
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Constraints like pregnancy, renal failure, immunosuppression."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sex",
+        "key_history"
+      ]
+    },
+    "cover_story": {
+      "type": "object",
+      "properties": {
+        "initial_working_dx_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "DDx suspects initially favored."
+          }
+        },
+        "why_it_seems_right": {
+          "type": "string",
+          "description": "Why clinicians (and/or aliens) initially believe this."
+        },
+        "what_it_gets_wrong": {
+          "type": "string",
+          "description": "What it fails to explain (seed for twist)."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "initial_working_dx_ids",
+        "why_it_seems_right",
+        "what_it_gets_wrong"
+      ]
+    },
+    "macro_timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "t": {
+            "type": "string",
+            "description": "Relative time marker (e.g., T0, T+6h, Day 2)."
+          },
+          "event_id": {
+            "type": "string",
+            "description": "Stable id, e.g., ME-01."
+          },
+          "what_happens": {
+            "type": "string",
+            "description": "Narrative of clinical event."
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Symptoms/signs/labs/imaging observations available at this moment."
+            }
+          },
+          "differential_shift": {
+            "type": "string",
+            "description": "How this should update the differential."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "t",
+          "event_id",
+          "what_happens",
+          "citations"
+        ],
+        "title": "MacroEvent"
+      }
+    },
+    "micro_timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "t": {
+            "type": "string",
+            "description": "Relative time marker aligned to macro timeline."
+          },
+          "event_id": {
+            "type": "string",
+            "description": "Stable id, e.g., mE-01."
+          },
+          "zone_id": {
+            "type": "string",
+            "description": "Zone id from MicroWorldMap."
+          },
+          "what_happens": {
+            "type": "string",
+            "description": "What happens at cell scale."
+          },
+          "key_players": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Cells/mediators/structures involved."
+            }
+          },
+          "clue_potential": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "What this could become as a clue (without explaining yet)."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "t",
+          "event_id",
+          "zone_id",
+          "what_happens",
+          "citations"
+        ],
+        "title": "MicroEvent"
+      }
+    },
+    "interventions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "t": {
+            "type": "string",
+            "description": "When administered."
+          },
+          "intervention_id": {
+            "type": "string",
+            "description": "Reference to TX id in dossier (or local)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name."
+          },
+          "why_given": {
+            "type": "string",
+            "description": "Clinical rationale."
+          },
+          "expected_macro_effects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Expected clinical changes."
+            }
+          },
+          "expected_micro_effects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Expected micro-scale changes."
+            }
+          },
+          "diagnostic_value": {
+            "type": "string",
+            "description": "How response/non-response updates differential."
+          },
+          "risks_and_complications": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Key risks that could generate new plot complications."
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "t",
+          "intervention_id",
+          "name",
+          "why_given",
+          "citations"
+        ],
+        "title": "InterventionEvent"
+      }
+    },
+    "twist_blueprints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "twist_id": {
+            "type": "string",
+            "description": "Stable id, e.g., TW-01."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mimic",
+              "iatrogenic_overlay",
+              "dual_process",
+              "localization_switch",
+              "immune_twist",
+              "toxin_exposure",
+              "variant_presentation",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What the twist is."
+          },
+          "why_surprising": {
+            "type": "string",
+            "description": "Why a smart reader might not anticipate it."
+          },
+          "why_inevitable": {
+            "type": "string",
+            "description": "Why it is inevitable in hindsight."
+          },
+          "required_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Clue IDs that support this twist."
+            }
+          },
+          "act1_setup_clue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "At least one must be in Act I."
+            }
+          },
+          "recontextualizes_slide_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Slide IDs whose meaning changes in hindsight."
+            }
+          },
+          "payoff_slide_id": {
+            "type": "string",
+            "description": "Where twist lands in main deck."
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "citation_id": {
+                  "type": "string",
+                  "description": "ID of a source in citations[] (e.g., CIT-01)."
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "description": "Optional chunk locator within the source (e.g., CH-014)."
+                },
+                "locator": {
+                  "type": "string",
+                  "description": "Optional human-readable locator (chapter/section/page)."
+                },
+                "claim": {
+                  "type": "string",
+                  "description": "What this citation supports (brief)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "citation_id",
+                "claim"
+              ],
+              "title": "CitationRef"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "twist_id",
+          "type",
+          "description",
+          "required_clue_ids",
+          "payoff_slide_id",
+          "citations"
+        ],
+        "title": "TwistBlueprint"
+      }
+    },
+    "fairness_contract": {
+      "type": "object",
+      "properties": {
+        "no_new_crucial_facts_in_reveal": {
+          "type": "boolean",
+          "description": "True if reveal only connects existing dots."
+        },
+        "all_major_clues_on_slide_or_exhibit": {
+          "type": "boolean",
+          "description": "True if major clues appear visually somewhere (not only in notes)."
+        },
+        "one_major_med_concept_per_story_slide": {
+          "type": "boolean",
+          "description": "Enforce story dominance."
+        },
+        "twist_receipts_min_clues": {
+          "type": "integer",
+          "description": "Minimum supporting clues per twist (recommend 3)."
+        },
+        "twist_requires_act1_setup": {
+          "type": "boolean",
+          "description": "At least one setup clue in Act I."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Additional constraints."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "no_new_crucial_facts_in_reveal",
+        "all_major_clues_on_slide_or_exhibit",
+        "one_major_med_concept_per_story_slide",
+        "twist_receipts_min_clues",
+        "twist_requires_act1_setup"
+      ],
+      "title": "FairnessContract"
+    },
+    "citations_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation_id": {
+            "type": "string",
+            "description": "ID of a source in citations[] (e.g., CIT-01)."
+          },
+          "chunk_id": {
+            "type": "string",
+            "description": "Optional chunk locator within the source (e.g., CH-014)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "Optional human-readable locator (chapter/section/page)."
+          },
+          "claim": {
+            "type": "string",
+            "description": "What this citation supports (brief)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "citation_id",
+          "claim"
+        ],
+        "title": "CitationRef"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "episode_title",
+    "final_diagnosis",
+    "case_logline",
+    "cover_story",
+    "macro_timeline",
+    "micro_timeline",
+    "twist_blueprints",
+    "fairness_contract",
+    "citations_used"
+  ]
+}

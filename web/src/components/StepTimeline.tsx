@@ -1,6 +1,7 @@
 import { StepStatus } from "../api";
 
-const ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
+const LEGACY_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
+const V2_PHASE1_ORDER = ["KB0", "A", "B", "C"];
 
 const LABELS: Record<string, string> = {
   KB0: "KB Compiler",
@@ -20,6 +21,13 @@ const LABELS: Record<string, string> = {
   N: "Patch Applier",
   O: "Genspark Packager",
   P: "Genspark Master Doc"
+};
+
+const V2_LABELS: Record<string, string> = {
+  KB0: "KB Compiler",
+  A: "Disease Dossier + Gate 1",
+  B: "Truth Model + Gate 2",
+  C: "DeckSpec + QA + Gate 3 + Packaging"
 };
 
 function parseIsoMs(iso?: string): number | null {
@@ -56,28 +64,32 @@ function dotClass(s: StepStatus | undefined, stuck: boolean, recovered: boolean,
 
 export default function StepTimeline({
   steps,
+  workflow = "legacy",
   nowMs = Date.now(),
   stuckThresholdMs = 90_000,
   recoveredSteps = [],
   slowSteps = []
 }: {
   steps: Record<string, StepStatus>;
+  workflow?: string;
   nowMs?: number;
   stuckThresholdMs?: number;
   recoveredSteps?: string[];
   slowSteps?: string[];
 }) {
+  const order = workflow === "v2_micro_detectives" ? V2_PHASE1_ORDER : LEGACY_ORDER;
+  const labels = workflow === "v2_micro_detectives" ? V2_LABELS : LABELS;
   const recoveredSet = new Set(recoveredSteps);
   const slowSet = new Set(slowSteps);
-  const completedCount = ORDER.filter((name) => steps[name]?.status === "done").length;
-  const errorStep = ORDER.find((name) => steps[name]?.status === "error");
-  const runningStep = ORDER.find((name) => steps[name]?.status === "running");
-  const stuckStep = ORDER.find((name) => isStuckStep(steps[name], nowMs, stuckThresholdMs));
-  const slowStep = ORDER.find((name) => slowSet.has(name));
-  const recoveredStep = ORDER.find((name) => recoveredSet.has(name));
+  const completedCount = order.filter((name) => steps[name]?.status === "done").length;
+  const errorStep = order.find((name) => steps[name]?.status === "error");
+  const runningStep = order.find((name) => steps[name]?.status === "running");
+  const stuckStep = order.find((name) => isStuckStep(steps[name], nowMs, stuckThresholdMs));
+  const slowStep = order.find((name) => slowSet.has(name));
+  const recoveredStep = order.find((name) => recoveredSet.has(name));
   const stuckElapsedMs =
     stuckStep && steps[stuckStep]?.startedAt ? Math.max(0, nowMs - (parseIsoMs(steps[stuckStep]?.startedAt) ?? nowMs)) : 0;
-  const progress = Math.round((completedCount / ORDER.length) * 100);
+  const progress = Math.round((completedCount / order.length) * 100);
 
   return (
     <div className="timelineWrap panel">
@@ -91,17 +103,17 @@ export default function StepTimeline({
                 ? `Possible stall at ${stuckStep} (${formatElapsed(stuckElapsedMs)})`
                 : recoveredStep
                   ? `Recovered after stall at ${recoveredStep}`
-                  : slowStep
+                : slowStep
                     ? `SLO warning at ${slowStep}`
                 : runningStep
                   ? `Running ${runningStep}`
-                  : completedCount === ORDER.length
+                  : completedCount === order.length
                     ? "Complete"
                     : "In progress"}
           </div>
         </div>
         <div className="timelineStats mono">
-          {completedCount}/{ORDER.length} ({progress}%)
+          {completedCount}/{order.length} ({progress}%)
         </div>
       </div>
 
@@ -114,7 +126,7 @@ export default function StepTimeline({
         </div>
 
         <div className="stepList stepListGrid">
-          {ORDER.map((name) => {
+          {order.map((name) => {
             const s = steps[name];
             const stuck = isStuckStep(s, nowMs, stuckThresholdMs);
             const slow = slowSet.has(name) && !stuck;
@@ -135,7 +147,7 @@ export default function StepTimeline({
                 <span className={dotClass(s, stuck, recovered, slow)} />
                 <div className="stepMeta">
                   <span className="stepCode">{name}</span>
-                  <span className="stepLabel">{LABELS[name] ?? name}</span>
+                  <span className="stepLabel">{labels[name] ?? name}</span>
                 </div>
                 <span className={`stepState ${stuck ? "stepStateWarn" : ""} ${recovered ? "stepStateRecovered" : ""} ${slow ? "stepStateSlow" : ""}`}>
                   {stateText}
