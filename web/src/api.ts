@@ -12,8 +12,12 @@ export type RunSettings = {
   durationMinutes?: number;
   targetSlides?: number;
   level?: "pcp" | "student";
+  deckLengthConstraintEnabled?: boolean;
   deckLengthMain?: 30 | 45 | 60;
-  audienceLevel?: "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP";
+  audienceLevel?: "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL";
+  minStoryForwardRatio?: number;
+  minHybridSlideQuality?: number;
+  minCitationGroundingCoverage?: number;
   adherenceMode?: "strict" | "warn";
 };
 
@@ -56,6 +60,19 @@ export type RunStatus = {
   topic: string;
   settings?: RunSettings;
   derivedFrom?: RunDerivedFrom;
+  v2DeckSpecEstimate?: {
+    estimatedMainSlides: number;
+    deckLengthPolicy: "soft_target" | "unconstrained";
+    softTarget?: number;
+    computedAt: string;
+    adaptiveTimeoutMs: {
+      agent: number;
+      deckSpec: number;
+      watchdog: number;
+    };
+    abortThresholdSlides: number;
+    abortRecommended: boolean;
+  };
   activeGate?: {
     gateId: string;
     resumeFrom: string;
@@ -113,6 +130,58 @@ export type ArtifactInfo = {
   size: number;
   mtimeMs: number;
   folder?: "root" | "intermediate" | "final";
+};
+
+export type ChapterOutlineSubtopic = {
+  id: string;
+  title: string;
+  content_md?: string;
+};
+
+export type ChapterOutlineTopicArea = {
+  id: string;
+  title: string;
+  subtopics: ChapterOutlineSubtopic[];
+};
+
+export type ChapterOutlineCategory = {
+  order: number;
+  title: string;
+  topic_areas: ChapterOutlineTopicArea[];
+};
+
+export type ChapterOutlineResponse = {
+  chapter_outline: {
+    categories: ChapterOutlineCategory[];
+  };
+};
+
+export type StoryBeatFreeNode = {
+  user_notes: string;
+  beat_md: string;
+  generation_count: number;
+  updated_at?: string;
+};
+
+export type StoryBeatNode = {
+  topic_area_id: string;
+  category_title: string;
+  topic_area_title: string;
+  outline_md: string;
+  user_notes: string;
+  beat_md: string;
+  generation_count: number;
+  updated_at?: string;
+  continuity_hook?: string;
+};
+
+export type StoryBeatsResponse = {
+  schema_version: "1.0.0";
+  topic: string;
+  intro: StoryBeatFreeNode;
+  outro: StoryBeatFreeNode;
+  topic_area_beats: Record<string, StoryBeatNode>;
+  updated_at?: string;
 };
 
 export type RunStorageRecord = {
@@ -307,4 +376,47 @@ export async function fetchArtifact(runId: string, name: string): Promise<{ text
   const contentType = res.headers.get("content-type") || "text/plain";
   const text = await res.text();
   return { text, contentType };
+}
+
+export async function getChapterOutline(runId: string): Promise<ChapterOutlineResponse> {
+  return httpJson<ChapterOutlineResponse>(`/api/runs/${encodeURIComponent(runId)}/chapter-outline`);
+}
+
+export async function getStoryBeats(runId: string): Promise<StoryBeatsResponse> {
+  return httpJson<StoryBeatsResponse>(`/api/runs/${encodeURIComponent(runId)}/story-beats`);
+}
+
+export async function updateStoryBeats(
+  runId: string,
+  patch:
+    | {
+        topicAreaId: string;
+        categoryTitle?: string;
+        topicAreaTitle?: string;
+        userNotes?: string;
+        beatMd?: string;
+      }
+    | { story_beats: StoryBeatsResponse }
+): Promise<StoryBeatsResponse> {
+  return httpJson<StoryBeatsResponse>(`/api/runs/${encodeURIComponent(runId)}/story-beats`, {
+    method: "PUT",
+    body: JSON.stringify(patch)
+  });
+}
+
+export async function generateStoryBeat(
+  runId: string,
+  payload: {
+    categoryTitle?: string;
+    topicAreaId: string;
+    userNotes?: string;
+  }
+): Promise<{ topicAreaId: string; beat_md: string; story_beats: StoryBeatsResponse }> {
+  return httpJson<{ topicAreaId: string; beat_md: string; story_beats: StoryBeatsResponse }>(
+    `/api/runs/${encodeURIComponent(runId)}/story-beats/generate`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
 }

@@ -10,6 +10,18 @@ vi.mock("./components/RunViewer", () => {
   return { default: () => <div>run viewer</div> };
 });
 
+vi.mock("./components/RunsListPage", () => {
+  return { default: () => <div>runs list page</div> };
+});
+
+vi.mock("./components/ArtifactVaultPage", () => {
+  return { default: () => <div>artifact vault page</div> };
+});
+
+vi.mock("./components/WorkshopPage", () => {
+  return { default: () => <div>workshop page</div> };
+});
+
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
   return {
@@ -46,6 +58,39 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("run viewer")).toBeInTheDocument();
+    expect(getHealth).toHaveBeenCalled();
+  });
+
+  it("renders runs list route", async () => {
+    render(
+      <MemoryRouter initialEntries={["/runs"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("runs list page")).toBeInTheDocument();
+    expect(getHealth).toHaveBeenCalled();
+  });
+
+  it("renders artifact vault route", async () => {
+    render(
+      <MemoryRouter initialEntries={["/runs/r1/artifacts"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("artifact vault page")).toBeInTheDocument();
+    expect(getHealth).toHaveBeenCalled();
+  });
+
+  it("renders workshop route", async () => {
+    render(
+      <MemoryRouter initialEntries={["/runs/r1/workshop"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("workshop page")).toBeInTheDocument();
     expect(getHealth).toHaveBeenCalled();
   });
 

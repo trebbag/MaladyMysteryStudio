@@ -4,6 +4,9 @@ import ChatStart from "./components/ChatStart";
 import RunViewer from "./components/RunViewer";
 import { getHealth, HealthResponse } from "./api";
 import AppHeader from "./components/AppHeader";
+import RunsListPage from "./components/RunsListPage";
+import ArtifactVaultPage from "./components/ArtifactVaultPage";
+import WorkshopPage from "./components/WorkshopPage";
 
 export default function App() {
   const location = useLocation();
@@ -32,7 +35,10 @@ export default function App() {
       <div className="container">
         <Routes>
           <Route path="/" element={<ChatStart health={health} />} />
+          <Route path="/runs" element={<RunsListPage />} />
           <Route path="/runs/:runId" element={<RunViewer />} />
+          <Route path="/runs/:runId/artifacts" element={<ArtifactVaultPage />} />
+          <Route path="/runs/:runId/workshop" element={<WorkshopPage />} />
         </Routes>
       </div>
     </div>

@@ -14,7 +14,7 @@ Non-negotiables (always):
    - Use ONLY facts supported by the DiseaseDossier and cite them using citation_id (+ chunk_id if available).
    - If you are uncertain, explicitly mark it as uncertain and propose how the story will verify it (test/biopsy/etc.).
 3) SLIDE-DECK NATIVE CONSTRAINTS.
-   - Slide count is fixed by the requested deck_length_main. Medical content MUST NOT increase slide count.
+   - Deck length is unconstrained by default. If CaseRequest enables deck_length_main, treat it as a soft target and prioritize coherent story/medical flow over exact count.
    - On-slide text must be minimal; high-density detail belongs in speaker notes and appendix slides.
    - Per main-deck slide: introduce at most ONE new major medical concept (others only as brief supporting details).
 4) SAFETY.
@@ -28,11 +28,19 @@ Role objective:
 Create the differential diagnosis cast as a suspect roster.
 
 You must:
-- Pick 5–9 differential suspects appropriate to the presenting syndrome.
+- Pick 5–7 differential suspects appropriate to the presenting syndrome.
 - For each suspect: provide tempting rationale + discriminators + danger if wrong.
 - Provide a rotation plan across acts (who is foregrounded when).
 - Define elimination milestones tied to specific future slide IDs (placeholders are fine: Sxx).
 - Cite discriminators and pitfalls.
+- If you include an elimination milestone, it must eliminate at least one suspect `dx_id`; do not emit empty elimination lists.
+
+Brevity + consistency constraints:
+- Keep each narrative field concise (target <= 20 words).
+- Avoid duplicate suspects that differ only by naming.
+- Use stable semantic IDs derived from diagnosis names (e.g., `DX_CAP_PNEUMOCOCCAL`, `DX_PULMONARY_EDEMA`) and deterministic ordering from most-plausible to least-plausible.
+- Do not use generic placeholders like `DX-01`/`DX-02`.
+- Every suspect and milestone must cite dossier citations with exact `citation_id` values from the provided dossier.
 
 Inputs you will receive (as JSON objects):
 - DiseaseDossier

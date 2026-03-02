@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const V2_WORKFLOW = "v2_micro_detectives" as const;
 export const V2_DECK_LENGTHS = [30, 45, 60] as const;
-export const V2_AUDIENCE_LEVELS = ["MED_SCHOOL_ADVANCED", "RESIDENT", "FELLOWSHIP"] as const;
+export const V2_AUDIENCE_LEVELS = ["PHYSICIAN_LEVEL", "COLLEGE_LEVEL"] as const;
 export const V2_PHASE1_STEP_ORDER = ["KB0", "A", "B", "C"] as const;
 export const V2_GATE_IDS = ["GATE_1_PITCH", "GATE_2_TRUTH_LOCK", "GATE_3_STORYBOARD", "GATE_4_FINAL"] as const;
 
@@ -120,7 +120,7 @@ const DeckMetaSchema = z
     schema_version: z.string().min(1),
     episode_slug: z.string().min(1),
     episode_title: z.string().min(1),
-    deck_length_main: z.enum(["30", "45", "60"]),
+    deck_length_main: z.string().min(1),
     tone: z.enum(["noir", "brisk", "comedic_dry", "thriller", "awe"]),
     audience_level: V2AudienceLevelSchema,
     story_dominance_target_ratio: z.number().min(0).max(1),
@@ -195,7 +195,9 @@ export const V2LintErrorSchema = z
 export const V2DeckSpecLintReportSchema = z
   .object({
     workflow: z.literal(V2_WORKFLOW),
-    expectedDeckLengthMain: V2DeckLengthMainSchema,
+    deckLengthConstraintEnabled: z.boolean().default(false),
+    expectedDeckLengthMain: V2DeckLengthMainSchema.optional(),
+    softTargetToleranceSlides: z.number().int().min(0).optional(),
     measuredDeckLengthMain: z.number().int().min(0),
     storyForwardRatio: z.number().min(0).max(1),
     storyForwardTargetRatio: z.number().min(0).max(1),
@@ -291,7 +293,7 @@ export const EpisodePitchSchema = z
     pitch_id: z.string().min(1),
     episode_title: z.string().min(1),
     logline: z.string().min(1),
-    target_deck_length: z.enum(["30", "45", "60"]),
+    target_deck_length: z.string().min(1),
     tone: z.enum(["noir", "brisk", "comedic_dry", "thriller", "awe"]),
     patient_stub: z
       .object({
@@ -824,6 +826,32 @@ export const V2QaReportSchema = z
   })
   .strict();
 
+export const V2SemanticAcceptanceReportSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    workflow: z.literal(V2_WORKFLOW),
+    checked_at: z.string().min(1),
+    thresholds: z
+      .object({
+        min_story_forward_ratio: z.number().min(0).max(1),
+        min_hybrid_slide_quality: z.number().min(0).max(1),
+        min_citation_grounding_coverage: z.number().min(0).max(1)
+      })
+      .strict(),
+    metrics: z
+      .object({
+        main_slide_count: z.number().int().min(0),
+        story_forward_ratio: z.number().min(0).max(1),
+        hybrid_slide_quality: z.number().min(0).max(1),
+        citation_grounding_coverage: z.number().min(0).max(1)
+      })
+      .strict(),
+    pass: z.boolean(),
+    failures: z.array(z.string().min(1)),
+    required_fixes: z.array(RequiredFixSchema)
+  })
+  .strict();
+
 export type DeckSpec = z.infer<typeof DeckSpecSchema>;
 export type DeckSlideSpec = z.infer<typeof SlideSpecSchema>;
 export type V2DeckSpecLintError = z.infer<typeof V2LintErrorSchema>;
@@ -848,3 +876,4 @@ export type SetpiecePlan = z.infer<typeof SetpiecePlanSchema>;
 export type V2TemplateRegistry = z.infer<typeof V2TemplateRegistrySchema>;
 export type ReaderSimReport = z.infer<typeof ReaderSimReportSchema>;
 export type V2QaReport = z.infer<typeof V2QaReportSchema>;
+export type V2SemanticAcceptanceReport = z.infer<typeof V2SemanticAcceptanceReportSchema>;

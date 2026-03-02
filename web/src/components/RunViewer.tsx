@@ -198,11 +198,44 @@ type V2SetpiecePlanPreview = {
   quotas?: Record<string, boolean>;
 };
 
-type V2InspectorTab = "world" | "drama" | "setpieces" | "templates";
+type V2PackagingSummaryPreview = {
+  schema_version?: string;
+  workflow?: string;
+  generated_at?: string;
+  deck?: {
+    episode_title?: string;
+    main_slide_count?: number;
+    appendix_slide_count?: number;
+  };
+  package?: {
+    template_count?: number;
+    files?: Record<string, string>;
+  };
+};
+
+type V2SemanticAcceptanceReport = {
+  checked_at: string;
+  pass: boolean;
+  failures: string[];
+  thresholds: {
+    min_story_forward_ratio: number;
+    min_hybrid_slide_quality: number;
+    min_citation_grounding_coverage: number;
+  };
+  metrics: {
+    main_slide_count: number;
+    story_forward_ratio: number;
+    hybrid_slide_quality: number;
+    citation_grounding_coverage: number;
+  };
+};
+
+type V2InspectorTab = "world" | "drama" | "setpieces" | "templates" | "packaging";
 
 type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
 type ArtifactFolderFilter = "all" | "root" | "intermediate" | "final";
 type SummaryTab = "narrative" | "visual";
+type LiveFeedState = "connecting" | "connected" | "reconnecting" | "offline";
 
 const LEGACY_STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
 const V2_PHASE1_STEP_ORDER: DiffTargetStep[] = ["KB0", "A", "B", "C"];
@@ -452,6 +485,56 @@ function normalizeV2SetpiecePlan(value: unknown): V2SetpiecePlanPreview {
   };
 }
 
+function normalizeV2PackagingSummary(value: unknown): V2PackagingSummaryPreview {
+  const root = asRecord(value);
+  const deck = asRecord(root.deck);
+  const pkg = asRecord(root.package);
+  const files = asRecord(pkg.files);
+  return {
+    schema_version: typeof root.schema_version === "string" ? root.schema_version : undefined,
+    workflow: typeof root.workflow === "string" ? root.workflow : undefined,
+    generated_at: typeof root.generated_at === "string" ? root.generated_at : undefined,
+    deck: {
+      episode_title: typeof deck.episode_title === "string" ? deck.episode_title : undefined,
+      main_slide_count: Number.isFinite(Number(deck.main_slide_count)) ? Math.max(0, Math.round(Number(deck.main_slide_count))) : 0,
+      appendix_slide_count:
+        Number.isFinite(Number(deck.appendix_slide_count)) ? Math.max(0, Math.round(Number(deck.appendix_slide_count))) : 0
+    },
+    package: {
+      template_count: Number.isFinite(Number(pkg.template_count)) ? Math.max(0, Math.round(Number(pkg.template_count))) : 0,
+      files: Object.fromEntries(Object.entries(files).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+    }
+  };
+}
+
+function toRatio(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+function normalizeV2SemanticAcceptanceReport(value: unknown): V2SemanticAcceptanceReport {
+  const root = asRecord(value);
+  const thresholds = asRecord(root.thresholds);
+  const metrics = asRecord(root.metrics);
+  return {
+    checked_at: typeof root.checked_at === "string" ? root.checked_at : "",
+    pass: Boolean(root.pass),
+    failures: asStringArray(root.failures),
+    thresholds: {
+      min_story_forward_ratio: toRatio(thresholds.min_story_forward_ratio),
+      min_hybrid_slide_quality: toRatio(thresholds.min_hybrid_slide_quality),
+      min_citation_grounding_coverage: toRatio(thresholds.min_citation_grounding_coverage)
+    },
+    metrics: {
+      main_slide_count: Number.isFinite(Number(metrics.main_slide_count)) ? Math.max(0, Math.round(Number(metrics.main_slide_count))) : 0,
+      story_forward_ratio: toRatio(metrics.story_forward_ratio),
+      hybrid_slide_quality: toRatio(metrics.hybrid_slide_quality),
+      citation_grounding_coverage: toRatio(metrics.citation_grounding_coverage)
+    }
+  };
+}
+
 function extractKeyOrFallback(obj: unknown, key: string): unknown {
   if (obj && typeof obj === "object" && key in (obj as Record<string, unknown>)) {
     return (obj as Record<string, unknown>)[key];
@@ -480,6 +563,11 @@ function formatElapsed(ms: number): string {
   return `${seconds}s`;
 }
 
+function formatRatioAsPercent(value: number): string {
+  const clamped = Math.max(0, Math.min(1, value));
+  return `${Math.round(clamped * 100)}%`;
+}
+
 function clampWatchdogThresholdSeconds(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_STUCK_THRESHOLD_SECONDS;
   return Math.min(STUCK_THRESHOLD_MAX_SECONDS, Math.max(STUCK_THRESHOLD_MIN_SECONDS, Math.round(value)));
@@ -506,6 +594,20 @@ function constraintBadgeClass(status: NonNullable<RunStatus["constraintAdherence
   return "badge";
 }
 
+function liveFeedBadgeClass(state: LiveFeedState): string {
+  if (state === "connected") return "badge badgeOk";
+  if (state === "reconnecting") return "badge badgeWarn";
+  if (state === "connecting") return "badge";
+  return "badge badgeErr";
+}
+
+function liveFeedLabel(state: LiveFeedState): string {
+  if (state === "connected") return "live";
+  if (state === "reconnecting") return "reconnecting";
+  if (state === "connecting") return "connecting";
+  return "offline";
+}
+
 export const __runViewerTestables = {
   iterationNumber,
   isPatchedIter,
@@ -521,6 +623,7 @@ export const __runViewerTestables = {
   normalizeV2MicroWorldMap,
   normalizeV2DramaPlan,
   normalizeV2SetpiecePlan,
+  normalizeV2SemanticAcceptanceReport,
   extractKeyOrFallback,
   formatTime,
   parseIsoMs,
@@ -528,7 +631,9 @@ export const __runViewerTestables = {
   clampWatchdogThresholdSeconds,
   initialWatchdogThresholdSeconds,
   statusBadgeClass,
-  constraintBadgeClass
+  constraintBadgeClass,
+  liveFeedBadgeClass,
+  liveFeedLabel
 };
 
 export default function RunViewer() {
@@ -567,6 +672,8 @@ export default function RunViewer() {
   const [v2MicroWorldPreview, setV2MicroWorldPreview] = useState<V2MicroWorldMapPreview | null>(null);
   const [v2DramaPlanPreview, setV2DramaPlanPreview] = useState<V2DramaPlanPreview | null>(null);
   const [v2SetpiecePlanPreview, setV2SetpiecePlanPreview] = useState<V2SetpiecePlanPreview | null>(null);
+  const [v2PackagingSummaryPreview, setV2PackagingSummaryPreview] = useState<V2PackagingSummaryPreview | null>(null);
+  const [v2SemanticReportPreview, setV2SemanticReportPreview] = useState<V2SemanticAcceptanceReport | null>(null);
   const [v2InspectorTab, setV2InspectorTab] = useState<V2InspectorTab>("world");
   const [v2DrilldownBusy, setV2DrilldownBusy] = useState(false);
   const [v2DrilldownErr, setV2DrilldownErr] = useState<string | null>(null);
@@ -583,6 +690,7 @@ export default function RunViewer() {
   const [gateHistoryErr, setGateHistoryErr] = useState<string | null>(null);
   const [gateHistoryBusy, setGateHistoryBusy] = useState(false);
   const [resumeBusy, setResumeBusy] = useState(false);
+  const [liveFeedState, setLiveFeedState] = useState<LiveFeedState>("connecting");
   const esRef = useRef<EventSource | null>(null);
   const previousStuckRef = useRef<Map<string, number>>(new Map());
 
@@ -611,6 +719,8 @@ export default function RunViewer() {
     return v2PackagingNames.filter((name) => names.has(name)).length;
   }, [workflow, artifacts, v2PackagingNames]);
   const gateHistoryRows = gateHistory?.history ?? [];
+  const gate3SemanticBlocked =
+    run?.activeGate?.gateId === "GATE_3_STORYBOARD" && v2SemanticReportPreview !== null && !v2SemanticReportPreview.pass;
 
   const baselineSpecName = useMemo(() => {
     return artifacts.some((a) => a.name === "final_slide_spec.json") ? "final_slide_spec.json" : null;
@@ -724,6 +834,7 @@ export default function RunViewer() {
     setGateHistoryErr(null);
     setGateHistoryBusy(false);
     setResumeBusy(false);
+    setLiveFeedState("connecting");
 
     void refreshRun();
     void refreshArtifacts();
@@ -824,6 +935,10 @@ export default function RunViewer() {
     const hasMicroWorld = artifacts.some((a) => a.name === "micro_world_map.json");
     const hasDramaPlan = artifacts.some((a) => a.name === "drama_plan.json");
     const hasSetpiecePlan = artifacts.some((a) => a.name === "setpiece_plan.json");
+    const hasPackagingSummary = artifacts.some(
+      (a) => a.name === "V2_PACKAGING_SUMMARY.json" || a.name === "v2_phase4_packaging_summary.json"
+    );
+    const hasSemanticReport = artifacts.some((a) => a.name === "semantic_acceptance_report.json");
 
     if (!safeRunId || workflow !== "v2_micro_detectives" || !hasDeckSpec) {
       setV2DeckSpecPreview(null);
@@ -832,6 +947,8 @@ export default function RunViewer() {
       setV2MicroWorldPreview(null);
       setV2DramaPlanPreview(null);
       setV2SetpiecePlanPreview(null);
+      setV2PackagingSummaryPreview(null);
+      setV2SemanticReportPreview(null);
       setV2DrilldownErr(null);
       setV2DrilldownBusy(false);
       return;
@@ -843,13 +960,22 @@ export default function RunViewer() {
 
     void (async () => {
       try {
-        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw] = await Promise.all([
+        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw] = await Promise.all([
           fetchArtifact(safeRunId, "deck_spec.json"),
           hasTemplateRegistry ? fetchArtifact(safeRunId, "v2_template_registry.json") : Promise.resolve(null),
           hasClueGraph ? fetchArtifact(safeRunId, "clue_graph.json") : Promise.resolve(null),
           hasMicroWorld ? fetchArtifact(safeRunId, "micro_world_map.json") : Promise.resolve(null),
           hasDramaPlan ? fetchArtifact(safeRunId, "drama_plan.json") : Promise.resolve(null),
-          hasSetpiecePlan ? fetchArtifact(safeRunId, "setpiece_plan.json") : Promise.resolve(null)
+          hasSetpiecePlan ? fetchArtifact(safeRunId, "setpiece_plan.json") : Promise.resolve(null),
+          hasPackagingSummary
+            ? fetchArtifact(
+                safeRunId,
+                artifacts.some((item) => item.name === "V2_PACKAGING_SUMMARY.json")
+                  ? "V2_PACKAGING_SUMMARY.json"
+                  : "v2_phase4_packaging_summary.json"
+              )
+            : Promise.resolve(null),
+          hasSemanticReport ? fetchArtifact(safeRunId, "semantic_acceptance_report.json") : Promise.resolve(null)
         ]);
         if (cancelled) return;
 
@@ -859,6 +985,8 @@ export default function RunViewer() {
         const microWorldParsed = microWorldRaw ? normalizeV2MicroWorldMap(parseJsonOrThrow(microWorldRaw.text)) : null;
         const dramaParsed = dramaRaw ? normalizeV2DramaPlan(parseJsonOrThrow(dramaRaw.text)) : null;
         const setpieceParsed = setpieceRaw ? normalizeV2SetpiecePlan(parseJsonOrThrow(setpieceRaw.text)) : null;
+        const packagingParsed = packagingRaw ? normalizeV2PackagingSummary(parseJsonOrThrow(packagingRaw.text)) : null;
+        const semanticParsed = semanticRaw ? normalizeV2SemanticAcceptanceReport(parseJsonOrThrow(semanticRaw.text)) : null;
 
         setV2DeckSpecPreview(deckParsed);
         setV2TemplateRegistryPreview(templateParsed);
@@ -866,6 +994,8 @@ export default function RunViewer() {
         setV2MicroWorldPreview(microWorldParsed);
         setV2DramaPlanPreview(dramaParsed);
         setV2SetpiecePlanPreview(setpieceParsed);
+        setV2PackagingSummaryPreview(packagingParsed);
+        setV2SemanticReportPreview(semanticParsed);
         setV2DrilldownErr(null);
       } catch (e) {
         if (cancelled) return;
@@ -875,6 +1005,8 @@ export default function RunViewer() {
         setV2MicroWorldPreview(null);
         setV2DramaPlanPreview(null);
         setV2SetpiecePlanPreview(null);
+        setV2PackagingSummaryPreview(null);
+        setV2SemanticReportPreview(null);
         setV2DrilldownErr(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setV2DrilldownBusy(false);
@@ -900,6 +1032,11 @@ export default function RunViewer() {
   }, [safeRunId, run?.status, artifacts]);
 
   useEffect(() => {
+    if (!gate3SemanticBlocked) return;
+    if (gateDecision === "approve") setGateDecision("regenerate");
+  }, [gate3SemanticBlocked, gateDecision]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(WATCHDOG_STORAGE_KEY, String(watchdogThresholdSeconds));
   }, [watchdogThresholdSeconds]);
@@ -914,6 +1051,7 @@ export default function RunViewer() {
   useEffect(() => {
     if (!safeRunId) return;
 
+    setLiveFeedState("connecting");
     const es = new EventSource(sseUrl(safeRunId));
     esRef.current = es;
 
@@ -958,6 +1096,19 @@ export default function RunViewer() {
       }
       void refreshArtifacts();
       void refreshRun();
+    });
+
+    es.addEventListener("deckspec_estimate", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as NonNullable<RunStatus["v2DeckSpecEstimate"]>;
+        setRun((prev) => (prev ? { ...prev, v2DeckSpecEstimate: data } : prev));
+        const deckPolicy = data.deckLengthPolicy === "soft_target" ? `soft target ${String(data.softTarget ?? "?")}` : "unconstrained";
+        pushLog(
+          `[C] DeckSpec estimate: ${String(data.estimatedMainSlides)} slides (${deckPolicy}), timeouts agent=${String(data.adaptiveTimeoutMs.agent)}ms deckspec=${String(data.adaptiveTimeoutMs.deckSpec)}ms watchdog=${String(data.adaptiveTimeoutMs.watchdog)}ms`
+        );
+      } catch {
+        pushLog("deckspec_estimate (unparseable)");
+      }
     });
 
     es.addEventListener("gate_required", (ev) => {
@@ -1012,13 +1163,19 @@ export default function RunViewer() {
       void refreshRun();
     });
 
+    es.onopen = () => {
+      setLiveFeedState("connected");
+    };
+
     es.onerror = () => {
+      setLiveFeedState((prev) => (prev === "connected" ? "reconnecting" : "offline"));
       pushLog("SSE connection error (will auto-retry)");
     };
 
     return () => {
       es.close();
       esRef.current = null;
+      setLiveFeedState("offline");
     };
   }, [safeRunId]);
 
@@ -1092,7 +1249,11 @@ export default function RunViewer() {
       await refreshRun();
       await refreshGateHistory();
     } catch (e) {
-      setGateErr(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setGateErr(message);
+      if (message.toLowerCase().includes("semantic acceptance gate failed")) {
+        setGateRecoveryHint("Gate 3 approval is blocked by semantic acceptance checks. Submit regenerate, then Resume run.");
+      }
     } finally {
       setGateBusy(false);
     }
@@ -1114,7 +1275,17 @@ export default function RunViewer() {
       await refreshRun();
       await refreshGateHistory();
     } catch (e) {
-      setGateErr(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setGateErr(message);
+      if (message.includes("request_changes")) {
+        setGateRecoveryHint("This run is still in request_changes. Submit approve or regenerate, then click Resume run.");
+      } else if (message.includes("no submitted review")) {
+        setGateRecoveryHint("Submit a gate decision first, then resume.");
+      } else if (message.includes("not paused")) {
+        setGateRecoveryHint("Resume is only available while the run is paused at an active gate.");
+      } else if (message.toLowerCase().includes("semantic acceptance gate failed")) {
+        setGateRecoveryHint("Semantic acceptance failed. Use regenerate at Gate 3 to rebuild C artifacts before resume.");
+      }
     } finally {
       setResumeBusy(false);
     }
@@ -1293,6 +1464,8 @@ export default function RunViewer() {
                     back
                   </Link>
                   <span className={statusBadgeClass(run.status)}>{run.status}</span>
+                  <span className={liveFeedBadgeClass(liveFeedState)}>events: {liveFeedLabel(liveFeedState)}</span>
+                  {run.activeGate?.gateId && <span className="badge badgeWarn">gate: {run.activeGate.gateId}</span>}
                 </div>
               </div>
               <div className="subtle mono">{safeRunId}</div>
@@ -1319,6 +1492,16 @@ export default function RunViewer() {
                 <a className="buttonLink" href={exportZipUrl(safeRunId)} target="_blank" rel="noreferrer">
                   Export zip
                 </a>
+
+                <Link className="buttonLink" to={`/runs/${safeRunId}/artifacts`}>
+                  Artifact vault
+                </Link>
+
+                {workflow === "v2_micro_detectives" && (
+                  <Link className="buttonLink" to={`/runs/${safeRunId}/workshop`}>
+                    Beat workshop
+                  </Link>
+                )}
 
                 <div className="row" style={{ gap: 10 }}>
                   <span className="subtle">Rerun from</span>
@@ -1362,11 +1545,40 @@ export default function RunViewer() {
                   awaiting={run.activeGate.awaiting ?? "review_submission"}
                   {run.activeGate.submittedDecision ? ` · submitted=${run.activeGate.submittedDecision}` : ""}
                 </div>
+                {gate3SemanticBlocked && (
+                  <div className="runSemanticGateAlert">
+                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span className="badge badgeErr">Semantic acceptance failed</span>
+                      <span className="mono subtle">Approve is disabled until you regenerate/fix C artifacts.</span>
+                    </div>
+                    <ul className="diagnosticList" style={{ marginTop: 8 }}>
+                      {v2SemanticReportPreview.failures.map((failure, idx) => (
+                        <li key={`semantic-gate-failure-${idx}`}>{failure}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="gateDecisionGuide">
+                  <div className="gateDecisionGuideItem">
+                    <span className="badge badgeOk">approve</span>
+                    <span className="subtle">Continue from resumeFrom.</span>
+                  </div>
+                  <div className="gateDecisionGuideItem">
+                    <span className="badge badgeWarn">regenerate</span>
+                    <span className="subtle">Restart from gate-owning step with your notes applied.</span>
+                  </div>
+                  <div className="gateDecisionGuideItem">
+                    <span className="badge">request_changes</span>
+                    <span className="subtle">Keep paused until you submit approve or regenerate.</span>
+                  </div>
+                </div>
                 <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div>
                     <div className="subtle">Decision</div>
                     <select aria-label="Gate decision" value={gateDecision} onChange={(e) => setGateDecision(e.target.value as typeof gateDecision)}>
-                      <option value="approve">approve</option>
+                      <option value="approve" disabled={gate3SemanticBlocked}>
+                        approve
+                      </option>
                       <option value="request_changes">request_changes</option>
                       <option value="regenerate">regenerate</option>
                     </select>
@@ -1464,6 +1676,58 @@ export default function RunViewer() {
             </div>
           )}
 
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 semantic acceptance</div>
+              </div>
+              <div className="panelBody">
+                {!v2SemanticReportPreview && <div className="subtle">No semantic_acceptance_report.json artifact yet.</div>}
+                {v2SemanticReportPreview && (
+                  <div className="summaryCardList">
+                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span className={v2SemanticReportPreview.pass ? "badge badgeOk" : "badge badgeErr"}>
+                        {v2SemanticReportPreview.pass ? "pass" : "fail"}
+                      </span>
+                      <span className="mono subtle">{formatTime(v2SemanticReportPreview.checked_at)}</span>
+                    </div>
+                    <div className="diagnosticKv">
+                      <div>main slides</div>
+                      <div className="mono">{v2SemanticReportPreview.metrics.main_slide_count}</div>
+                      <div>story-forward ratio</div>
+                      <div className="mono">
+                        {formatRatioAsPercent(v2SemanticReportPreview.metrics.story_forward_ratio)} / min{" "}
+                        {formatRatioAsPercent(v2SemanticReportPreview.thresholds.min_story_forward_ratio)}
+                      </div>
+                      <div>hybrid slide quality</div>
+                      <div className="mono">
+                        {formatRatioAsPercent(v2SemanticReportPreview.metrics.hybrid_slide_quality)} / min{" "}
+                        {formatRatioAsPercent(v2SemanticReportPreview.thresholds.min_hybrid_slide_quality)}
+                      </div>
+                      <div>citation grounding coverage</div>
+                      <div className="mono">
+                        {formatRatioAsPercent(v2SemanticReportPreview.metrics.citation_grounding_coverage)} / min{" "}
+                        {formatRatioAsPercent(v2SemanticReportPreview.thresholds.min_citation_grounding_coverage)}
+                      </div>
+                    </div>
+                    <details className="diagnosticDetails" open={!v2SemanticReportPreview.pass}>
+                      <summary>Failures ({v2SemanticReportPreview.failures.length})</summary>
+                      {v2SemanticReportPreview.failures.length === 0 ? (
+                        <div className="subtle">none</div>
+                      ) : (
+                        <ul className="diagnosticList">
+                          {v2SemanticReportPreview.failures.map((failure, idx) => (
+                            <li key={`semantic-failure-${idx}`}>{failure}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="panel runMetaCard">
             <div className="panelHeader">
               <div style={{ fontWeight: 600 }}>Run metadata</div>
@@ -1528,6 +1792,44 @@ export default function RunViewer() {
               </div>
             </div>
           </div>
+
+          {workflow === "v2_micro_detectives" && run.v2DeckSpecEstimate && (
+            <div className="panel runWatchdogCard">
+              <div className="panelBody">
+                <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                      <span className={`badge ${run.v2DeckSpecEstimate.abortRecommended ? "badgeWarn" : "badgeOk"}`}>DeckSpec estimate</span>
+                      <span className="mono">
+                        {run.v2DeckSpecEstimate.estimatedMainSlides} slides ({run.v2DeckSpecEstimate.deckLengthPolicy}
+                        {run.v2DeckSpecEstimate.deckLengthPolicy === "soft_target" ? `:${String(run.v2DeckSpecEstimate.softTarget ?? "-")}` : ""})
+                      </span>
+                    </div>
+                    <div className="mono subtle" style={{ marginTop: 6 }}>
+                      adaptive timeouts: agent {formatElapsed(run.v2DeckSpecEstimate.adaptiveTimeoutMs.agent)} · deckspec{" "}
+                      {formatElapsed(run.v2DeckSpecEstimate.adaptiveTimeoutMs.deckSpec)} · watchdog{" "}
+                      {formatElapsed(run.v2DeckSpecEstimate.adaptiveTimeoutMs.watchdog)}
+                    </div>
+                    <div className="mono subtle" style={{ marginTop: 4 }}>
+                      abort threshold: {run.v2DeckSpecEstimate.abortThresholdSlides} slides
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    {run.v2DeckSpecEstimate.abortRecommended && (
+                      <span className="badge badgeWarn">Estimated length exceeds abort threshold</span>
+                    )}
+                    <button
+                      className="buttonDanger"
+                      disabled={cancelBusy || (run.status !== "running" && run.status !== "queued")}
+                      onClick={() => void onCancel()}
+                    >
+                      {cancelBusy ? "Cancelling..." : "Abort run"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {storyboardReviewRequired && run.status === "done" && (
             <div className="panel runGateCard">
@@ -1600,6 +1902,7 @@ export default function RunViewer() {
           <StepTimeline
             steps={run.steps}
             workflow={workflow}
+            artifacts={artifacts}
             nowMs={nowMs}
             stuckThresholdMs={stuckThresholdMs}
             recoveredSteps={recoveredStepNames}
@@ -1964,6 +2267,12 @@ export default function RunViewer() {
                       >
                         Templates
                       </button>
+                      <button
+                        className={`summaryTabButton ${v2InspectorTab === "packaging" ? "summaryTabButtonActive" : ""}`}
+                        onClick={() => setV2InspectorTab("packaging")}
+                      >
+                        Packaging
+                      </button>
                     </div>
 
                     {v2DrilldownBusy && <div className="subtle">Loading v2 inspectors…</div>}
@@ -2133,6 +2442,39 @@ export default function RunViewer() {
                                 {v2TemplateRegistryPreview.templates.map((template) => (
                                   <li key={template.template_id}>
                                     <span className="mono">{template.template_id}</span>: {template.purpose ?? "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {!v2DrilldownBusy && !v2DrilldownErr && v2InspectorTab === "packaging" && (
+                      <>
+                        {!v2PackagingSummaryPreview && <div className="subtle">No V2 packaging summary artifact yet.</div>}
+                        {v2PackagingSummaryPreview && (
+                          <div className="summaryCardList">
+                            <details className="diagnosticDetails" open>
+                              <summary>Deck package summary</summary>
+                              <div className="diagnosticKv">
+                                <div>episode</div>
+                                <div>{v2PackagingSummaryPreview.deck?.episode_title ?? "-"}</div>
+                                <div>main slides</div>
+                                <div className="mono">{v2PackagingSummaryPreview.deck?.main_slide_count ?? 0}</div>
+                                <div>appendix slides</div>
+                                <div className="mono">{v2PackagingSummaryPreview.deck?.appendix_slide_count ?? 0}</div>
+                                <div>template count</div>
+                                <div className="mono">{v2PackagingSummaryPreview.package?.template_count ?? 0}</div>
+                              </div>
+                            </details>
+                            <details className="diagnosticDetails" open>
+                              <summary>Final package files</summary>
+                              <ul className="diagnosticList">
+                                {Object.entries(v2PackagingSummaryPreview.package?.files ?? {}).map(([label, file]) => (
+                                  <li key={label}>
+                                    <span className="mono">{label}</span>: <span className="mono">{file}</span>
                                   </li>
                                 ))}
                               </ul>

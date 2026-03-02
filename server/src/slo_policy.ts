@@ -7,7 +7,8 @@ export const DEFAULT_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
   KB0: 180_000,
   A: 90_000,
   B: 240_000,
-  C: 120_000,
+  // Step C encapsulates v2 deck synthesis + QA loops and can run for several minutes.
+  C: 480_000,
   D: 120_000,
   E: 120_000,
   F: 120_000,

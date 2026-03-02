@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import AppHeader from "./AppHeader";
 
@@ -12,6 +13,8 @@ describe("AppHeader", () => {
     );
 
     expect(screen.getByRole("link", { name: "Malady Mystery Studio" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("href", "/runs");
     expect(screen.queryByText(/health:/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/health error:/i)).not.toBeInTheDocument();
   });
@@ -42,5 +45,26 @@ describe("AppHeader", () => {
     expect(badge).toHaveTextContent("vs: no");
     expect(screen.getByText(/health error: network down/i)).toBeInTheDocument();
   });
-});
 
+  it("toggles the mobile nav menu and closes it when a mobile nav link is clicked", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <MemoryRouter>
+        <AppHeader health={null} healthErr={null} />
+      </MemoryRouter>
+    );
+
+    const menuButton = screen.getByRole("button", { name: /open navigation/i });
+    const mobileNav = container.querySelector(".headerMobileNav");
+    expect(mobileNav).not.toHaveClass("headerMobileNavOpen");
+
+    await user.click(menuButton);
+    expect(screen.getByRole("button", { name: /close navigation/i })).toBeInTheDocument();
+    expect(mobileNav).toHaveClass("headerMobileNavOpen");
+
+    const mobileCaseBoardLink = screen.getAllByRole("link", { name: "Case Board" })[1];
+    await user.click(mobileCaseBoardLink);
+    expect(screen.getByRole("button", { name: /open navigation/i })).toBeInTheDocument();
+    expect(mobileNav).not.toHaveClass("headerMobileNavOpen");
+  });
+});

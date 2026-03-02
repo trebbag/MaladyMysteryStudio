@@ -2,6 +2,7 @@ import type {
   ClueGraph,
   DeckSpec,
   DifferentialCast,
+  DeckSlideSpec,
   MedFactcheckReport,
   ReaderSimReport,
   RequiredFix,
@@ -111,6 +112,110 @@ function toQaLintErrors(errors: V2DeckSpecLintError[]): V2QaReport["lint_errors"
   }));
 }
 
+function deterministicMysteryLint(input: { deckSpec: DeckSpec; clueGraph: ClueGraph }): {
+  errors: V2QaReport["lint_errors"];
+  fixes: RequiredFix[];
+} {
+  const { deckSpec, clueGraph } = input;
+  const errors: V2QaReport["lint_errors"] = [];
+  const fixes: RequiredFix[] = [];
+
+  const allSlideIds = new Set(
+    [...deckSpec.slides, ...deckSpec.appendix_slides].map((slide) => slide.slide_id)
+  );
+  const act1SlideIds = new Set(deckSpec.slides.filter((slide) => slide.act_id === "ACT1").map((slide) => slide.slide_id));
+  const clueById = new Map(clueGraph.clues.map((clue) => [clue.clue_id, clue] as const));
+  const minTwistReceipts = Math.max(3, clueGraph.constraints.min_clues_per_twist);
+  const resolveTwistFocusSlide = (support: ClueGraph["twist_support_matrix"][number]): string | undefined => {
+    const recontextSlide = support.recontextualized_slide_ids.find((slideId) => allSlideIds.has(slideId));
+    if (recontextSlide) return recontextSlide;
+    for (const clueId of support.supporting_clue_ids) {
+      const clue = clueById.get(clueId);
+      if (!clue) continue;
+      if (allSlideIds.has(clue.payoff_slide_id)) return clue.payoff_slide_id;
+      if (allSlideIds.has(clue.first_seen_slide_id)) return clue.first_seen_slide_id;
+    }
+    return undefined;
+  };
+
+  for (const redHerring of clueGraph.red_herrings) {
+    if (!redHerring.payoff_slide_id || !allSlideIds.has(redHerring.payoff_slide_id)) {
+      errors.push({
+        code: "RED_HERRING_PAYOFF_MISSING",
+        message: `Red herring ${redHerring.rh_id} must resolve to a valid payoff slide.`,
+        severity: "error",
+        slide_id: redHerring.payoff_slide_id || undefined
+      });
+      fixes.push({
+        fix_id: `RH-PAYOFF-${redHerring.rh_id}`,
+        type: "edit_clue",
+        priority: "must",
+        description: `Assign a valid payoff_slide_id for red herring ${redHerring.rh_id} and ensure explicit resolution on that slide.`,
+        targets: [redHerring.rh_id]
+      });
+    }
+  }
+
+  for (const support of clueGraph.twist_support_matrix) {
+    const focusSlideId = resolveTwistFocusSlide(support);
+    if (support.supporting_clue_ids.length < minTwistReceipts) {
+      errors.push({
+        code: "TWIST_RECEIPTS_INSUFFICIENT",
+        message: `Twist ${support.twist_id} has ${support.supporting_clue_ids.length} receipts; requires at least ${minTwistReceipts}.`,
+        severity: "error",
+        slide_id: focusSlideId
+      });
+      fixes.push({
+        fix_id: `TW-RECEIPTS-${support.twist_id}`,
+        type: "add_twist_receipts",
+        priority: "must",
+        description: `Add clue receipts for twist ${support.twist_id} to meet the minimum receipt threshold.`,
+        targets: [support.twist_id, ...(focusSlideId ? [focusSlideId] : []), ...support.supporting_clue_ids]
+      });
+    }
+
+    if (support.recontextualized_slide_ids.length < 2) {
+      errors.push({
+        code: "TWIST_RECONTEXTUALIZATION_TOO_LOW",
+        message: `Twist ${support.twist_id} must recontextualize at least 2 slides.`,
+        severity: "error",
+        slide_id: focusSlideId
+      });
+      fixes.push({
+        fix_id: `TW-RECONTEXT-${support.twist_id}`,
+        type: "add_twist_receipts",
+        priority: "must",
+        description: `Expand twist ${support.twist_id} recontextualization to at least two slide callbacks.`,
+        targets: [support.twist_id, ...(focusSlideId ? [focusSlideId] : [])]
+      });
+    }
+
+    if (clueGraph.constraints.require_act1_setup) {
+      const hasAct1Support = support.supporting_clue_ids.some((clueId) => {
+        const clue = clueById.get(clueId);
+        return clue ? act1SlideIds.has(clue.first_seen_slide_id) : false;
+      });
+      if (!hasAct1Support) {
+        errors.push({
+          code: "TWIST_ACT1_SETUP_MISSING",
+          message: `Twist ${support.twist_id} requires at least one Act I setup clue.`,
+          severity: "error",
+          slide_id: focusSlideId
+        });
+        fixes.push({
+          fix_id: `TW-ACT1-${support.twist_id}`,
+          type: "add_twist_receipts",
+          priority: "must",
+          description: `Seed an Act I clue for twist ${support.twist_id} and connect it to the reveal.`,
+          targets: [support.twist_id, ...(focusSlideId ? [focusSlideId] : [])]
+        });
+      }
+    }
+  }
+
+  return { errors, fixes };
+}
+
 function pacingScore(reader: ReaderSimReport): number {
   const pacingNotes = reader.slide_notes.filter((note) => note.issue_type === "pacing_slow" || note.issue_type === "pacing_rushed");
   if (pacingNotes.length === 0) return 4.2;
@@ -124,15 +229,151 @@ function microMacroScore(medFactcheck: MedFactcheckReport, reader: ReaderSimRepo
   return Math.max(0, Math.min(5, base - confusionPenalty));
 }
 
+const STORY_FORWARD_DELIVERY_MODES = new Set(["clue", "dialogue", "action"]);
+
+function isStoryForwardSlide(slide: DeckSlideSpec): boolean {
+  return STORY_FORWARD_DELIVERY_MODES.has(slide.medical_payload.delivery_mode);
+}
+
+function hasNonEmptyStoryTurn(slide: DeckSlideSpec): boolean {
+  const panel = slide.story_panel;
+  return (
+    panel.goal.trim().length > 0 &&
+    panel.opposition.trim().length > 0 &&
+    panel.turn.trim().length > 0 &&
+    panel.decision.trim().length > 0
+  );
+}
+
+function hasCitationGrounding(slide: DeckSlideSpec): boolean {
+  return slide.medical_payload.dossier_citations.length > 0 && slide.speaker_notes.citations.length > 0;
+}
+
+function isHybridSlide(slide: DeckSlideSpec): boolean {
+  return (
+    isStoryForwardSlide(slide) &&
+    hasNonEmptyStoryTurn(slide) &&
+    slide.medical_payload.major_concept_id.trim().length > 0 &&
+    hasCitationGrounding(slide)
+  );
+}
+
+function safeRatio(numerator: number, denominator: number): number {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return numerator / denominator;
+}
+
+export type SemanticAcceptanceThresholds = {
+  minStoryForwardRatio: number;
+  minHybridSlideQuality: number;
+  minCitationGroundingCoverage: number;
+};
+
+export type SemanticAcceptanceMetrics = {
+  mainSlideCount: number;
+  storyForwardRatio: number;
+  hybridSlideQuality: number;
+  citationGroundingCoverage: number;
+  pass: boolean;
+  failures: string[];
+  storyForwardDeficitSlideIds: string[];
+  hybridDeficitSlideIds: string[];
+  citationDeficitSlideIds: string[];
+};
+
+export function evaluateSemanticAcceptance(deckSpec: DeckSpec, thresholds: SemanticAcceptanceThresholds): SemanticAcceptanceMetrics {
+  const mainSlides = deckSpec.slides;
+  const storyForwardDeficitSlideIds = mainSlides.filter((slide) => !isStoryForwardSlide(slide)).map((slide) => slide.slide_id);
+  const hybridDeficitSlideIds = mainSlides.filter((slide) => !isHybridSlide(slide)).map((slide) => slide.slide_id);
+  const citationDeficitSlideIds = mainSlides.filter((slide) => !hasCitationGrounding(slide)).map((slide) => slide.slide_id);
+
+  const storyForwardRatio = safeRatio(mainSlides.length - storyForwardDeficitSlideIds.length, mainSlides.length);
+  const hybridSlideQuality = safeRatio(mainSlides.length - hybridDeficitSlideIds.length, mainSlides.length);
+  const citationGroundingCoverage = safeRatio(mainSlides.length - citationDeficitSlideIds.length, mainSlides.length);
+
+  const failures: string[] = [];
+  if (storyForwardRatio < thresholds.minStoryForwardRatio) {
+    failures.push(
+      `story_forward_ratio=${storyForwardRatio.toFixed(3)} below threshold ${thresholds.minStoryForwardRatio.toFixed(3)}`
+    );
+  }
+  if (hybridSlideQuality < thresholds.minHybridSlideQuality) {
+    failures.push(
+      `hybrid_slide_quality=${hybridSlideQuality.toFixed(3)} below threshold ${thresholds.minHybridSlideQuality.toFixed(3)}`
+    );
+  }
+  if (citationGroundingCoverage < thresholds.minCitationGroundingCoverage) {
+    failures.push(
+      `citation_grounding_coverage=${citationGroundingCoverage.toFixed(3)} below threshold ${thresholds.minCitationGroundingCoverage.toFixed(3)}`
+    );
+  }
+
+  return {
+    mainSlideCount: mainSlides.length,
+    storyForwardRatio,
+    hybridSlideQuality,
+    citationGroundingCoverage,
+    pass: failures.length === 0,
+    failures,
+    storyForwardDeficitSlideIds,
+    hybridDeficitSlideIds,
+    citationDeficitSlideIds
+  };
+}
+
+export function buildSemanticRequiredFixes(
+  metrics: SemanticAcceptanceMetrics,
+  thresholds: SemanticAcceptanceThresholds
+): RequiredFix[] {
+  const fixes: RequiredFix[] = [];
+  if (metrics.storyForwardRatio < thresholds.minStoryForwardRatio) {
+    fixes.push({
+      fix_id: "SEM-STORY-FORWARD-RATIO",
+      type: "increase_story_turn",
+      priority: "must",
+      description: `Raise story-forward ratio to at least ${thresholds.minStoryForwardRatio.toFixed(2)} across main slides.`,
+      targets: metrics.storyForwardDeficitSlideIds.slice(0, 12)
+    });
+  }
+  if (metrics.hybridSlideQuality < thresholds.minHybridSlideQuality) {
+    fixes.push({
+      fix_id: "SEM-HYBRID-SLIDE-QUALITY",
+      type: "increase_story_turn",
+      priority: "must",
+      description: `Raise hybrid slide quality to at least ${thresholds.minHybridSlideQuality.toFixed(2)} by strengthening story-turn + medical payload coupling.`,
+      targets: metrics.hybridDeficitSlideIds.slice(0, 12)
+    });
+  }
+  if (metrics.citationGroundingCoverage < thresholds.minCitationGroundingCoverage) {
+    fixes.push({
+      fix_id: "SEM-CITATION-GROUNDING",
+      type: "medical_correction",
+      priority: "must",
+      description: `Raise citation grounding coverage to at least ${thresholds.minCitationGroundingCoverage.toFixed(2)} by adding dossier-backed citations.`,
+      targets: metrics.citationDeficitSlideIds.slice(0, 12)
+    });
+  }
+  return fixes;
+}
+
 export function buildCombinedQaReport(input: {
   lintReport: V2DeckSpecLintReport;
   readerSimReport: ReaderSimReport;
   medFactcheckReport: MedFactcheckReport;
+  clueGraph: ClueGraph;
   deckSpec: DeckSpec;
 }): V2QaReport {
-  const { lintReport, readerSimReport, medFactcheckReport, deckSpec } = input;
+  const { lintReport, readerSimReport, medFactcheckReport, clueGraph, deckSpec } = input;
   const lintFixes = buildLintFixes(lintReport, deckSpec);
-  const requiredFixes = dedupeFixes([...lintFixes, ...medFactcheckReport.required_fixes, ...readerSimReport.required_fixes]);
+  const mysteryLint = deterministicMysteryLint({ deckSpec, clueGraph });
+  const combinedLintErrors = [...toQaLintErrors(lintReport.errors), ...mysteryLint.errors];
+  const lintPass = lintReport.pass && mysteryLint.errors.length === 0;
+  const requiredFixes = dedupeFixes([
+    ...lintFixes,
+    ...mysteryLint.fixes,
+    ...medFactcheckReport.required_fixes,
+    ...readerSimReport.required_fixes
+  ]);
   const hasMustFix = requiredFixes.some((fix) => fix.priority === "must");
 
   const graderScores: V2QaReport["grader_scores"] = [
@@ -175,7 +416,7 @@ export function buildCombinedQaReport(input: {
   ];
 
   const criticalScoresOk = graderScores.filter((g) => g.critical).every((g) => g.score_0_to_5 >= 3);
-  const accept = lintReport.pass && medFactcheckReport.pass && criticalScoresOk && !hasMustFix;
+  const accept = lintPass && medFactcheckReport.pass && criticalScoresOk && !hasMustFix;
 
   const fallbackCitation = baseCitation(deckSpec);
   const medIssueCitations = medFactcheckReport.issues.flatMap((issue) => issue.supporting_citations);
@@ -183,14 +424,14 @@ export function buildCombinedQaReport(input: {
 
   return {
     schema_version: "1.0.0",
-    lint_pass: lintReport.pass,
-    lint_errors: toQaLintErrors(lintReport.errors),
+    lint_pass: lintPass,
+    lint_errors: combinedLintErrors,
     grader_scores: graderScores,
     accept,
     required_fixes: requiredFixes,
     summary: accept
-      ? "Quality gates passed. Deck is medically coherent, story-dominant, and ready for storyboard review."
-      : "Quality gates failed. Apply required fixes and rerun QA loop before storyboard review.",
+      ? "Quality gates passed. Deck is medically coherent, story-dominant, and twist-valid for storyboard review."
+      : "Quality gates failed. Apply required fixes (including twist/red-herring deterministic checks) and rerun QA loop before storyboard review.",
     citations_used: citationPool.map(normalizeCitation)
   };
 }

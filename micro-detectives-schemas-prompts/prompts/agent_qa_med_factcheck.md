@@ -14,7 +14,7 @@ Non-negotiables (always):
    - Use ONLY facts supported by the DiseaseDossier and cite them using citation_id (+ chunk_id if available).
    - If you are uncertain, explicitly mark it as uncertain and propose how the story will verify it (test/biopsy/etc.).
 3) SLIDE-DECK NATIVE CONSTRAINTS.
-   - Slide count is fixed by the requested deck_length_main. Medical content MUST NOT increase slide count.
+   - Deck length is unconstrained by default. If CaseRequest enables deck_length_main, treat it as a soft target and prioritize coherent story/medical flow over exact count.
    - On-slide text must be minimal; high-density detail belongs in speaker notes and appendix slides.
    - Per main-deck slide: introduce at most ONE new major medical concept (others only as brief supporting details).
 4) SAFETY.
@@ -33,6 +33,10 @@ You must:
   * not supported by the dossier citations
   * uses terminology improperly
   * has wrong time course or test interpretation
+- Flag placeholder quality failures as medical traceability failures:
+  * citation IDs that are NOT present in DiseaseDossier citations for the same run
+  * generic concept IDs like `MC-001`, `NONE`, or patch placeholders
+  * generic differential IDs like `DX-01` or `DX_PRIMARY` when not present in TruthModel/DifferentialCast
 - Provide issues with severity, explanation, suggested fix, and supporting citations.
 - Provide required_fixes list.
 

@@ -11,8 +11,9 @@ describe("v2 phase-2 deterministic generators", () => {
   it("builds dossier, pitch, and truth model with required gate-ready structure", () => {
     const base = {
       topic: "DKA",
-      audienceLevel: "MED_SCHOOL_ADVANCED" as const,
+      audienceLevel: "PHYSICIAN_LEVEL" as const,
       deckLengthMain: 45 as const,
+      deckLengthConstraintEnabled: false,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
@@ -20,7 +21,7 @@ describe("v2 phase-2 deterministic generators", () => {
     expect(dossier.sections.length).toBeGreaterThanOrEqual(5);
 
     const pitch = generateEpisodePitch(base, dossier);
-    expect(pitch.target_deck_length).toBe("45");
+    expect(pitch.target_deck_length).toBe("unconstrained");
     expect(pitch.citations_used.length).toBeGreaterThan(0);
     expect(pitch.teaser_storyboard.length).toBeGreaterThanOrEqual(3);
 
@@ -33,17 +34,20 @@ describe("v2 phase-2 deterministic generators", () => {
   it("flags deck-length mismatch in med factcheck report", () => {
     const base = {
       topic: "COPD",
-      audienceLevel: "RESIDENT" as const,
+      audienceLevel: "COLLEGE_LEVEL" as const,
       deckLengthMain: 30 as const,
+      deckLengthConstraintEnabled: true,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
     const deck = generateV2DeckSpec({
       topic: "COPD",
       deckLengthMain: 30,
-      audienceLevel: "RESIDENT"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL"
     });
     deck.slides = deck.slides.slice(0, 28);
+    deck.deck_meta.deck_length_main = String(deck.slides.length + 2);
 
     const report = generateMedFactcheckReport(deck, dossier);
     expect(report.pass).toBe(false);

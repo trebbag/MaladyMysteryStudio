@@ -309,6 +309,145 @@ test("v2 workflow run pauses at gates and resumes to final deck spec artifacts",
   await expect(page.getByText("Storyboard review required")).toBeVisible();
 });
 
+test("v2 Gate 3 semantic block recovers with regenerate then resume to done", async ({ request }) => {
+  const topic = `E2E v2 semantic regenerate ${Date.now()} FORCE_SEMANTIC_FAIL_ONCE`;
+  const createRes = await request.post("/api/runs", {
+    data: {
+      topic,
+      settings: {
+        workflow: "v2_micro_detectives",
+        deckLengthMain: 30,
+        audienceLevel: "RESIDENT",
+        adherenceMode: "warn",
+        minStoryForwardRatio: 0,
+        minHybridSlideQuality: 0,
+        minCitationGroundingCoverage: 0
+      }
+    }
+  });
+  expect(createRes.ok()).toBeTruthy();
+  const createBody = (await createRes.json()) as { runId: string };
+  const runId = createBody.runId;
+  expect(runId.length).toBeGreaterThan(0);
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  let gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_1_PITCH/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  let resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_2_TRUTH_LOCK/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  const blockedApprove = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(blockedApprove.status()).toBe(409);
+  const blockedApproveBody = (await blockedApprove.json()) as {
+    recommendedAction?: string;
+    suggestedResumeFrom?: string;
+  };
+  expect(blockedApproveBody.recommendedAction).toBe("resume_regenerate");
+  expect(blockedApproveBody.suggestedResumeFrom).toBe("C");
+
+  const regenerateDecision = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "regenerate", notes: "retry semantic acceptance", requested_changes: [] }
+  });
+  expect(regenerateDecision.ok()).toBeTruthy();
+  const regenerateBody = (await regenerateDecision.json()) as {
+    recommendedAction?: string;
+    suggestedResumeFrom?: string;
+  };
+  expect(regenerateBody.recommendedAction).toBe("resume_regenerate");
+  expect(regenerateBody.suggestedResumeFrom).toBe("C");
+
+  const regenerateResume = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(regenerateResume.ok()).toBeTruthy();
+  const regenerateResumeBody = (await regenerateResume.json()) as {
+    startFrom?: string;
+    resumeMode?: string;
+  };
+  expect(regenerateResumeBody.startFrom).toBe("C");
+  expect(regenerateResumeBody.resumeMode).toBe("regenerate");
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+
+  const semanticRes = await request.get(`/api/runs/${encodeURIComponent(runId)}/artifacts/semantic_acceptance_report.json`);
+  expect(semanticRes.ok()).toBeTruthy();
+  const semanticReport = (await semanticRes.json()) as { pass?: boolean };
+  expect(semanticReport.pass).toBe(true);
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("done");
+});
+
 test("v2 fake fallback path records fallback_usage and still packages final outputs", async ({ request }) => {
   const topic = `E2E v2 force fallback ${Date.now()} FORCE_FALLBACK`;
   const createRes = await request.post("/api/runs", {
@@ -407,4 +546,32 @@ test("v2 fake fallback path records fallback_usage and still packages final outp
   expect(names.has("V2_MAIN_DECK_RENDER_PLAN.md")).toBe(true);
   expect(names.has("V2_APPENDIX_RENDER_PLAN.md")).toBe(true);
   expect(names.has("V2_SPEAKER_NOTES_WITH_CITATIONS.md")).toBe(true);
+});
+
+test("navigation routes for archive, artifact vault, and workshop are reachable", async ({ page, request }) => {
+  const runId = await startRunFromHome(page, `E2E navigation ${Date.now()}`);
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("done");
+
+  await page.getByRole("link", { name: "Runs" }).click();
+  await expect(page).toHaveURL(/\/runs$/);
+  await expect(page.getByText(/Case archive/i)).toBeVisible();
+
+  await page.goto(`/runs/${encodeURIComponent(runId)}`);
+  await page.getByRole("link", { name: "Artifact vault" }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/artifacts$`));
+  await expect(page.getByRole("heading", { name: "Artifact vault" })).toBeVisible();
+
+  await page.goto(`/runs/${encodeURIComponent(runId)}/workshop`);
+  await expect(page.getByRole("heading", { name: "Beat workshop" })).toBeVisible();
 });

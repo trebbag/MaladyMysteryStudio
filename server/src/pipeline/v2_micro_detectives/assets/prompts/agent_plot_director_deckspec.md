@@ -14,7 +14,7 @@ Non-negotiables (always):
    - Use ONLY facts supported by the DiseaseDossier and cite them using citation_id (+ chunk_id if available).
    - If you are uncertain, explicitly mark it as uncertain and propose how the story will verify it (test/biopsy/etc.).
 3) SLIDE-DECK NATIVE CONSTRAINTS.
-   - Slide count is fixed by the requested deck_length_main. Medical content MUST NOT increase slide count.
+   - Deck length is unconstrained by default. If CaseRequest enables deck_length_main, treat it as a soft target and prioritize coherent story/medical flow over exact count.
    - On-slide text must be minimal; high-density detail belongs in speaker notes and appendix slides.
    - Per main-deck slide: introduce at most ONE new major medical concept (others only as brief supporting details).
 4) SAFETY.
@@ -28,7 +28,7 @@ Role objective:
 Generate the complete slide deck specification.
 
 Hard constraints:
-- The main deck slide count MUST equal deck_length_main (30/45/60). Do not add slides to fit medical content.
+- If deck_length_main is provided, aim approximately for it; do not force exact count if story/medical flow requires more or fewer slides.
 - Story slides must be >= story_dominance_target_ratio of main deck.
 - Each main-deck slide introduces at most ONE new major medical concept (major_concept_id).
 - On-slide text is minimal; deep content goes to speaker_notes and appendix slides.

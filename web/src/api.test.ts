@@ -5,16 +5,20 @@ import {
   createRun,
   exportZipUrl,
   fetchArtifact,
+  generateStoryBeat,
+  getChapterOutline,
   getGateHistory,
   getHealth,
   getSloPolicy,
   getRunRetention,
   getRun,
+  getStoryBeats,
   listArtifacts,
   listRuns,
   resumeRun,
   rerunFrom,
   submitGateReview,
+  updateStoryBeats,
   updateSloPolicy,
   sseUrl
 } from "./api";
@@ -338,6 +342,93 @@ describe("api", () => {
     const res = await fetchArtifact("r1", "notes.txt");
     expect(res.contentType).toContain("text/plain");
     expect(res.text).toBe("hi");
+  });
+
+  it("GET /api/runs/:runId/chapter-outline fetches parsed outline", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          chapter_outline: {
+            categories: [{ order: 1, title: "Common Initial Complaints", topic_areas: [] }]
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const out = await getChapterOutline("r1");
+    expect(out.chapter_outline.categories[0]?.title).toBe("Common Initial Complaints");
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/r1/chapter-outline", expect.anything());
+  });
+
+  it("GET /api/runs/:runId/story-beats fetches workshop beats", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          schema_version: "1.0.0",
+          topic: "x",
+          intro: { user_notes: "", beat_md: "", generation_count: 0 },
+          outro: { user_notes: "", beat_md: "", generation_count: 0 },
+          topic_area_beats: {}
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const out = await getStoryBeats("r1");
+    expect(out.schema_version).toBe("1.0.0");
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/r1/story-beats", expect.anything());
+  });
+
+  it("PUT /api/runs/:runId/story-beats updates notes/state", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          schema_version: "1.0.0",
+          topic: "x",
+          intro: { user_notes: "", beat_md: "", generation_count: 0 },
+          outro: { user_notes: "", beat_md: "", generation_count: 0 },
+          topic_area_beats: {}
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await updateStoryBeats("r1", { topicAreaId: "INTRO", userNotes: "foo" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/runs/r1/story-beats");
+    expect(init.method).toBe("PUT");
+    expect(String(init.body)).toContain("\"topicAreaId\":\"INTRO\"");
+  });
+
+  it("POST /api/runs/:runId/story-beats/generate generates beat", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          topicAreaId: "1.1",
+          beat_md: "Beat",
+          story_beats: {
+            schema_version: "1.0.0",
+            topic: "x",
+            intro: { user_notes: "", beat_md: "", generation_count: 0 },
+            outro: { user_notes: "", beat_md: "", generation_count: 0 },
+            topic_area_beats: {}
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const out = await generateStoryBeat("r1", { topicAreaId: "1.1", categoryTitle: "Normal Physiology", userNotes: "Use membrane clue" });
+    expect(out.topicAreaId).toBe("1.1");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/runs/r1/story-beats/generate");
+    expect(init.method).toBe("POST");
+    expect(String(init.body)).toContain("\"topicAreaId\":\"1.1\"");
   });
 
   it("throws a useful error on non-2xx responses", async () => {

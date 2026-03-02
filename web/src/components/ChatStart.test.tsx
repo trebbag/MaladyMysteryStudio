@@ -251,15 +251,17 @@ describe("ChatStart", () => {
     expect(screen.queryByPlaceholderText("e.g. 120")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("Student")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByDisplayValue("45"), "60");
-    await user.selectOptions(screen.getByDisplayValue("Med School (Advanced)"), "RESIDENT");
+    await user.click(screen.getByRole("checkbox", { name: /enable soft target/i }));
+    await user.selectOptions(screen.getByLabelText("Deck length soft target"), "60");
+    await user.selectOptions(screen.getByDisplayValue("Physician Level"), "COLLEGE_LEVEL");
     await user.click(screen.getByRole("button", { name: "Run Episode" }));
 
     expect(createRun).toHaveBeenCalledWith("DKA management", {
       workflow: "v2_micro_detectives",
+      deckLengthConstraintEnabled: true,
       deckLengthMain: 60,
-      audienceLevel: "RESIDENT",
-      adherenceMode: "strict"
+      audienceLevel: "COLLEGE_LEVEL",
+      adherenceMode: "warn"
     });
   });
 

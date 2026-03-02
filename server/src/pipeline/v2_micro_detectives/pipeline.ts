@@ -22,7 +22,13 @@ import {
 import { buildCitationTraceabilityReport } from "./citation_traceability.js";
 import { generateV2DeckSpec } from "./generator.js";
 import { lintDeckSpecPhase1 } from "./lints.js";
-import { applyTargetedQaPatches, buildCombinedQaReport } from "./phase3_quality.js";
+import {
+  applyTargetedQaPatches,
+  buildCombinedQaReport,
+  buildSemanticRequiredFixes,
+  evaluateSemanticAcceptance,
+  type SemanticAcceptanceThresholds
+} from "./phase3_quality.js";
 import {
   generateDiseaseDossier as generateDiseaseDossierFallback,
   generateEpisodePitch as generateEpisodePitchFallback,
@@ -56,11 +62,14 @@ import {
   V2DeckSpecLintReportSchema,
   V2GateRequirementSchema,
   V2QaReportSchema,
+  V2SemanticAcceptanceReportSchema,
   V2TemplateRegistrySchema,
   V2StoryboardGateSchema,
   type HumanReviewEntry,
+  type DiseaseDossier,
   type MedFactcheckReport,
   type ReaderSimReport,
+  type TruthModel,
   type V2GateId
 } from "./schemas.js";
 
@@ -99,24 +108,68 @@ function maxQaPatchLoops(): number {
   return Math.max(0, Math.min(5, Math.round(raw)));
 }
 
+function clampRatio(raw: number, fallback: number): number {
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(0, Math.min(1, raw));
+}
+
+function semanticAcceptanceThresholds(settings?: RunSettings): SemanticAcceptanceThresholds {
+  const storyForward = clampRatio(
+    typeof settings?.minStoryForwardRatio === "number"
+      ? settings.minStoryForwardRatio
+      : Number(process.env.MMS_V2_MIN_STORY_FORWARD_RATIO ?? 0.7),
+    0.7
+  );
+  const hybrid = clampRatio(
+    typeof settings?.minHybridSlideQuality === "number"
+      ? settings.minHybridSlideQuality
+      : Number(process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY ?? 0.82),
+    0.82
+  );
+  const citation = clampRatio(
+    typeof settings?.minCitationGroundingCoverage === "number"
+      ? settings.minCitationGroundingCoverage
+      : Number(process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE ?? 0.9),
+    0.9
+  );
+  return {
+    minStoryForwardRatio: storyForward,
+    minHybridSlideQuality: hybrid,
+    minCitationGroundingCoverage: citation
+  };
+}
+
+function resolveDeckLengthPolicy(settings?: RunSettings): {
+  constraintEnabled: boolean;
+  softTarget?: 30 | 45 | 60;
+} {
+  if (settings?.deckLengthConstraintEnabled === true) {
+    return {
+      constraintEnabled: true,
+      softTarget: settings.deckLengthMain ?? 45
+    };
+  }
+  return { constraintEnabled: false };
+}
+
 function stepCAgentTimeoutMs(): number {
-  const raw = Number(process.env.MMS_V2_STEP_C_AGENT_TIMEOUT_MS ?? 180_000);
-  if (!Number.isFinite(raw)) return 180_000;
+  const raw = Number(process.env.MMS_V2_STEP_C_AGENT_TIMEOUT_MS ?? 210_000);
+  if (!Number.isFinite(raw)) return 210_000;
   // Step C includes the heaviest generation work (DeckSpec + QA agents). Enforce a sane floor
   // even if local env overrides were set aggressively for earlier debugging sessions.
   return Math.max(150_000, Math.min(900_000, Math.round(raw)));
 }
 
 function stepCDeckSpecTimeoutMs(): number {
-  const raw = Number(process.env.MMS_V2_STEP_C_DECKSPEC_TIMEOUT_MS ?? 300_000);
-  if (!Number.isFinite(raw)) return 300_000;
+  const raw = Number(process.env.MMS_V2_STEP_C_DECKSPEC_TIMEOUT_MS ?? 360_000);
+  if (!Number.isFinite(raw)) return 360_000;
   // DeckSpec generation is the largest single structured output in v2.
   return Math.max(180_000, Math.min(1_200_000, Math.round(raw)));
 }
 
 function stepCHardWatchdogMs(): number {
-  const raw = Number(process.env.MMS_V2_STEP_C_WATCHDOG_MS ?? 900_000);
-  if (!Number.isFinite(raw)) return 900_000;
+  const raw = Number(process.env.MMS_V2_STEP_C_WATCHDOG_MS ?? 1_200_000);
+  if (!Number.isFinite(raw)) return 1_200_000;
   return Math.max(1_000, Math.min(3_600_000, Math.round(raw)));
 }
 
@@ -138,6 +191,47 @@ function stepABAgentTimeoutMs(): number {
   return Math.max(90_000, Math.min(600_000, Math.round(raw)));
 }
 
+function deckSpecAbortWarningThresholdSlides(): number {
+  const raw = Number(process.env.MMS_V2_DECKSPEC_ABORT_WARNING_SLIDES ?? 180);
+  if (!Number.isFinite(raw)) return 180;
+  return Math.max(45, Math.min(500, Math.round(raw)));
+}
+
+function clampTimeoutMs(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function buildAdaptiveStepCTimeoutPlan(input: {
+  estimatedMainSlides: number;
+  baseAgentTimeoutMs: number;
+  baseDeckSpecTimeoutMs: number;
+  baseWatchdogMs: number;
+}): {
+  estimatedMainSlides: number;
+  agentTimeoutMs: number;
+  deckSpecTimeoutMs: number;
+  watchdogMs: number;
+} {
+  const baselineSlides = 45;
+  const estimatedMainSlides = Math.max(1, Math.round(input.estimatedMainSlides));
+  const extraSlides = Math.max(0, estimatedMainSlides - baselineSlides);
+  const growthUnits = extraSlides / baselineSlides;
+
+  // Scale up when forecasted deck size exceeds baseline. Keep lower bound at base values
+  // to preserve historical behavior for typical runs.
+  const agentScale = 1 + growthUnits * 0.55;
+  const deckSpecScale = 1 + growthUnits * 0.9;
+  const watchdogScale = 1 + growthUnits * 0.8;
+
+  return {
+    estimatedMainSlides,
+    agentTimeoutMs: clampTimeoutMs(input.baseAgentTimeoutMs * agentScale, input.baseAgentTimeoutMs, 1_500_000),
+    deckSpecTimeoutMs: clampTimeoutMs(input.baseDeckSpecTimeoutMs * deckSpecScale, input.baseDeckSpecTimeoutMs, 2_400_000),
+    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 3_600_000)
+  };
+}
+
 function deckSpecGenerationMode(adherenceMode: "strict" | "warn"): "agent_full" | "deterministic_refine" {
   const raw = process.env.MMS_V2_DECKSPEC_MODE?.trim().toLowerCase();
   if (raw === "agent_full") return "agent_full";
@@ -145,6 +239,22 @@ function deckSpecGenerationMode(adherenceMode: "strict" | "warn"): "agent_full" 
   // Default strategy: in warn mode, start from deterministic deck and apply lightweight refinement
   // to avoid long full-deck generations that frequently abort in pilot.
   return adherenceMode === "warn" ? "deterministic_refine" : "agent_full";
+}
+
+function stepCPlanningMode(adherenceMode: "strict" | "warn"): "agent_first" | "deterministic_first" {
+  const raw = process.env.MMS_V2_STEP_C_PLANNING_MODE?.trim().toLowerCase();
+  if (raw === "agent_first" || raw === "agent") return "agent_first";
+  if (raw === "deterministic_first" || raw === "deterministic") return "deterministic_first";
+  return adherenceMode === "warn" ? "deterministic_first" : "agent_first";
+}
+
+function shouldAttemptPlotDirectorRefinement(adherenceMode: "strict" | "warn", planningMode: "agent_first" | "deterministic_first"): boolean {
+  const raw = process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE?.trim().toLowerCase();
+  if (raw === "off" || raw === "false" || raw === "skip") return false;
+  if (raw === "on" || raw === "true" || raw === "force") return true;
+  // Default: only attempt refinement in strict/agent-first runs. In warn-mode deterministic
+  // runs, skip to avoid transport-abort churn and retry-only fallback noise in pilot.
+  return adherenceMode === "strict" && planningMode === "agent_first";
 }
 
 function useChildAgentIsolation(): boolean {
@@ -239,6 +349,107 @@ function shouldPreferDeterministicFactcheck(agent: MedFactcheckReport, determini
   return !agent.pass && deterministic.pass;
 }
 
+function collectDossierCitationIds(dossier: DiseaseDossier): Set<string> {
+  const ids = new Set<string>();
+  for (const citation of dossier.citations) {
+    const id = String(citation.citation_id || "").trim();
+    if (id.length > 0) ids.add(id);
+  }
+  for (const section of dossier.sections) {
+    for (const citation of section.citations) {
+      const id = String(citation.citation_id || "").trim();
+      if (id.length > 0) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function validateTruthLockCitations(dossier: DiseaseDossier, truth: TruthModel): { pass: boolean; issues: string[]; knownCitationCount: number } {
+  const issues: string[] = [];
+  const knownCitationIds = collectDossierCitationIds(dossier);
+
+  if (knownCitationIds.size === 0) {
+    issues.push("Disease dossier has no citation IDs available for truth-lock validation.");
+  }
+
+  const finalDxId = String(truth.final_diagnosis.dx_id || "")
+    .trim()
+    .toUpperCase();
+  const coverStoryDxIds = truth.cover_story.initial_working_dx_ids
+    .map((dxId) => String(dxId || "").trim().toUpperCase())
+    .filter((dxId) => dxId.length > 0);
+  if (finalDxId.length > 0 && coverStoryDxIds.includes(finalDxId)) {
+    issues.push(`Truth lock violation: final diagnosis ${finalDxId} appears in cover_story.initial_working_dx_ids.`);
+  }
+
+  const seenTimelineCitationIds = new Set<string>();
+  const validateTimeline = (
+    label: "macro_timeline" | "micro_timeline",
+    events: Array<{ event_id: string; citations: Array<{ citation_id: string }> }>
+  ): void => {
+    for (const [eventIdx, event] of events.entries()) {
+      for (const [citationIdx, citation] of event.citations.entries()) {
+        const citationId = String(citation.citation_id || "").trim();
+        if (citationId.length === 0) {
+          issues.push(`${label}[${eventIdx}] (${event.event_id}) has an empty citation_id at index ${citationIdx}.`);
+          continue;
+        }
+        seenTimelineCitationIds.add(citationId);
+        if (!knownCitationIds.has(citationId)) {
+          issues.push(`${label}[${eventIdx}] (${event.event_id}) references unknown citation_id ${citationId}.`);
+        }
+      }
+    }
+  };
+
+  validateTimeline("macro_timeline", truth.macro_timeline);
+  validateTimeline("micro_timeline", truth.micro_timeline);
+
+  if (seenTimelineCitationIds.size === 0) {
+    issues.push("Truth model timelines have no citation IDs after normalization.");
+  }
+
+  return {
+    pass: issues.length === 0,
+    issues,
+    knownCitationCount: knownCitationIds.size
+  };
+}
+
+function medIssueToFixType(type: MedFactcheckReport["issues"][number]["type"]): MedFactcheckReport["required_fixes"][number]["type"] {
+  if (type === "contradiction_with_dossier") return "edit_differential";
+  if (type === "unsupported_inference" || type === "wrong_test_interpretation") return "edit_slide";
+  if (type === "incorrect_fact" || type === "wrong_timecourse" || type === "wrong_treatment_response") return "medical_correction";
+  return "other";
+}
+
+function mergeStrictMedFactcheckReports(agent: MedFactcheckReport, deterministic: MedFactcheckReport): MedFactcheckReport {
+  const issueMap = new Map<string, MedFactcheckReport["issues"][number]>();
+  for (const issue of [...agent.issues, ...deterministic.issues]) {
+    const key = [issue.issue_id, issue.type, issue.claim, issue.why_wrong, issue.suggested_fix].join("|");
+    if (!issueMap.has(key)) issueMap.set(key, issue);
+  }
+  const mergedIssues = [...issueMap.values()];
+  const pass = mergedIssues.length === 0;
+  return MedFactcheckReportSchema.parse({
+    schema_version: agent.schema_version || deterministic.schema_version || "1.0.0",
+    pass,
+    issues: mergedIssues,
+    summary: pass
+      ? "Strict med factcheck enforcement passed (agent + deterministic validators)."
+      : `Strict med factcheck enforcement found ${mergedIssues.length} issue(s) (agent=${agent.issues.length}, deterministic=${deterministic.issues.length}).`,
+    required_fixes: pass
+      ? []
+      : mergedIssues.map((issue, idx) => ({
+          fix_id: `STRICT-FIX-${String(idx + 1).padStart(3, "0")}`,
+          type: medIssueToFixType(issue.type),
+          priority: issue.severity === "critical" ? "must" : issue.severity === "major" ? "should" : "could",
+          description: issue.suggested_fix,
+          targets: [issue.claim.match(/\b(?:S\d{2,3}|A-\d{2,3})\b/)?.[0] ?? "deck_spec.json"]
+        }))
+  });
+}
+
 function clampText(value: string, maxChars: number): string {
   const trimmed = String(value || "").trim();
   if (trimmed.length <= maxChars) return trimmed;
@@ -295,7 +506,8 @@ const V2_PHASE4_FINAL_ARTIFACTS = {
   mainDeckRenderPlan: "V2_MAIN_DECK_RENDER_PLAN.md",
   appendixRenderPlan: "V2_APPENDIX_RENDER_PLAN.md",
   speakerNotesBundle: "V2_SPEAKER_NOTES_WITH_CITATIONS.md",
-  templateRegistry: "v2_template_registry.json"
+  templateRegistry: "v2_template_registry.json",
+  packagingSummary: "V2_PACKAGING_SUMMARY.json"
 } as const;
 
 async function readJsonArtifact<T>(runId: string, name: string): Promise<T> {
@@ -313,7 +525,7 @@ async function ensureArtifactExists(runId: string, name: string): Promise<void> 
 export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManager, options: PipelineOptions): Promise<void> {
   const { runId, topic, settings } = input;
   const { signal } = options;
-  const adherenceMode = settings?.adherenceMode ?? "strict";
+  const adherenceMode = settings?.adherenceMode ?? "warn";
   const startFrom = options.startFrom ?? "KB0";
 
   if (!isV2Step(startFrom)) {
@@ -321,8 +533,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
   }
 
   const shouldRun = (step: StepName): boolean => V2_STEPS.indexOf(step) >= V2_STEPS.indexOf(startFrom);
-  const expectedDeckLength = settings?.deckLengthMain ?? 45;
-  const audienceLevel = settings?.audienceLevel ?? "MED_SCHOOL_ADVANCED";
+  const deckLengthPolicy = resolveDeckLengthPolicy(settings);
+  const audienceLevel = settings?.audienceLevel ?? "PHYSICIAN_LEVEL";
 
   const openaiKey = requireEnv("OPENAI_API_KEY");
   const vectorStoreId = requireEnv("KB_VECTOR_STORE_ID");
@@ -405,11 +617,32 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     });
     const appendixRenderPlanMd = buildAppendixRenderPlanMd(deckSpec);
     const speakerNotesBundleMd = buildSpeakerNotesWithCitationsMd(deckSpec);
+    const packagingSummary = {
+      schema_version: "1.0.0",
+      workflow: "v2_micro_detectives",
+      generated_at: nowIso(),
+      deck: {
+        episode_title: deckSpec.deck_meta.episode_title,
+        main_slide_count: deckSpec.slides.length,
+        appendix_slide_count: deckSpec.appendix_slides.length
+      },
+      package: {
+        template_count: templateRegistry.templates.length,
+        files: {
+          deck_spec: "deck_spec.json",
+          template_registry: V2_PHASE4_FINAL_ARTIFACTS.templateRegistry,
+          main_render_plan: V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan,
+          appendix_render_plan: V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan,
+          speaker_notes_with_citations: V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle
+        }
+      }
+    };
 
     await writeIntermediateJson(step, "micro_world_map.json", microWorldMap);
     await writeIntermediateJson(step, "drama_plan.json", dramaPlan);
     await writeIntermediateJson(step, "setpiece_plan.json", setpiecePlan);
     await writeIntermediateJson(step, V2_PHASE4_FINAL_ARTIFACTS.templateRegistry, templateRegistry);
+    await writeIntermediateJson(step, "v2_phase4_packaging_summary.json", packagingSummary);
     await writeIntermediateJson(step, "v2_phase4_packaging_manifest.json", {
       schema_version: "1.0.0",
       generated_at: nowIso(),
@@ -418,12 +651,14 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan,
         V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan,
         V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle,
-        V2_PHASE4_FINAL_ARTIFACTS.templateRegistry
+        V2_PHASE4_FINAL_ARTIFACTS.templateRegistry,
+        V2_PHASE4_FINAL_ARTIFACTS.packagingSummary
       ]
     });
 
     await writeFinalJson(step, "deck_spec.json", deckSpec);
     await writeFinalJson(step, V2_PHASE4_FINAL_ARTIFACTS.templateRegistry, templateRegistry);
+    await writeFinalJson(step, V2_PHASE4_FINAL_ARTIFACTS.packagingSummary, packagingSummary);
     await writeFinalText(step, V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan, mainDeckRenderPlanMd);
     await writeFinalText(step, V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan, appendixRenderPlanMd);
     await writeFinalText(step, V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle, speakerNotesBundleMd);
@@ -604,7 +839,21 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
       runs.log(runId, "Reusing KB0 artifacts", "KB0");
     }
 
-    const fallbackBase = { topic, deckLengthMain: expectedDeckLength, audienceLevel, kbContext } as const;
+    const targetSettings = {
+      audienceLevel,
+      deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+      deckLengthMain: deckLengthPolicy.softTarget ?? null,
+      deckLengthDirective: deckLengthPolicy.constraintEnabled
+        ? `Use deck length as a soft target around ${deckLengthPolicy.softTarget}; do not force exact count if it harms story/content flow.`
+        : "No deck length constraint. Let story and medical content dictate natural length."
+    } as const;
+    const fallbackBase = {
+      topic,
+      deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+      deckLengthMain: deckLengthPolicy.softTarget,
+      audienceLevel,
+      kbContext
+    } as const;
     const abTimeoutMs = stepABAgentTimeoutMs();
 
     let diseaseDossier = shouldRun("A")
@@ -614,7 +863,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               {
                 disease_topic: topic,
                 target_level: audienceLevel,
-                deck_length_main: expectedDeckLength
+                deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+                ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {})
               },
               null,
               2
@@ -644,7 +894,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
           const pitchPrompt =
             `TOPIC:\n${topic}\n\n` +
-            `TARGET SETTINGS (json):\n${JSON.stringify({ deckLengthMain: expectedDeckLength, audienceLevel }, null, 2)}\n\n` +
+            `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
             `DISEASE DOSSIER (json):\n${JSON.stringify(dossier, null, 2)}\n\n` +
             `KB CONTEXT (markdown):\n${kbContext}`;
           let pitch: ReturnType<typeof EpisodePitchSchema.parse>;
@@ -702,7 +952,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           await runStep("B", async () => {
             const truthPrompt =
               `TOPIC:\n${topic}\n\n` +
-              `TARGET SETTINGS (json):\n${JSON.stringify({ deckLengthMain: expectedDeckLength, audienceLevel }, null, 2)}\n\n` +
+              `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
               `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
               `EPISODE PITCH (json):\n${JSON.stringify(episodePitch, null, 2)}\n\n` +
               `GATE 1 FEEDBACK:\n${gate1Feedback}\n\n` +
@@ -733,6 +983,23 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
       : TruthModelSchema.parse(await readJsonArtifact(runId, "truth_model.json"));
     if (!shouldRun("B")) runs.log(runId, "Reusing B artifacts", "B");
 
+    const truthLockValidation = validateTruthLockCitations(diseaseDossier, truthModel);
+    await writeIntermediateJson("B", "truth_lock_validation.json", {
+      schema_version: "1.0.0",
+      workflow: "v2_micro_detectives",
+      checked_at: nowIso(),
+      pass: truthLockValidation.pass,
+      known_citation_count: truthLockValidation.knownCitationCount,
+      issues: truthLockValidation.issues
+    });
+    if (!truthLockValidation.pass) {
+      const summary = `Truth lock citation validation failed (${truthLockValidation.issues.length} issue(s)).`;
+      if (adherenceMode === "strict") {
+        throw new Error(`${summary} ${truthLockValidation.issues.join(" ")}`);
+      }
+      runs.log(runId, `Warn mode: ${summary}`, "B");
+    }
+
     await requireGateApproval(
       "B",
       "GATE_2_TRUTH_LOCK",
@@ -745,9 +1012,65 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
     if (shouldRun("C") && !gate3Approved) {
       await runStep("C", async () => {
-        const cWatchdogMs = stepCHardWatchdogMs();
+        const fallbackSeedDeck = DeckSpecSchema.parse(
+          generateV2DeckSpec({
+            topic,
+            deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+            deckLengthMain: deckLengthPolicy.softTarget,
+            audienceLevel
+          })
+        );
+        const estimatedMainSlides = Math.max(1, fallbackSeedDeck.slides.length);
+        const adaptiveTimeouts = buildAdaptiveStepCTimeoutPlan({
+          estimatedMainSlides,
+          baseAgentTimeoutMs: stepCAgentTimeoutMs(),
+          baseDeckSpecTimeoutMs: stepCDeckSpecTimeoutMs(),
+          baseWatchdogMs: stepCHardWatchdogMs()
+        });
+        const abortThresholdSlides = deckSpecAbortWarningThresholdSlides();
+        const abortRecommended = adaptiveTimeouts.estimatedMainSlides >= abortThresholdSlides;
+
+        await runs.setV2DeckSpecEstimate(runId, {
+          estimatedMainSlides: adaptiveTimeouts.estimatedMainSlides,
+          deckLengthPolicy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+          softTarget: deckLengthPolicy.constraintEnabled ? deckLengthPolicy.softTarget : undefined,
+          computedAt: nowIso(),
+          adaptiveTimeoutMs: {
+            agent: adaptiveTimeouts.agentTimeoutMs,
+            deckSpec: adaptiveTimeouts.deckSpecTimeoutMs,
+            watchdog: adaptiveTimeouts.watchdogMs
+          },
+          abortThresholdSlides,
+          abortRecommended
+        });
+        await writeIntermediateJson("C", "deck_spec_timeout_plan.json", {
+          schema_version: "1.0.0",
+          workflow: "v2_micro_detectives",
+          computed_at: nowIso(),
+          estimate: {
+            main_slide_count: adaptiveTimeouts.estimatedMainSlides,
+            deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+            deck_length_soft_target: deckLengthPolicy.constraintEnabled ? deckLengthPolicy.softTarget : null
+          },
+          adaptive_timeouts_ms: {
+            agent: adaptiveTimeouts.agentTimeoutMs,
+            deck_spec: adaptiveTimeouts.deckSpecTimeoutMs,
+            watchdog: adaptiveTimeouts.watchdogMs
+          },
+          abort_threshold_slides: abortThresholdSlides,
+          abort_recommended: abortRecommended
+        });
+        runs.log(
+          runId,
+          `DeckSpec estimate: ${adaptiveTimeouts.estimatedMainSlides} main slides (${deckLengthPolicy.constraintEnabled ? `soft_target=${String(deckLengthPolicy.softTarget)}` : "unconstrained"}). Adaptive timeouts: agent=${adaptiveTimeouts.agentTimeoutMs}ms deckspec=${adaptiveTimeouts.deckSpecTimeoutMs}ms watchdog=${adaptiveTimeouts.watchdogMs}ms.${abortRecommended ? " Recommend abort if this exceeds your pilot budget." : ""}`,
+          "C"
+        );
+
+        const cWatchdogMs = adaptiveTimeouts.watchdogMs;
         const cWatchdogController = new AbortController();
         const cSignal = mergeAbortSignals([signal, cWatchdogController.signal]);
+        const cStartedAtMs = Date.now();
+        const remainingWatchdogMs = (): number => Math.max(0, cWatchdogMs - (Date.now() - cStartedAtMs));
         const cWatchdogTimer = setTimeout(() => {
           cWatchdogController.abort(new Error(`V2 step C watchdog timed out after ${cWatchdogMs}ms`));
         }, cWatchdogMs);
@@ -756,8 +1079,14 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         try {
           const gate2Review = latestGateDecision(await readHumanReviewStore(runId), "GATE_2_TRUTH_LOCK");
           const gate2Feedback = compactGateFeedback(gateFeedbackForPrompt(gate2Review));
-          const cTimeoutMs = stepCAgentTimeoutMs();
-          const deckSpecTimeoutMs = stepCDeckSpecTimeoutMs();
+          const cTimeoutMs = adaptiveTimeouts.agentTimeoutMs;
+          const deckSpecTimeoutMs = adaptiveTimeouts.deckSpecTimeoutMs;
+          const planningMode = stepCPlanningMode(adherenceMode);
+          const deterministicPlanning = planningMode === "deterministic_first";
+          const attemptPlotDirectorRefinement = shouldAttemptPlotDirectorRefinement(adherenceMode, planningMode);
+          if (deterministicPlanning) {
+            runs.log(runId, "Step C planning mode=deterministic_first (warn-mode reliability path).", "C");
+          }
           const fallbackEvents: Array<{
             mode: "agent_retry" | "deterministic_fallback" | "deterministic_arbitration";
             stage: string;
@@ -774,18 +1103,20 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               reason: clampText(reason, 240)
             });
           };
-          const fallbackSeedDeck = DeckSpecSchema.parse(
-            generateV2DeckSpec({
-              topic,
-              deckLengthMain: expectedDeckLength,
-              audienceLevel
-            })
-          );
+          const fallbackForLowBudget = (stage: string, minRemainingMs: number): boolean => {
+            if (adherenceMode === "strict") return false;
+            const remaining = remainingWatchdogMs();
+            if (remaining >= minRemainingMs) return false;
+            const reason = `budget_guard remaining=${remaining}ms < required=${minRemainingMs}ms`;
+            recordFallback("deterministic_fallback", stage, reason);
+            runs.log(runId, `Step C budget guard activated for ${stage} (${reason}).`, "C");
+            return true;
+          };
           const planningDeckMeta = {
             schema_version: "1.0.0",
             episode_slug: topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
             episode_title: `${topic} — Micro-Detectives Case`,
-            deck_length_main: String(expectedDeckLength),
+            deck_length_main: String(fallbackSeedDeck.deck_meta.deck_length_main),
             audience_level: audienceLevel,
             tone: episodePitch.tone,
             story_dominance_target_ratio: 0.75,
@@ -794,63 +1125,125 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             appendix_unlimited: true
           };
 
+        const dossierPromptDigest = {
+          canonical_name: diseaseDossier.canonical_name,
+          aliases: diseaseDossier.aliases.slice(0, 4),
+          learning_objectives: diseaseDossier.learning_objectives.slice(0, 8).map((objective) => clampText(objective, 180)),
+          sections: diseaseDossier.sections.slice(0, 8).map((section) => ({
+            section: section.section,
+            key_points: section.key_points.slice(0, 2).map((point) => clampText(point, 180))
+          })),
+          citation_ids: diseaseDossier.citations.slice(0, 18).map((citation) => citation.citation_id)
+        };
+        const truthPromptDigest = {
+          final_diagnosis: truthModel.final_diagnosis,
+          case_logline: clampText(truthModel.case_logline, 260),
+          cover_story: {
+            initial_working_dx_ids: truthModel.cover_story.initial_working_dx_ids.slice(0, 6),
+            why_it_seems_right: clampText(truthModel.cover_story.why_it_seems_right, 220),
+            what_it_gets_wrong: clampText(truthModel.cover_story.what_it_gets_wrong, 220)
+          },
+          macro_timeline: truthModel.macro_timeline.slice(0, 6).map((event) => ({
+            t: event.t,
+            event_id: event.event_id,
+            what_happens: clampText(event.what_happens, 200)
+          })),
+          micro_timeline: truthModel.micro_timeline.slice(0, 6).map((event) => ({
+            t: event.t,
+            event_id: event.event_id,
+            zone_id: event.zone_id,
+            what_happens: clampText(event.what_happens, 200)
+          })),
+          twist_blueprint: truthModel.twist_blueprint
+        };
         const differentialPrompt =
           `TOPIC:\n${topic}\n\n` +
           `DECK META (json):\n${JSON.stringify(planningDeckMeta, null, 2)}\n\n` +
-          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
-          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `DISEASE DOSSIER DIGEST (json):\n${JSON.stringify(dossierPromptDigest, null, 2)}\n\n` +
+          `TRUTH MODEL DIGEST (json):\n${JSON.stringify(truthPromptDigest, null, 2)}\n\n` +
           `GATE 2 FEEDBACK:\n${gate2Feedback}`;
 
         let workingDifferential: ReturnType<typeof DifferentialCastSchema.parse>;
-        try {
-          workingDifferential = DifferentialCastSchema.parse(
-            await runIsolatedAgentOutput({
-              step: "C",
-              agentKey: "differentialCast",
-              agent: differentialCastAgent,
-              prompt: differentialPrompt,
-              maxTurns: 8,
-              timeoutMs: cTimeoutMs,
-              signal: cSignal
-            })
-          );
-        } catch (err) {
-          if (shouldAbortOnError(err, cSignal)) throw err;
-          if (adherenceMode === "strict") throw err;
-          const msg = err instanceof Error ? err.message : String(err);
-          runs.log(runId, `DifferentialCast agent fallback activated (${msg}).`, "C");
-          recordFallback("deterministic_fallback", "differentialCast", msg);
-          workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(fallbackSeedDeck, diseaseDossier, truthModel));
-        }
+          if (deterministicPlanning) {
+            workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(fallbackSeedDeck, diseaseDossier, truthModel));
+          } else if (fallbackForLowBudget("differentialCast.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))) {
+            workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(fallbackSeedDeck, diseaseDossier, truthModel));
+          } else {
+            try {
+              workingDifferential = DifferentialCastSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "differentialCast",
+                  agent: differentialCastAgent,
+                  prompt: differentialPrompt,
+                  maxTurns: 6,
+                  timeoutMs: cTimeoutMs,
+                  signal: cSignal
+                })
+              );
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              if (adherenceMode === "strict") throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `DifferentialCast agent fallback activated (${msg}).`, "C");
+              recordFallback("deterministic_fallback", "differentialCast", msg);
+              workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(fallbackSeedDeck, diseaseDossier, truthModel));
+            }
+          }
         await writeIntermediateJson("C", "differential_cast.json", workingDifferential);
 
+        const differentialPromptDigest = {
+          primary_suspects: workingDifferential.primary_suspects.slice(0, 8).map((suspect) => ({
+            dx_id: suspect.dx_id,
+            name: suspect.name,
+            why_tempting: clampText(suspect.why_tempting, 180),
+            signature_fingerprint: suspect.signature_fingerprint.slice(0, 2).map((item) => ({
+              type: item.type,
+              statement: clampText(item.statement, 180)
+            }))
+          })),
+          rotation_plan: workingDifferential.rotation_plan,
+          elimination_milestones: workingDifferential.elimination_milestones.slice(0, 12).map((milestone) => ({
+            milestone_id: milestone.milestone_id,
+            slide_id: milestone.slide_id,
+            eliminated_dx_ids: milestone.eliminated_dx_ids.slice(0, 6),
+            evidence_clue_ids: milestone.evidence_clue_ids.slice(0, 6),
+            reasoning_summary: clampText(milestone.reasoning_summary ?? "", 180)
+          }))
+        };
         const cluePrompt =
           `TOPIC:\n${topic}\n\n` +
-          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
-          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
-          `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
-          `DECK META (json):\n${JSON.stringify(planningDeckMeta, null, 2)}`;
+          `DECK META (json):\n${JSON.stringify(planningDeckMeta, null, 2)}\n\n` +
+          `DISEASE DOSSIER DIGEST (json):\n${JSON.stringify(dossierPromptDigest, null, 2)}\n\n` +
+          `TRUTH MODEL DIGEST (json):\n${JSON.stringify(truthPromptDigest, null, 2)}\n\n` +
+          `DIFFERENTIAL CAST DIGEST (json):\n${JSON.stringify(differentialPromptDigest, null, 2)}`;
         let workingClueGraph: ReturnType<typeof ClueGraphSchema.parse>;
-        try {
-          workingClueGraph = ClueGraphSchema.parse(
-            await runIsolatedAgentOutput({
-              step: "C",
-              agentKey: "clueArchitect",
-              agent: clueArchitectAgent,
-              prompt: cluePrompt,
-              maxTurns: 8,
-              timeoutMs: cTimeoutMs,
-              signal: cSignal
-            })
-          );
-        } catch (err) {
-          if (shouldAbortOnError(err, cSignal)) throw err;
-          if (adherenceMode === "strict") throw err;
-          const msg = err instanceof Error ? err.message : String(err);
-          runs.log(runId, `ClueGraph agent fallback activated (${msg}).`, "C");
-          recordFallback("deterministic_fallback", "clueArchitect", msg);
-          workingClueGraph = ClueGraphSchema.parse(generateClueGraph(fallbackSeedDeck, diseaseDossier, workingDifferential));
-        }
+          if (deterministicPlanning) {
+            workingClueGraph = ClueGraphSchema.parse(generateClueGraph(fallbackSeedDeck, diseaseDossier, workingDifferential));
+          } else if (fallbackForLowBudget("clueArchitect.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))) {
+            workingClueGraph = ClueGraphSchema.parse(generateClueGraph(fallbackSeedDeck, diseaseDossier, workingDifferential));
+          } else {
+            try {
+              workingClueGraph = ClueGraphSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "clueArchitect",
+                  agent: clueArchitectAgent,
+                  prompt: cluePrompt,
+                  maxTurns: 6,
+                  timeoutMs: cTimeoutMs,
+                  signal: cSignal
+                })
+              );
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              if (adherenceMode === "strict") throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `ClueGraph agent fallback activated (${msg}).`, "C");
+              recordFallback("deterministic_fallback", "clueArchitect", msg);
+              workingClueGraph = ClueGraphSchema.parse(generateClueGraph(fallbackSeedDeck, diseaseDossier, workingDifferential));
+            }
+          }
         await writeIntermediateJson("C", "clue_graph.json", workingClueGraph);
 
         const microWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
@@ -858,7 +1251,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         const setPiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(fallbackSeedDeck, microWorldMap, diseaseDossier));
         const caseRequest = {
           disease_topic: topic,
-          deck_length_main: expectedDeckLength,
+          deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+          ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {}),
           audience_level: audienceLevel,
           story_dominance_target_ratio_min: 0.7,
           one_major_med_concept_per_slide: true
@@ -982,33 +1376,45 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           `TOP LEARNING OBJECTIVES (json):\n${JSON.stringify((diseaseDossier.learning_objectives ?? []).slice(0, 6), null, 2)}\n\n` +
           `GATE 2 FEEDBACK SUMMARY:\n${clampText(gate2Feedback, 400)}`;
 
-        const deckSpecMode = deckSpecGenerationMode(adherenceMode);
+        let deckSpecMode = deckSpecGenerationMode(adherenceMode);
         const deckRefineTimeoutMs = stepCDeckRefineTimeoutMs();
         let workingDeck: ReturnType<typeof DeckSpecSchema.parse> = fallbackSeedDeck;
         let deckUsedDeterministicFallback = false;
+        if (
+          deckSpecMode === "agent_full" &&
+          fallbackForLowBudget("plotDirectorDeckSpec.preflight", Math.max(120_000, Math.round(deckSpecTimeoutMs * 0.8)))
+        ) {
+          deckSpecMode = "deterministic_refine";
+        }
 
         if (deckSpecMode === "deterministic_refine") {
           runs.log(runId, "DeckSpec mode=deterministic_refine: seeded deterministic deck before lightweight model refinement.", "C");
-          try {
-            const refinedDeck = DeckSpecSchema.parse(
-              await runIsolatedAgentOutput({
-                step: "C",
-                agentKey: "plotDirectorDeckSpec",
-                agent: plotDirectorDeckSpecAgent,
-                prompt: deckSpecKernelPrompt,
-                maxTurns: 6,
-                timeoutMs: Math.max(90_000, Math.min(deckRefineTimeoutMs, 220_000)),
-                signal: cSignal
-              })
-            );
-            workingDeck = refinedDeck;
-            runs.log(runId, "DeckSpec lightweight refinement succeeded.", "C");
-          } catch (refineErr) {
-            if (shouldAbortOnError(refineErr, cSignal)) throw refineErr;
-            const refineMsg = refineErr instanceof Error ? refineErr.message : String(refineErr);
-            if (adherenceMode === "strict") throw refineErr;
-            runs.log(runId, `DeckSpec lightweight refinement unavailable; using deterministic seed (${refineMsg}).`, "C");
-            recordFallback("agent_retry", "plotDirectorDeckSpec.refinement", refineMsg);
+          if (!attemptPlotDirectorRefinement) {
+            runs.log(runId, "DeckSpec lightweight refinement skipped by policy.", "C");
+          } else if (fallbackForLowBudget("plotDirectorDeckSpec.refinement.preflight", 90_000)) {
+            runs.log(runId, "DeckSpec lightweight refinement skipped due to remaining step-C budget.", "C");
+          } else {
+            try {
+              const refinedDeck = DeckSpecSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "plotDirectorDeckSpec",
+                  agent: plotDirectorDeckSpecAgent,
+                  prompt: deckSpecKernelPrompt,
+                  maxTurns: 6,
+                  timeoutMs: Math.max(90_000, Math.min(deckRefineTimeoutMs, 220_000)),
+                  signal: cSignal
+                })
+              );
+              workingDeck = refinedDeck;
+              runs.log(runId, "DeckSpec lightweight refinement succeeded.", "C");
+            } catch (refineErr) {
+              if (shouldAbortOnError(refineErr, cSignal)) throw refineErr;
+              const refineMsg = refineErr instanceof Error ? refineErr.message : String(refineErr);
+              if (adherenceMode === "strict") throw refineErr;
+              runs.log(runId, `DeckSpec lightweight refinement unavailable; using deterministic seed (${refineMsg}).`, "C");
+              recordFallback("agent_retry", "plotDirectorDeckSpec.refinement", refineMsg);
+            }
           }
         } else {
           try {
@@ -1030,6 +1436,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             recordFallback("agent_retry", "plotDirectorDeckSpec.primary", msg);
             let recovered = false;
             try {
+              if (fallbackForLowBudget("plotDirectorDeckSpec.ultra_compact.preflight", 140_000)) throw new Error("budget_guard");
               workingDeck = DeckSpecSchema.parse(
                 await runIsolatedAgentOutput({
                   step: "C",
@@ -1050,6 +1457,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               runs.log(runId, `DeckSpec ultra-compact retry failed; trying kernel prompt (${compactMsg}).`, "C");
               recordFallback("agent_retry", "plotDirectorDeckSpec.ultra_compact", compactMsg);
               try {
+                if (fallbackForLowBudget("plotDirectorDeckSpec.kernel.preflight", 110_000)) throw new Error("budget_guard");
                 workingDeck = DeckSpecSchema.parse(
                   await runIsolatedAgentOutput({
                     step: "C",
@@ -1106,14 +1514,44 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
         const maxPatchLoops = maxQaPatchLoops();
         const maxAttempts = maxPatchLoops + 1;
-        let finalLintReport = V2DeckSpecLintReportSchema.parse(lintDeckSpecPhase1(workingDeck, expectedDeckLength));
+        const semanticThresholds = semanticAcceptanceThresholds(settings);
+        let finalLintReport = V2DeckSpecLintReportSchema.parse(
+          lintDeckSpecPhase1(workingDeck, {
+            deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+            targetDeckLengthMain: deckLengthPolicy.softTarget
+          })
+        );
         let finalReader!: ReturnType<typeof ReaderSimReportSchema.parse>;
         let finalFactcheck!: ReturnType<typeof MedFactcheckReportSchema.parse>;
         let finalQa!: ReturnType<typeof V2QaReportSchema.parse>;
+        let finalSemantic = V2SemanticAcceptanceReportSchema.parse({
+          schema_version: "1.0.0",
+          workflow: "v2_micro_detectives",
+          checked_at: nowIso(),
+          thresholds: {
+            min_story_forward_ratio: semanticThresholds.minStoryForwardRatio,
+            min_hybrid_slide_quality: semanticThresholds.minHybridSlideQuality,
+            min_citation_grounding_coverage: semanticThresholds.minCitationGroundingCoverage
+          },
+          metrics: {
+            main_slide_count: 0,
+            story_forward_ratio: 0,
+            hybrid_slide_quality: 0,
+            citation_grounding_coverage: 0
+          },
+          pass: false,
+          failures: ["semantic acceptance not computed"],
+          required_fixes: []
+        });
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           if (cSignal.aborted) throw abortErrorFromSignal(cSignal, "Cancelled");
-          finalLintReport = V2DeckSpecLintReportSchema.parse(lintDeckSpecPhase1(workingDeck, expectedDeckLength));
+          finalLintReport = V2DeckSpecLintReportSchema.parse(
+            lintDeckSpecPhase1(workingDeck, {
+              deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+              targetDeckLengthMain: deckLengthPolicy.softTarget
+            })
+          );
           await writeIntermediateJson("C", `deck_spec_loop${attempt}.json`, workingDeck);
           await writeIntermediateJson("C", `deck_spec_lint_report_loop${attempt}.json`, finalLintReport);
 
@@ -1122,25 +1560,31 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
             `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
             `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}`;
-          try {
-            finalReader = ReaderSimReportSchema.parse(
-              await runIsolatedAgentOutput({
-                step: "C",
-                agentKey: "readerSim",
-                agent: readerSimAgent,
-                prompt: readerPrompt,
-                maxTurns: 8,
-                timeoutMs: cTimeoutMs,
-                signal: cSignal
-              })
-            );
-          } catch (err) {
-            if (shouldAbortOnError(err, cSignal)) throw err;
-            if (adherenceMode === "strict") throw err;
-            const msg = err instanceof Error ? err.message : String(err);
-            runs.log(runId, `ReaderSim agent fallback activated (${msg}).`, "C");
-            recordFallback("deterministic_fallback", "readerSim", msg);
+          if (deterministicPlanning) {
             finalReader = ReaderSimReportSchema.parse(generateReaderSimReport(workingDeck, truthModel, workingClueGraph));
+          } else if (fallbackForLowBudget("readerSim.preflight", Math.max(120_000, Math.round(cTimeoutMs * 0.9)))) {
+            finalReader = ReaderSimReportSchema.parse(generateReaderSimReport(workingDeck, truthModel, workingClueGraph));
+          } else {
+            try {
+              finalReader = ReaderSimReportSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "readerSim",
+                  agent: readerSimAgent,
+                  prompt: readerPrompt,
+                  maxTurns: 8,
+                  timeoutMs: cTimeoutMs,
+                  signal: cSignal
+                })
+              );
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              if (adherenceMode === "strict") throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `ReaderSim agent fallback activated (${msg}).`, "C");
+              recordFallback("deterministic_fallback", "readerSim", msg);
+              finalReader = ReaderSimReportSchema.parse(generateReaderSimReport(workingDeck, truthModel, workingClueGraph));
+            }
           }
           const deterministicReader = ReaderSimReportSchema.parse(generateReaderSimReport(workingDeck, truthModel, workingClueGraph));
           if (adherenceMode !== "strict" && shouldPreferDeterministicReader(finalReader, deterministicReader)) {
@@ -1158,28 +1602,44 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `DECK SPEC (json):\n${JSON.stringify(workingDeck, null, 2)}\n\n` +
             `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
             `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}`;
-          try {
-            finalFactcheck = MedFactcheckReportSchema.parse(
-              await runIsolatedAgentOutput({
-                step: "C",
-                agentKey: "medFactcheck",
-                agent: medFactcheckAgent,
-                prompt: medFactPrompt,
-                maxTurns: 8,
-                timeoutMs: cTimeoutMs,
-                signal: cSignal
-              })
-            );
-          } catch (err) {
-            if (shouldAbortOnError(err, cSignal)) throw err;
-            if (adherenceMode === "strict") throw err;
-            const msg = err instanceof Error ? err.message : String(err);
-            runs.log(runId, `MedFactcheck agent fallback activated (${msg}).`, "C");
-            recordFallback("deterministic_fallback", "medFactcheck", msg);
+          if (deterministicPlanning) {
             finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+          } else if (fallbackForLowBudget("medFactcheck.preflight", Math.max(120_000, Math.round(cTimeoutMs * 0.9)))) {
+            finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+          } else {
+            try {
+              finalFactcheck = MedFactcheckReportSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "medFactcheck",
+                  agent: medFactcheckAgent,
+                  prompt: medFactPrompt,
+                  maxTurns: 8,
+                  timeoutMs: cTimeoutMs,
+                  signal: cSignal
+                })
+              );
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              if (adherenceMode === "strict") throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `MedFactcheck agent fallback activated (${msg}).`, "C");
+              recordFallback("deterministic_fallback", "medFactcheck", msg);
+              finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+            }
           }
           const deterministicFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
-          if (adherenceMode !== "strict" && shouldPreferDeterministicFactcheck(finalFactcheck, deterministicFactcheck)) {
+          if (adherenceMode === "strict") {
+            const mergedFactcheck = mergeStrictMedFactcheckReports(finalFactcheck, deterministicFactcheck);
+            if (mergedFactcheck.issues.length > finalFactcheck.issues.length) {
+              runs.log(
+                runId,
+                `Strict med factcheck overlay injected ${mergedFactcheck.issues.length - finalFactcheck.issues.length} deterministic issue(s).`,
+                "C"
+              );
+            }
+            finalFactcheck = mergedFactcheck;
+          } else if (shouldPreferDeterministicFactcheck(finalFactcheck, deterministicFactcheck)) {
             runs.log(
               runId,
               `MedFactcheck deterministic arbitration applied (agent_issues=${finalFactcheck.issues.length}, deterministic_issues=${deterministicFactcheck.issues.length}).`,
@@ -1195,10 +1655,47 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               lintReport: finalLintReport,
               readerSimReport: finalReader,
               medFactcheckReport: finalFactcheck,
+              clueGraph: workingClueGraph,
               deckSpec: workingDeck
             })
           );
+          const semanticMetrics = evaluateSemanticAcceptance(workingDeck, semanticThresholds);
+          const semanticFixes = buildSemanticRequiredFixes(semanticMetrics, semanticThresholds);
+          finalSemantic = V2SemanticAcceptanceReportSchema.parse({
+            schema_version: "1.0.0",
+            workflow: "v2_micro_detectives",
+            checked_at: nowIso(),
+            thresholds: {
+              min_story_forward_ratio: semanticThresholds.minStoryForwardRatio,
+              min_hybrid_slide_quality: semanticThresholds.minHybridSlideQuality,
+              min_citation_grounding_coverage: semanticThresholds.minCitationGroundingCoverage
+            },
+            metrics: {
+              main_slide_count: semanticMetrics.mainSlideCount,
+              story_forward_ratio: semanticMetrics.storyForwardRatio,
+              hybrid_slide_quality: semanticMetrics.hybridSlideQuality,
+              citation_grounding_coverage: semanticMetrics.citationGroundingCoverage
+            },
+            pass: semanticMetrics.pass,
+            failures: semanticMetrics.failures,
+            required_fixes: semanticFixes
+          });
+          if (!finalSemantic.pass) {
+            const mergedRequiredFixes = [...finalQa.required_fixes, ...semanticFixes];
+            const seenFixes = new Set<string>();
+            finalQa = V2QaReportSchema.parse({
+              ...finalQa,
+              accept: false,
+              required_fixes: mergedRequiredFixes.filter((fix) => {
+                if (seenFixes.has(fix.fix_id)) return false;
+                seenFixes.add(fix.fix_id);
+                return true;
+              }),
+              summary: `${finalQa.summary} Semantic acceptance gate failed: ${finalSemantic.failures.join("; ")}.`
+            });
+          }
           await writeIntermediateJson("C", `qa_report_loop${attempt}.json`, finalQa);
+          await writeIntermediateJson("C", `semantic_acceptance_report_loop${attempt}.json`, finalSemantic);
 
           const strictFailed = !finalLintReport.pass || !finalFactcheck.pass || !finalQa.accept;
           if (!strictFailed) break;
@@ -1248,6 +1745,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         await writeIntermediateJson("C", "reader_sim_report.json", finalReader);
         await writeIntermediateJson("C", "med_factcheck_report.json", finalFactcheck);
         await writeIntermediateJson("C", "qa_report.json", finalQa);
+        await writeIntermediateJson("C", "semantic_acceptance_report.json", finalSemantic);
 
         const citationTraceability = buildCitationTraceabilityReport({
           dossier: diseaseDossier,
@@ -1342,6 +1840,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
       await ensureArtifactExists(runId, V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan);
       await ensureArtifactExists(runId, V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan);
       await ensureArtifactExists(runId, V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle);
+      await ensureArtifactExists(runId, V2_PHASE4_FINAL_ARTIFACTS.packagingSummary);
     }
   });
 

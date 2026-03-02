@@ -3,12 +3,13 @@ import type { DeckSpec, DeckSlideSpec } from "./schemas.js";
 import { V2_AUDIENCE_LEVELS } from "./schemas.js";
 
 type DeckLengthMain = 30 | 45 | 60;
-type AudienceLevel = "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP";
+type AudienceLevel = "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL";
 type DeckMainActId = DeckSpec["acts"][number]["act_id"];
 
 export type GenerateV2DeckSpecInput = {
   topic: string;
-  deckLengthMain: DeckLengthMain;
+  deckLengthMain?: DeckLengthMain;
+  deckLengthConstraintEnabled?: boolean;
   audienceLevel: AudienceLevel;
 };
 
@@ -259,11 +260,38 @@ function buildAppendixSlide(topic: string, idx: number): DeckSlideSpec {
 
 function normalizeAudience(audienceLevel: AudienceLevel): AudienceLevel {
   if ((V2_AUDIENCE_LEVELS as readonly string[]).includes(audienceLevel)) return audienceLevel;
-  return "MED_SCHOOL_ADVANCED";
+  return "PHYSICIAN_LEVEL";
+}
+
+function topicSeed(topic: string): number {
+  const raw = topic.trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 31 + raw.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function deriveMainDeckLength(input: GenerateV2DeckSpecInput): number {
+  const topic = input.topic.trim();
+  const seed = topicSeed(topic);
+  if (input.deckLengthConstraintEnabled && typeof input.deckLengthMain === "number") {
+    // Soft target only: allow drift so story/content flow can breathe.
+    const driftBand = Math.max(4, Math.round(input.deckLengthMain * 0.2));
+    const drift = (seed % (driftBand * 2 + 1)) - driftBand;
+    const candidate = input.deckLengthMain + drift;
+    return Math.max(20, candidate);
+  }
+
+  const wordCount = topic.length === 0 ? 0 : topic.split(/\s+/).filter(Boolean).length;
+  const complexityBump = Math.min(48, wordCount * 3);
+  const seedBump = seed % 36;
+  // Unconstrained mode baseline.
+  return Math.max(30, 54 + complexityBump + seedBump);
 }
 
 export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
-  const deckLengthMain = input.deckLengthMain;
+  const deckLengthMain = deriveMainDeckLength(input);
   const audienceLevel = normalizeAudience(input.audienceLevel);
   const topicSlug = slug(input.topic || "episode");
   const ranges = actRanges(deckLengthMain);
@@ -290,7 +318,7 @@ export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
       schema_version: "1.0.0",
       episode_slug: topicSlug,
       episode_title: `${input.topic} — Micro-Detectives Case File`,
-      deck_length_main: String(deckLengthMain) as "30" | "45" | "60",
+      deck_length_main: String(deckLengthMain),
       tone: "thriller",
       audience_level: audienceLevel,
       story_dominance_target_ratio: 0.7,

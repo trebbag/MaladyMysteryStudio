@@ -22,14 +22,16 @@ describe("v2 quality polish", () => {
   it("grounds fallback deck content to dossier citations and raises story-forward ratio", () => {
     const base = {
       topic: "Acute kidney injury",
-      audienceLevel: "RESIDENT" as const,
+      audienceLevel: "COLLEGE_LEVEL" as const,
       deckLengthMain: 30 as const,
+      deckLengthConstraintEnabled: true,
       kbContext: "## Medical / Clinical KB\n- deterministic context"
     };
     const deck = generateV2DeckSpec({
       topic: base.topic,
       audienceLevel: base.audienceLevel,
-      deckLengthMain: base.deckLengthMain
+      deckLengthMain: base.deckLengthMain,
+      deckLengthConstraintEnabled: base.deckLengthConstraintEnabled
     });
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
@@ -60,14 +62,16 @@ describe("v2 quality polish", () => {
   it("keeps deck topology stable while improving per-slide narrative specificity", () => {
     const base = {
       topic: "Heart failure exacerbation",
-      audienceLevel: "MED_SCHOOL_ADVANCED" as const,
+      audienceLevel: "PHYSICIAN_LEVEL" as const,
       deckLengthMain: 45 as const,
+      deckLengthConstraintEnabled: true,
       kbContext: "## Medical / Clinical KB\n- deterministic context"
     };
     const deck = generateV2DeckSpec({
       topic: base.topic,
       audienceLevel: base.audienceLevel,
-      deckLengthMain: base.deckLengthMain
+      deckLengthMain: base.deckLengthMain,
+      deckLengthConstraintEnabled: base.deckLengthConstraintEnabled
     });
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);

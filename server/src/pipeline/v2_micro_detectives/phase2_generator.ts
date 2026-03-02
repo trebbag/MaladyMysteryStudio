@@ -24,7 +24,8 @@ type CitationRef = {
 type BuildPhase2Input = {
   topic: string;
   audienceLevel: V2AudienceLevel;
-  deckLengthMain: 30 | 45 | 60;
+  deckLengthMain?: 30 | 45 | 60;
+  deckLengthConstraintEnabled?: boolean;
   kbContext: string;
 };
 
@@ -82,7 +83,9 @@ export function generateDiseaseDossier(input: BuildPhase2Input): DiseaseDossier 
       disease_topic: input.topic,
       target_level: input.audienceLevel,
       setting_focus: "multi_system",
-      constraints: ["story-forward", "fixed-length main deck", "citation-grounded"]
+      constraints: input.deckLengthConstraintEnabled
+        ? ["story-forward", `soft deck-length target around ${input.deckLengthMain ?? 45} slides`, "citation-grounded"]
+        : ["story-forward", "deck-length unconstrained (story/content dictated)", "citation-grounded"]
     },
     canonical_name: input.topic,
     aliases: [slug(input.topic).replaceAll("-", " ")],
@@ -105,7 +108,10 @@ export function generateEpisodePitch(input: BuildPhase2Input, dossier: DiseaseDo
     pitch_id: `PITCH-${slug(input.topic).slice(0, 18) || "episode"}-${Date.now()}`,
     episode_title: episodeTitle,
     logline: `Cyto and Pip chase conflicting clues to explain ${titleTopic} before time runs out.`,
-    target_deck_length: String(input.deckLengthMain),
+    target_deck_length:
+      input.deckLengthConstraintEnabled && typeof input.deckLengthMain === "number"
+        ? `soft_target:${input.deckLengthMain}`
+        : "unconstrained",
     tone: "thriller",
     patient_stub: {
       age: 52,
@@ -203,14 +209,15 @@ export function generateMedFactcheckReport(deckSpec: DeckSpec, dossier: DiseaseD
   const isGenericConcept = (value: string): boolean => /^(?:NONE|MC[-_]?0*\d+|MC[-_]?PATCH[-_A-Z0-9]*)$/i.test(String(value || "").trim());
   const hasPlaceholderToken = (value: string): boolean => /\bCLUE[_-]?[A-Z0-9_-]+\b/.test(String(value || ""));
   const issues: MedFactcheckReport["issues"] = [];
-  if (deckSpec.slides.length !== Number(deckSpec.deck_meta.deck_length_main)) {
+  const declaredDeckLength = Number(deckSpec.deck_meta.deck_length_main);
+  if (Number.isFinite(declaredDeckLength) && deckSpec.slides.length !== declaredDeckLength) {
     issues.push({
       issue_id: "MED-ERR-001",
       severity: "critical",
       type: "contradiction_with_dossier",
       claim: "Deck length mismatch can break coverage mapping and citation traceability.",
-      why_wrong: "Main deck length must stay fixed to the agreed spec.",
-      suggested_fix: "Regenerate deck spec with exact main length.",
+      why_wrong: "deck_meta.deck_length_main must match the actual number of slides in the produced deck.",
+      suggested_fix: "Regenerate deck spec so deck_meta.deck_length_main matches the final slide count.",
       supporting_citations: [cite]
     });
   }

@@ -18,10 +18,26 @@ import {
   runOutputDirAbs,
   writeJsonFile
 } from "./pipeline/utils.js";
-import { resolveCanonicalProfilePaths } from "./pipeline/canon.js";
+import { loadCanonicalProfile, resolveCanonicalProfilePaths } from "./pipeline/canon.js";
 import { episodeMemoryPath } from "./pipeline/memory.js";
 import { gateOwningStep, humanReviewFileName, latestGateDecision, readHumanReviewStore } from "./pipeline/v2_micro_detectives/reviews.js";
-import { HumanReviewEntrySchema, HumanReviewRequestedChangeSchema, HumanReviewDecisionSchema, V2GateIdSchema } from "./pipeline/v2_micro_detectives/schemas.js";
+import {
+  HumanReviewEntrySchema,
+  HumanReviewRequestedChangeSchema,
+  HumanReviewDecisionSchema,
+  V2GateIdSchema,
+  V2SemanticAcceptanceReportSchema
+} from "./pipeline/v2_micro_detectives/schemas.js";
+import {
+  applyStoryBeatsPatch,
+  createStoryBeatsSkeleton,
+  generateDeterministicStoryBeat,
+  mergeStoryBeatsWithSkeleton,
+  parseChapterOutlineArtifact,
+  StoryBeatGenerateBodySchema,
+  StoryBeatsPatchSchema,
+  StoryBeatsSchema
+} from "./pipeline/workshop.js";
 import {
   defaultStepSloPolicy,
   loadStepSloPolicy,
@@ -73,31 +89,35 @@ const RunSettingsSchema = z
     // For legacy this remains min=100/max=500. For v2 this field is optional/ignored.
     targetSlides: z.number().int().optional(),
     level: z.enum(["pcp", "student"]).optional(),
+    deckLengthConstraintEnabled: z.boolean().optional(),
     deckLengthMain: z
       .preprocess(
         (value) => (typeof value === "string" && value.trim().length > 0 ? Number(value) : value),
         z.union([z.literal(30), z.literal(45), z.literal(60)])
       )
       .optional(),
-    audienceLevel: z.enum(["MED_SCHOOL_ADVANCED", "RESIDENT", "FELLOWSHIP"]).optional(),
+    audienceLevel: z.enum(["PHYSICIAN_LEVEL", "COLLEGE_LEVEL"]).optional(),
+    minStoryForwardRatio: z.number().min(0).max(1).optional(),
+    minHybridSlideQuality: z.number().min(0).max(1).optional(),
+    minCitationGroundingCoverage: z.number().min(0).max(1).optional(),
     adherenceMode: z.enum(["strict", "warn"]).optional()
   })
   .strict()
   .superRefine((value, ctx) => {
     const workflow = value.workflow ?? LEGACY_WORKFLOW;
     if (workflow === V2_WORKFLOW) {
-      if (typeof value.deckLengthMain !== "number") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["deckLengthMain"],
-          message: "deckLengthMain is required when workflow=v2_micro_detectives."
-        });
-      }
       if (typeof value.audienceLevel !== "string") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["audienceLevel"],
           message: "audienceLevel is required when workflow=v2_micro_detectives."
+        });
+      }
+      if (value.deckLengthConstraintEnabled === true && typeof value.deckLengthMain !== "number") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deckLengthMain"],
+          message: "deckLengthMain is required when deckLengthConstraintEnabled=true."
         });
       }
       return;
@@ -109,6 +129,13 @@ const RunSettingsSchema = z
         code: z.ZodIssueCode.custom,
         path: ["targetSlides"],
         message: "targetSlides must be between 100 and 500 for legacy workflow."
+      });
+    }
+    if (typeof value.deckLengthConstraintEnabled === "boolean") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["deckLengthConstraintEnabled"],
+        message: "deckLengthConstraintEnabled is only valid for workflow=v2_micro_detectives."
       });
     }
     if (typeof value.deckLengthMain === "number") {
@@ -123,6 +150,27 @@ const RunSettingsSchema = z
         code: z.ZodIssueCode.custom,
         path: ["audienceLevel"],
         message: "audienceLevel is only valid for workflow=v2_micro_detectives."
+      });
+    }
+    if (typeof value.minStoryForwardRatio === "number") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minStoryForwardRatio"],
+        message: "minStoryForwardRatio is only valid for workflow=v2_micro_detectives."
+      });
+    }
+    if (typeof value.minHybridSlideQuality === "number") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minHybridSlideQuality"],
+        message: "minHybridSlideQuality is only valid for workflow=v2_micro_detectives."
+      });
+    }
+    if (typeof value.minCitationGroundingCoverage === "number") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minCitationGroundingCoverage"],
+        message: "minCitationGroundingCoverage is only valid for workflow=v2_micro_detectives."
       });
     }
   });
@@ -195,13 +243,22 @@ function normalizeSettings(settings: RunSettings | undefined): RunSettings | und
   s.workflow = workflow;
   if (typeof settings.durationMinutes === "number") s.durationMinutes = settings.durationMinutes;
   if (workflow === V2_WORKFLOW) {
-    if (typeof settings.deckLengthMain === "number") s.deckLengthMain = settings.deckLengthMain;
+    if (settings.deckLengthConstraintEnabled === true) {
+      s.deckLengthConstraintEnabled = true;
+      if (typeof settings.deckLengthMain === "number") s.deckLengthMain = settings.deckLengthMain;
+    }
     if (settings.audienceLevel) s.audienceLevel = settings.audienceLevel;
+    if (typeof settings.minStoryForwardRatio === "number") s.minStoryForwardRatio = settings.minStoryForwardRatio;
+    if (typeof settings.minHybridSlideQuality === "number") s.minHybridSlideQuality = settings.minHybridSlideQuality;
+    if (typeof settings.minCitationGroundingCoverage === "number") {
+      s.minCitationGroundingCoverage = settings.minCitationGroundingCoverage;
+    }
   } else {
     if (typeof settings.targetSlides === "number") s.targetSlides = settings.targetSlides;
     if (settings.level) s.level = settings.level;
   }
   if (settings.adherenceMode) s.adherenceMode = settings.adherenceMode;
+  else if (workflow === V2_WORKFLOW) s.adherenceMode = "warn";
   if (Object.keys(s).length === 1 && s.workflow === LEGACY_WORKFLOW) return undefined;
   return s;
 }
@@ -273,6 +330,60 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
   let sloPolicy: StepSloPolicy | null = null;
+
+  async function readChapterOutline(runId: string) {
+    const chapterPath = await resolveArtifactPathAbs(runId, "chapter_outline.json");
+    if (!chapterPath) return null;
+    const data = await fs.readFile(chapterPath, "utf8");
+    return parseChapterOutlineArtifact(JSON.parse(data));
+  }
+
+  async function readStoryBeats(runId: string) {
+    const storyBeatsPath = await resolveArtifactPathAbs(runId, "story_beats.json");
+    if (!storyBeatsPath) return null;
+    const data = await fs.readFile(storyBeatsPath, "utf8");
+    return StoryBeatsSchema.parse(JSON.parse(data));
+  }
+
+  async function writeStoryBeats(runId: string, value: z.infer<typeof StoryBeatsSchema>) {
+    await writeJsonFile(path.join(runIntermediateDirAbs(runId), "story_beats.json"), value);
+    await runs.addArtifact(runId, "C", "story_beats.json");
+    runs.log(runId, "story_beats.json updated", "C");
+  }
+
+  async function resolveLatestPatchedIterationAbs(runId: string): Promise<string | null> {
+    const scanDirs = [runFinalDirAbs(runId), runIntermediateDirAbs(runId), runOutputDirAbs(runId)];
+    let best: { absPath: string; iter: number; mtimeMs: number } | null = null;
+
+    for (const dir of scanDirs) {
+      const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const match = entry.name.match(/^final_slide_spec_patched_iter(\d+)\.json$/);
+        if (!match) continue;
+        const iter = Number(match[1] ?? "0");
+        const absPath = path.join(dir, entry.name);
+        const st = await fs.stat(absPath).catch(() => null);
+        if (!st) continue;
+        if (!best || iter > best.iter || (iter === best.iter && st.mtimeMs > best.mtimeMs)) {
+          best = { absPath, iter, mtimeMs: st.mtimeMs };
+        }
+      }
+    }
+
+    return best?.absPath ?? null;
+  }
+
+  async function readSemanticAcceptanceReport(runId: string) {
+    const reportPath = await resolveArtifactPathAbs(runId, "semantic_acceptance_report.json");
+    if (!reportPath) return null;
+    try {
+      const raw = await fs.readFile(reportPath, "utf8");
+      return V2SemanticAcceptanceReportSchema.parse(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
 
   async function ensureSloPolicy(): Promise<StepSloPolicy> {
     if (sloPolicy) return sloPolicy;
@@ -380,6 +491,208 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
     res.json(attachStepSlo(run, policy.thresholdsMs));
   });
 
+  app.get("/api/runs/:runId/chapter-outline", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    try {
+      const outline = await readChapterOutline(runId);
+      if (!outline) {
+        res.status(404).json({ error: "chapter_outline.json not found" });
+        return;
+      }
+      res.json(outline);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/runs/:runId/story-beats", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    try {
+      const outline = await readChapterOutline(runId);
+      if (!outline) {
+        res.status(404).json({ error: "chapter_outline.json not found" });
+        return;
+      }
+
+      const skeleton = createStoryBeatsSkeleton(run.topic, outline);
+      const current = await readStoryBeats(runId);
+      if (!current) {
+        res.json(skeleton);
+        return;
+      }
+
+      const merged = StoryBeatsSchema.parse({
+        ...skeleton,
+        ...current,
+        topic_area_beats: {
+          ...skeleton.topic_area_beats,
+          ...current.topic_area_beats
+        }
+      });
+      res.json(merged);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put("/api/runs/:runId/story-beats", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    try {
+      const outline = await readChapterOutline(runId);
+      if (!outline) {
+        res.status(404).json({ error: "chapter_outline.json not found" });
+        return;
+      }
+
+      const skeleton = createStoryBeatsSkeleton(run.topic, outline);
+      const existingStored = await readStoryBeats(runId);
+      const existing = existingStored ? mergeStoryBeatsWithSkeleton(existingStored, skeleton) : skeleton;
+
+      if (req.body?.story_beats) {
+        const parsed = StoryBeatsSchema.safeParse(req.body.story_beats);
+        if (!parsed.success) {
+          res.status(400).json({ error: parsed.error.flatten() });
+          return;
+        }
+        const merged = StoryBeatsSchema.parse({
+          ...skeleton,
+          ...parsed.data,
+          topic_area_beats: {
+            ...skeleton.topic_area_beats,
+            ...parsed.data.topic_area_beats
+          },
+          updated_at: nowIso()
+        });
+        await writeStoryBeats(runId, merged);
+        res.json(merged);
+        return;
+      }
+
+      const patchParsed = StoryBeatsPatchSchema.safeParse(req.body ?? {});
+      if (!patchParsed.success) {
+        res.status(400).json({ error: patchParsed.error.flatten() });
+        return;
+      }
+      const patched = applyStoryBeatsPatch(existing, patchParsed.data);
+      await writeStoryBeats(runId, patched);
+      res.json(patched);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/runs/:runId/story-beats/generate", async (req, res) => {
+    const runId = req.params.runId;
+    const run = runs.getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+
+    const bodyParsed = StoryBeatGenerateBodySchema.safeParse(req.body ?? {});
+    if (!bodyParsed.success) {
+      res.status(400).json({ error: bodyParsed.error.flatten() });
+      return;
+    }
+
+    try {
+      const outline = await readChapterOutline(runId);
+      if (!outline) {
+        res.status(404).json({ error: "chapter_outline.json not found" });
+        return;
+      }
+
+      const skeleton = createStoryBeatsSkeleton(run.topic, outline);
+      const existingStored = await readStoryBeats(runId);
+      const existing = existingStored ? mergeStoryBeatsWithSkeleton(existingStored, skeleton) : skeleton;
+      const patchedNotes = applyStoryBeatsPatch(existing, {
+        topicAreaId: bodyParsed.data.topicAreaId,
+        categoryTitle: bodyParsed.data.categoryTitle,
+        userNotes: bodyParsed.data.userNotes
+      });
+      const canonical = await loadCanonicalProfile();
+
+      const beatMd = generateDeterministicStoryBeat({
+        topic: run.topic,
+        topicAreaId: bodyParsed.data.topicAreaId,
+        categoryTitle: bodyParsed.data.categoryTitle,
+        userNotes: bodyParsed.data.userNotes,
+        storyBeats: patchedNotes,
+        canonicalProfile: canonical
+      });
+
+      let next = applyStoryBeatsPatch(patchedNotes, {
+        topicAreaId: bodyParsed.data.topicAreaId,
+        beatMd
+      });
+
+      if (bodyParsed.data.topicAreaId === "INTRO") {
+        next = StoryBeatsSchema.parse({
+          ...next,
+          intro: {
+            ...next.intro,
+            generation_count: (next.intro.generation_count ?? 0) + 1,
+            updated_at: nowIso()
+          },
+          updated_at: nowIso()
+        });
+      } else if (bodyParsed.data.topicAreaId === "OUTRO") {
+        next = StoryBeatsSchema.parse({
+          ...next,
+          outro: {
+            ...next.outro,
+            generation_count: (next.outro.generation_count ?? 0) + 1,
+            updated_at: nowIso()
+          },
+          updated_at: nowIso()
+        });
+      } else {
+        const node = next.topic_area_beats[bodyParsed.data.topicAreaId];
+        if (node) {
+          next = StoryBeatsSchema.parse({
+            ...next,
+            topic_area_beats: {
+              ...next.topic_area_beats,
+              [bodyParsed.data.topicAreaId]: {
+                ...node,
+                generation_count: (node.generation_count ?? 0) + 1,
+                updated_at: nowIso()
+              }
+            },
+            updated_at: nowIso()
+          });
+        }
+      }
+
+      await writeStoryBeats(runId, next);
+      res.json({
+        topicAreaId: bodyParsed.data.topicAreaId,
+        beat_md: beatMd,
+        story_beats: next
+      });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post("/api/runs/:runId/cancel", (req, res) => {
     const run = runs.getRun(req.params.runId);
     if (!run) {
@@ -433,6 +746,19 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
     }
 
     const gateId = gateParsed.data;
+    if (gateId === "GATE_3_STORYBOARD" && bodyParsed.data.status === "approve") {
+      const semantic = await readSemanticAcceptanceReport(runId);
+      if (semantic && !semantic.pass) {
+        res.status(409).json({
+          error: `semantic acceptance gate failed: ${semantic.failures.join("; ")}`,
+          gateId,
+          recommendedAction: "resume_regenerate",
+          suggestedResumeFrom: gateOwningStep(gateId),
+          semantic
+        });
+        return;
+      }
+    }
     const entry = HumanReviewEntrySchema.parse({
       schema_version: "1.0.0",
       gate_id: gateId,
@@ -521,6 +847,19 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
       res.status(409).json({ error: `gate ${gateId} is in request_changes. Submit approve or regenerate before resume.` });
       return;
     }
+    if (gateId === "GATE_3_STORYBOARD" && latest.status === "approve") {
+      const semantic = await readSemanticAcceptanceReport(runId);
+      if (semantic && !semantic.pass) {
+        res.status(409).json({
+          error: `semantic acceptance gate failed: ${semantic.failures.join("; ")}`,
+          gateId,
+          recommendedAction: "resume_regenerate",
+          suggestedResumeFrom: gateOwningStep(gateId),
+          semantic
+        });
+        return;
+      }
+    }
 
     const resumeFrom = latest.status === "regenerate" ? gateOwningStep(gateId) : run.activeGate.resumeFrom;
     const gateState = run.activeGate;
@@ -605,7 +944,11 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
       if (startFrom === "P" && step === "N") {
         const required = "final_slide_spec_patched.json";
         if (!copied.includes(required)) {
-          const src = await resolveArtifactPathAbs(parentRunId, required);
+          let src = await resolveArtifactPathAbs(parentRunId, required);
+          if (!src) {
+            // Legacy compatibility: some historical runs only stored iter artifacts.
+            src = await resolveLatestPatchedIterationAbs(parentRunId);
+          }
           if (!src) {
             res.status(400).json({ error: `missing required artifact in parent run for startFrom=P: ${required}` });
             return;

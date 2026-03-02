@@ -42,15 +42,19 @@ export type RunLevel = "pcp" | "student";
 export type RunAdherenceMode = "strict" | "warn";
 export type RunWorkflow = "legacy" | "v2_micro_detectives";
 export type RunV2DeckLengthMain = 30 | 45 | 60;
-export type RunV2AudienceLevel = "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP";
+export type RunV2AudienceLevel = "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL";
 
 export type RunSettings = {
   workflow?: RunWorkflow;
   durationMinutes?: number;
   targetSlides?: number;
   level?: RunLevel;
+  deckLengthConstraintEnabled?: boolean;
   deckLengthMain?: RunV2DeckLengthMain;
   audienceLevel?: RunV2AudienceLevel;
+  minStoryForwardRatio?: number;
+  minHybridSlideQuality?: number;
+  minCitationGroundingCoverage?: number;
   adherenceMode?: RunAdherenceMode;
 };
 
@@ -86,6 +90,19 @@ export type RunStatus = {
   topic: string;
   settings?: RunSettings;
   derivedFrom?: RunDerivedFrom;
+  v2DeckSpecEstimate?: {
+    estimatedMainSlides: number;
+    deckLengthPolicy: "soft_target" | "unconstrained";
+    softTarget?: number;
+    computedAt: string;
+    adaptiveTimeoutMs: {
+      agent: number;
+      deckSpec: number;
+      watchdog: number;
+    };
+    abortThresholdSlides: number;
+    abortRecommended: boolean;
+  };
   activeGate?: RunGateState;
   canonicalSources?: CanonicalProfilePaths & { foundAny: boolean };
   constraintAdherence?: ConstraintAdherenceSummary;
@@ -382,10 +399,22 @@ export class RunManager {
     if (patch?.traceId) r.traceId = patch.traceId;
     if (patch?.settings) r.settings = patch.settings;
     if (patch?.derivedFrom) r.derivedFrom = patch.derivedFrom;
+    if (patch?.v2DeckSpecEstimate) r.v2DeckSpecEstimate = patch.v2DeckSpecEstimate;
     if (patch?.activeGate) r.activeGate = patch.activeGate;
     if (patch?.canonicalSources) r.canonicalSources = patch.canonicalSources;
     if (patch?.constraintAdherence) r.constraintAdherence = patch.constraintAdherence;
     await this.persist(r);
+  }
+
+  async setV2DeckSpecEstimate(
+    runId: string,
+    estimate: NonNullable<RunStatus["v2DeckSpecEstimate"]>
+  ): Promise<void> {
+    const r = this.runs.get(runId);
+    if (!r) return;
+    r.v2DeckSpecEstimate = estimate;
+    await this.persist(r);
+    r.emitter.emit("deckspec_estimate", estimate);
   }
 
   async setCanonicalSources(runId: string, sources: CanonicalProfilePaths & { foundAny: boolean }): Promise<void> {
@@ -478,6 +507,7 @@ export class RunManager {
       step_started: handler("step_started"),
       step_finished: handler("step_finished"),
       artifact_written: handler("artifact_written"),
+      deckspec_estimate: handler("deckspec_estimate"),
       gate_required: handler("gate_required"),
       gate_submitted: handler("gate_submitted"),
       run_resumed: handler("run_resumed"),
@@ -488,6 +518,7 @@ export class RunManager {
     r.emitter.on("step_started", evHandlers.step_started);
     r.emitter.on("step_finished", evHandlers.step_finished);
     r.emitter.on("artifact_written", evHandlers.artifact_written);
+    r.emitter.on("deckspec_estimate", evHandlers.deckspec_estimate);
     r.emitter.on("gate_required", evHandlers.gate_required);
     r.emitter.on("gate_submitted", evHandlers.gate_submitted);
     r.emitter.on("run_resumed", evHandlers.run_resumed);
@@ -498,6 +529,7 @@ export class RunManager {
       r.emitter.off("step_started", evHandlers.step_started);
       r.emitter.off("step_finished", evHandlers.step_finished);
       r.emitter.off("artifact_written", evHandlers.artifact_written);
+      r.emitter.off("deckspec_estimate", evHandlers.deckspec_estimate);
       r.emitter.off("gate_required", evHandlers.gate_required);
       r.emitter.off("gate_submitted", evHandlers.gate_submitted);
       r.emitter.off("run_resumed", evHandlers.run_resumed);

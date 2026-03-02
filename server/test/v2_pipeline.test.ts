@@ -76,15 +76,33 @@ function parseTopic(prompt: string): string {
 }
 
 function parseDeckLength(prompt: string): 30 | 45 | 60 {
-  if (/"deck_length_main"\s*:\s*30/.test(prompt) || /"deckLengthMain"\s*:\s*30/.test(prompt)) return 30;
-  if (/"deck_length_main"\s*:\s*60/.test(prompt) || /"deckLengthMain"\s*:\s*60/.test(prompt)) return 60;
+  if (
+    /"deck_length_main"\s*:\s*30/.test(prompt) ||
+    /"deckLengthMain"\s*:\s*30/.test(prompt) ||
+    /"deck_length_main_soft_target"\s*:\s*30/.test(prompt)
+  )
+    return 30;
+  if (
+    /"deck_length_main"\s*:\s*60/.test(prompt) ||
+    /"deckLengthMain"\s*:\s*60/.test(prompt) ||
+    /"deck_length_main_soft_target"\s*:\s*60/.test(prompt)
+  )
+    return 60;
   return 45;
 }
 
-function parseAudience(prompt: string): "MED_SCHOOL_ADVANCED" | "RESIDENT" | "FELLOWSHIP" {
-  if (/FELLOWSHIP/.test(prompt)) return "FELLOWSHIP";
-  if (/RESIDENT/.test(prompt)) return "RESIDENT";
-  return "MED_SCHOOL_ADVANCED";
+function parseDeckLengthConstraintEnabled(prompt: string): boolean {
+  return (
+    /"deck_length_policy"\s*:\s*"soft_target"/.test(prompt) ||
+    /"deckLengthConstraintEnabled"\s*:\s*true/.test(prompt) ||
+    /"deck_length_main_soft_target"\s*:\s*(30|45|60)/.test(prompt)
+  );
+}
+
+function parseAudience(prompt: string): "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL" {
+  if (/PHYSICIAN_LEVEL/.test(prompt)) return "PHYSICIAN_LEVEL";
+  if (/COLLEGE_LEVEL/.test(prompt)) return "COLLEGE_LEVEL";
+  return "PHYSICIAN_LEVEL";
 }
 
 beforeEach(async () => {
@@ -104,17 +122,19 @@ beforeEach(async () => {
   (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
     const topic = parseTopic(prompt);
     const deckLengthMain = parseDeckLength(prompt);
+    const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
     const audienceLevel = parseAudience(prompt);
     const base = {
       topic,
       audienceLevel,
       deckLengthMain,
+      deckLengthConstraintEnabled,
       kbContext: "## Medical / Clinical KB\n- deterministic test context"
     } as const;
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
     const truth = generateTruthModel(base, dossier, pitch);
-    const deck = generateV2DeckSpec({ topic, deckLengthMain, audienceLevel });
+    const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
 
@@ -160,7 +180,8 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Pneumonia", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
       adherenceMode: "strict"
     });
 
@@ -188,7 +209,8 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Heart failure", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "RESIDENT",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
       adherenceMode: "strict"
     });
 
@@ -230,8 +252,9 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("COPD", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 30,
-      audienceLevel: "FELLOWSHIP",
-      adherenceMode: "strict"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
+      adherenceMode: "warn"
     });
 
     await expect(
@@ -282,9 +305,9 @@ describe("v2 real pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "reader_sim_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "med_factcheck_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "citation_traceability.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "agent_call_durations.json"))).resolves.toBeTruthy();
-    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "agent_call_durations_C.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
 
     await appendHumanReview(run.runId, {
@@ -315,12 +338,130 @@ describe("v2 real pipeline", () => {
     expect(status?.steps.C.status).toBe("done");
   });
 
+  it("fails step C in strict mode when semantic acceptance thresholds are not met", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Semantic threshold strict fail", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
+      adherenceMode: "strict"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    const prevHybridThreshold = process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY;
+    const prevCitationThreshold = process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE;
+    process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY = "1";
+    process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE = "1";
+
+    try {
+      (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
+        const topic = parseTopic(prompt);
+        const deckLengthMain = parseDeckLength(prompt);
+        const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
+        const audienceLevel = parseAudience(prompt);
+        const base = {
+          topic,
+          audienceLevel,
+          deckLengthMain,
+          deckLengthConstraintEnabled,
+          kbContext: "## Medical / Clinical KB\n- deterministic test context"
+        } as const;
+        const dossier = generateDiseaseDossier(base);
+        const pitch = generateEpisodePitch(base, dossier);
+        const truth = generateTruthModel(base, dossier, pitch);
+        const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
+        const degradedDeck = {
+          ...deck,
+          slides: deck.slides.map((slide) => ({
+            ...slide,
+            medical_payload: {
+              ...slide.medical_payload,
+              delivery_mode: "note_only" as const,
+              dossier_citations: []
+            },
+            speaker_notes: {
+              ...slide.speaker_notes,
+              citations: []
+            }
+          }))
+        };
+        const differential = generateDifferentialCast(degradedDeck, dossier, truth);
+        const clueGraph = generateClueGraph(degradedDeck, dossier, differential);
+
+        const name = agent?.name ?? "";
+        if (name === "KB Compiler") {
+          return { finalOutput: { kb_context: "## Medical / Clinical KB\n- deterministic test context" } };
+        }
+        if (name === "V2 Disease Research Desk") return { finalOutput: dossier };
+        if (name === "V2 Episode Pitch Builder") return { finalOutput: pitch };
+        if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
+        if (name === "V2 Differential Cast Director") return { finalOutput: differential };
+        if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+        if (name === "V2 Plot Director DeckSpec") return { finalOutput: degradedDeck };
+        if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(degradedDeck, truth, clueGraph) };
+        if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(degradedDeck, dossier) };
+        return { finalOutput: { kb_context: "## Medical / Clinical KB\n- fallback" } };
+      });
+
+      await expect(
+        runMicroDetectivesPipeline(
+          { runId: run.runId, topic: run.topic, settings: run.settings },
+          runs,
+          { signal: new AbortController().signal, startFrom: "C" }
+        )
+      ).rejects.toThrow(/without acceptance/i);
+    } finally {
+      if (prevHybridThreshold === undefined) delete process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY;
+      else process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY = prevHybridThreshold;
+      if (prevCitationThreshold === undefined) delete process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE;
+      else process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE = prevCitationThreshold;
+    }
+
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
+    const status = runs.getRun(run.runId);
+    expect(status?.steps.C.status).toBe("error");
+  });
+
   it("rejects invalid v2 startFrom", async () => {
     const runs = new RunManager();
     const run = await runs.createRun("Bad start", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
 
     await expect(
@@ -338,7 +479,8 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Missing key", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     await expect(
       runMicroDetectivesPipeline(
@@ -358,7 +500,9 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Bad KB0 output", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
+      adherenceMode: "strict"
     });
 
     await expect(
@@ -378,8 +522,9 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Watchdog C", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 30,
-      audienceLevel: "RESIDENT",
-      adherenceMode: "warn"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
+      adherenceMode: "strict"
     });
 
     await expect(
@@ -422,17 +567,19 @@ describe("v2 real pipeline", () => {
       if (name !== "V2 Clue Architect") {
         const topic = parseTopic(prompt);
         const deckLengthMain = parseDeckLength(prompt);
+        const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
         const audienceLevel = parseAudience(prompt);
         const base = {
           topic,
           audienceLevel,
           deckLengthMain,
+          deckLengthConstraintEnabled,
           kbContext: "## Medical / Clinical KB\n- deterministic test context"
         } as const;
         const dossier = generateDiseaseDossier(base);
         const pitch = generateEpisodePitch(base, dossier);
         const truth = generateTruthModel(base, dossier, pitch);
-        const deck = generateV2DeckSpec({ topic, deckLengthMain, audienceLevel });
+        const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
         const differential = generateDifferentialCast(deck, dossier, truth);
         if (name === "V2 Differential Cast Director") return { finalOutput: differential };
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
@@ -480,7 +627,8 @@ describe("v2 real pipeline", () => {
     const run = await runs.createRun("Fallback transport abort", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 30,
-      audienceLevel: "RESIDENT",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
       adherenceMode: "warn"
     });
 
@@ -520,17 +668,19 @@ describe("v2 real pipeline", () => {
     (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
       const topic = parseTopic(prompt);
       const deckLengthMain = parseDeckLength(prompt);
+      const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
       const audienceLevel = parseAudience(prompt);
       const base = {
         topic,
         audienceLevel,
         deckLengthMain,
+        deckLengthConstraintEnabled,
         kbContext: "## Medical / Clinical KB\n- deterministic test context"
       } as const;
       const dossier = generateDiseaseDossier(base);
       const pitch = generateEpisodePitch(base, dossier);
       const truth = generateTruthModel(base, dossier, pitch);
-      const deck = generateV2DeckSpec({ topic, deckLengthMain, audienceLevel });
+      const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
       const differential = generateDifferentialCast(deck, dossier, truth);
       const clueGraph = generateClueGraph(deck, dossier, differential);
 
@@ -543,13 +693,20 @@ describe("v2 real pipeline", () => {
       return { finalOutput: { kb_context: "## Medical / Clinical KB\n- deterministic test context" } };
     });
 
-    await expect(
-      runMicroDetectivesPipeline(
-        { runId: run.runId, topic: run.topic, settings: run.settings },
-        runs,
-        { signal: new AbortController().signal, startFrom: "C" }
-      )
-    ).rejects.toBeInstanceOf(PipelinePause);
+    const prevRefineMode = process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE;
+    process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE = "on";
+    try {
+      await expect(
+        runMicroDetectivesPipeline(
+          { runId: run.runId, topic: run.topic, settings: run.settings },
+          runs,
+          { signal: new AbortController().signal, startFrom: "C" }
+        )
+      ).rejects.toBeInstanceOf(PipelinePause);
+    } finally {
+      if (prevRefineMode === undefined) delete process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE;
+      else process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE = prevRefineMode;
+    }
 
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_spec.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
@@ -557,6 +714,73 @@ describe("v2 real pipeline", () => {
     const fallback = JSON.parse(fallbackRaw) as { used: boolean; fallback_event_count: number };
     expect(fallback.used).toBe(true);
     expect(fallback.fallback_event_count).toBeGreaterThan(0);
+    const status = runs.getRun(run.runId);
+    expect(status?.steps.C.status).toBe("done");
+  });
+
+  it("uses step-C budget guard fallbacks when watchdog budget is tight in warn mode", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Budget guard C", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
+      adherenceMode: "warn"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    const prevWatchdog = process.env.MMS_V2_STEP_C_WATCHDOG_MS;
+    process.env.MMS_V2_STEP_C_WATCHDOG_MS = "120000";
+    try {
+      await expect(
+        runMicroDetectivesPipeline(
+          { runId: run.runId, topic: run.topic, settings: run.settings },
+          runs,
+          { signal: new AbortController().signal, startFrom: "C" }
+        )
+      ).rejects.toBeInstanceOf(PipelinePause);
+    } finally {
+      if (prevWatchdog === undefined) delete process.env.MMS_V2_STEP_C_WATCHDOG_MS;
+      else process.env.MMS_V2_STEP_C_WATCHDOG_MS = prevWatchdog;
+    }
+
+    const fallbackRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "fallback_usage.json"), "utf8");
+    const fallback = JSON.parse(fallbackRaw) as { used: boolean; events?: Array<{ reason?: string }> };
+    expect(fallback.used).toBe(false);
+    expect(fallback.events ?? []).toHaveLength(0);
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "step_c_watchdog_error.json"))).rejects.toThrow();
     const status = runs.getRun(run.runId);
     expect(status?.steps.C.status).toBe("done");
   });

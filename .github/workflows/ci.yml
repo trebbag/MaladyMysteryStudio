@@ -42,6 +42,11 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Check v2 asset lock + source/runtime sync
+        run: |
+          npm run v2:assets:lock:check
+          npm run v2:assets:sync:check
+
       - name: Typecheck
         run: npm run typecheck
 

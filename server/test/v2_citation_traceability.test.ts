@@ -6,7 +6,7 @@ describe("v2 citation traceability", () => {
   it("indexes citation references and flags unresolved ids", () => {
     const dossier = generateDiseaseDossier({
       topic: "COPD",
-      audienceLevel: "RESIDENT",
+      audienceLevel: "COLLEGE_LEVEL",
       deckLengthMain: 45,
       kbContext: "## Medical / Clinical KB\n- source notes"
     });

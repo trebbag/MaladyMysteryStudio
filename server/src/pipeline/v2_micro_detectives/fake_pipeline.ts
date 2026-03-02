@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { PipelinePause } from "../../executor.js";
 import type { RunManager, RunSettings, StepName } from "../../run_manager.js";
 import { resolveCanonicalProfilePaths } from "../canon.js";
-import { resolveArtifactPathAbs, runFinalDirAbs, runIntermediateDirAbs, writeJsonFile, writeTextFile } from "../utils.js";
+import { nowIso, resolveArtifactPathAbs, runFinalDirAbs, runIntermediateDirAbs, writeJsonFile, writeTextFile } from "../utils.js";
 import { loadV2Assets } from "./assets.js";
 import { buildCitationTraceabilityReport } from "./citation_traceability.js";
 import { generateV2DeckSpec } from "./generator.js";
@@ -20,7 +20,13 @@ import {
   generateMicroWorldMap,
   generateSetpiecePlan
 } from "./phase4_generator.js";
-import { applyTargetedQaPatches, buildCombinedQaReport } from "./phase3_quality.js";
+import {
+  applyTargetedQaPatches,
+  buildCombinedQaReport,
+  buildSemanticRequiredFixes,
+  evaluateSemanticAcceptance,
+  type SemanticAcceptanceThresholds
+} from "./phase3_quality.js";
 import { normalizeDossierCitationIds, polishDeckSpecForFallback } from "./quality_polish.js";
 import { gateRequirementArtifactName, latestGateDecision, readHumanReviewStore } from "./reviews.js";
 import {
@@ -38,6 +44,7 @@ import {
   V2DeckSpecLintReportSchema,
   V2GateRequirementSchema,
   V2QaReportSchema,
+  V2SemanticAcceptanceReportSchema,
   V2TemplateRegistrySchema,
   V2StoryboardGateSchema,
   type V2GateId
@@ -59,7 +66,8 @@ const V2_PHASE4_FINAL_ARTIFACTS = {
   mainDeckRenderPlan: "V2_MAIN_DECK_RENDER_PLAN.md",
   appendixRenderPlan: "V2_APPENDIX_RENDER_PLAN.md",
   speakerNotesBundle: "V2_SPEAKER_NOTES_WITH_CITATIONS.md",
-  templateRegistry: "v2_template_registry.json"
+  templateRegistry: "v2_template_registry.json",
+  packagingSummary: "V2_PACKAGING_SUMMARY.json"
 } as const;
 
 function parseDelayMs(): number {
@@ -74,10 +82,115 @@ function maxQaPatchLoops(): number {
   return Math.max(0, Math.min(5, Math.round(raw)));
 }
 
+function clampRatio(raw: number, fallback: number): number {
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(0, Math.min(1, raw));
+}
+
+function semanticAcceptanceThresholds(settings?: RunSettings): SemanticAcceptanceThresholds {
+  const storyForward = clampRatio(
+    typeof settings?.minStoryForwardRatio === "number"
+      ? settings.minStoryForwardRatio
+      : Number(process.env.MMS_V2_MIN_STORY_FORWARD_RATIO ?? 0.7),
+    0.7
+  );
+  const hybrid = clampRatio(
+    typeof settings?.minHybridSlideQuality === "number"
+      ? settings.minHybridSlideQuality
+      : Number(process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY ?? 0.82),
+    0.82
+  );
+  const citation = clampRatio(
+    typeof settings?.minCitationGroundingCoverage === "number"
+      ? settings.minCitationGroundingCoverage
+      : Number(process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE ?? 0.9),
+    0.9
+  );
+  return {
+    minStoryForwardRatio: storyForward,
+    minHybridSlideQuality: hybrid,
+    minCitationGroundingCoverage: citation
+  };
+}
+
+function resolveDeckLengthPolicy(settings?: RunSettings): {
+  constraintEnabled: boolean;
+  softTarget?: 30 | 45 | 60;
+} {
+  if (settings?.deckLengthConstraintEnabled === true) {
+    return {
+      constraintEnabled: true,
+      softTarget: settings.deckLengthMain ?? 45
+    };
+  }
+  return { constraintEnabled: false };
+}
+
+function stepCAgentTimeoutMs(): number {
+  const raw = Number(process.env.MMS_V2_STEP_C_AGENT_TIMEOUT_MS ?? 180_000);
+  if (!Number.isFinite(raw)) return 180_000;
+  return Math.max(150_000, Math.min(900_000, Math.round(raw)));
+}
+
+function stepCDeckSpecTimeoutMs(): number {
+  const raw = Number(process.env.MMS_V2_STEP_C_DECKSPEC_TIMEOUT_MS ?? 300_000);
+  if (!Number.isFinite(raw)) return 300_000;
+  return Math.max(180_000, Math.min(1_200_000, Math.round(raw)));
+}
+
+function stepCHardWatchdogMs(): number {
+  const raw = Number(process.env.MMS_V2_STEP_C_WATCHDOG_MS ?? 900_000);
+  if (!Number.isFinite(raw)) return 900_000;
+  return Math.max(1_000, Math.min(3_600_000, Math.round(raw)));
+}
+
+function deckSpecAbortWarningThresholdSlides(): number {
+  const raw = Number(process.env.MMS_V2_DECKSPEC_ABORT_WARNING_SLIDES ?? 180);
+  if (!Number.isFinite(raw)) return 180;
+  return Math.max(45, Math.min(500, Math.round(raw)));
+}
+
+function clampTimeoutMs(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function buildAdaptiveStepCTimeoutPlan(input: {
+  estimatedMainSlides: number;
+  baseAgentTimeoutMs: number;
+  baseDeckSpecTimeoutMs: number;
+  baseWatchdogMs: number;
+}): {
+  estimatedMainSlides: number;
+  agentTimeoutMs: number;
+  deckSpecTimeoutMs: number;
+  watchdogMs: number;
+} {
+  const baselineSlides = 45;
+  const estimatedMainSlides = Math.max(1, Math.round(input.estimatedMainSlides));
+  const extraSlides = Math.max(0, estimatedMainSlides - baselineSlides);
+  const growthUnits = extraSlides / baselineSlides;
+  const agentScale = 1 + growthUnits * 0.55;
+  const deckSpecScale = 1 + growthUnits * 0.9;
+  const watchdogScale = 1 + growthUnits * 0.8;
+  return {
+    estimatedMainSlides,
+    agentTimeoutMs: clampTimeoutMs(input.baseAgentTimeoutMs * agentScale, input.baseAgentTimeoutMs, 1_500_000),
+    deckSpecTimeoutMs: clampTimeoutMs(input.baseDeckSpecTimeoutMs * deckSpecScale, input.baseDeckSpecTimeoutMs, 2_400_000),
+    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 3_600_000)
+  };
+}
+
 function forceFakeDeckFallback(topic: string): boolean {
   const env = (process.env.MMS_V2_FAKE_FORCE_DECK_FALLBACK ?? "").trim();
   if (env === "1" || env.toLowerCase() === "true") return true;
   return /\bforce[-_ ]?fallback\b/i.test(topic);
+}
+
+function forceFakeSemanticFailOnce(topic: string): boolean {
+  const env = (process.env.MMS_V2_FAKE_FORCE_SEMANTIC_FAIL_ONCE ?? "").trim();
+  if (env === "1" || env.toLowerCase() === "true") return true;
+  return /\bforce[-_ ]?semantic[-_ ]?fail[-_ ]?once\b/i.test(topic);
 }
 
 function isV2Step(step: StepName): boolean {
@@ -127,9 +240,10 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   const delayMs = parseDelayMs();
   const adherenceMode = settings?.adherenceMode ?? "strict";
   const startFrom = options.startFrom ?? "KB0";
-  const expectedDeckLength = settings?.deckLengthMain ?? 45;
-  const audienceLevel = settings?.audienceLevel ?? "MED_SCHOOL_ADVANCED";
+  const deckLengthPolicy = resolveDeckLengthPolicy(settings);
+  const audienceLevel = settings?.audienceLevel ?? "PHYSICIAN_LEVEL";
   const fakeForceDeckFallback = forceFakeDeckFallback(topic);
+  const fakeForceSemanticFailOnce = forceFakeSemanticFailOnce(topic);
 
   if (!isV2Step(startFrom)) {
     throw new Error(`Invalid startFrom for v2: ${startFrom}. Supported: ${V2_STEPS.join(", ")}`);
@@ -168,11 +282,33 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
     const dramaPlan = DramaPlanSchema.parse(generateDramaPlan(deckSpec, truthModel));
     const setpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(deckSpec, microWorldMap, diseaseDossier));
     const templateRegistry = V2TemplateRegistrySchema.parse(buildTemplateRegistry(deckSpec));
+    const packagingSummary = {
+      schema_version: "1.0.0",
+      workflow: "v2_micro_detectives",
+      generated_at: nowIso(),
+      mode: "fake",
+      deck: {
+        episode_title: deckSpec.deck_meta.episode_title,
+        main_slide_count: deckSpec.slides.length,
+        appendix_slide_count: deckSpec.appendix_slides.length
+      },
+      package: {
+        template_count: templateRegistry.templates.length,
+        files: {
+          deck_spec: "deck_spec.json",
+          template_registry: V2_PHASE4_FINAL_ARTIFACTS.templateRegistry,
+          main_render_plan: V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan,
+          appendix_render_plan: V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan,
+          speaker_notes_with_citations: V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle
+        }
+      }
+    };
 
     await writeIntermediateJson(step, "micro_world_map.json", microWorldMap);
     await writeIntermediateJson(step, "drama_plan.json", dramaPlan);
     await writeIntermediateJson(step, "setpiece_plan.json", setpiecePlan);
     await writeIntermediateJson(step, V2_PHASE4_FINAL_ARTIFACTS.templateRegistry, templateRegistry);
+    await writeIntermediateJson(step, "v2_phase4_packaging_summary.json", packagingSummary);
     await writeIntermediateJson(step, "v2_phase4_packaging_manifest.json", {
       schema_version: "1.0.0",
       mode: "fake",
@@ -181,12 +317,14 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
         V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan,
         V2_PHASE4_FINAL_ARTIFACTS.appendixRenderPlan,
         V2_PHASE4_FINAL_ARTIFACTS.speakerNotesBundle,
-        V2_PHASE4_FINAL_ARTIFACTS.templateRegistry
+        V2_PHASE4_FINAL_ARTIFACTS.templateRegistry,
+        V2_PHASE4_FINAL_ARTIFACTS.packagingSummary
       ]
     });
 
     await writeFinalJson(step, "deck_spec.json", deckSpec);
     await writeFinalJson(step, V2_PHASE4_FINAL_ARTIFACTS.templateRegistry, templateRegistry);
+    await writeFinalJson(step, V2_PHASE4_FINAL_ARTIFACTS.packagingSummary, packagingSummary);
     await writeFinalText(
       step,
       V2_PHASE4_FINAL_ARTIFACTS.mainDeckRenderPlan,
@@ -273,7 +411,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   let diseaseDossier = shouldRun("A")
     ? generateDiseaseDossier({
         topic,
-        deckLengthMain: expectedDeckLength,
+        deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+        deckLengthMain: deckLengthPolicy.softTarget,
         audienceLevel,
         kbContext
       })
@@ -284,13 +423,23 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
     diseaseDossier = DiseaseDossierSchema.parse(
       generateDiseaseDossier({
         topic,
-        deckLengthMain: expectedDeckLength,
+        deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+        deckLengthMain: deckLengthPolicy.softTarget,
         audienceLevel,
         kbContext
       })
     );
     diseaseDossier = normalizeDossierCitationIds(diseaseDossier, topic);
-    const pitch = generateEpisodePitch({ topic, deckLengthMain: expectedDeckLength, audienceLevel, kbContext }, diseaseDossier);
+    const pitch = generateEpisodePitch(
+      {
+        topic,
+        deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+        deckLengthMain: deckLengthPolicy.softTarget,
+        audienceLevel,
+        kbContext
+      },
+      diseaseDossier
+    );
     await writeIntermediateJson("A", "disease_dossier.json", diseaseDossier);
     await writeIntermediateJson("A", "episode_pitch.json", pitch);
     const assets = await loadV2Assets();
@@ -316,13 +465,33 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   const episodePitch = EpisodePitchSchema.parse(await readJsonArtifact(runId, "episode_pitch.json"));
 
   let truthModel = shouldRun("B")
-    ? generateTruthModel({ topic, deckLengthMain: expectedDeckLength, audienceLevel, kbContext }, diseaseDossier, episodePitch)
+    ? generateTruthModel(
+        {
+          topic,
+          deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+          deckLengthMain: deckLengthPolicy.softTarget,
+          audienceLevel,
+          kbContext
+        },
+        diseaseDossier,
+        episodePitch
+      )
     : TruthModelSchema.parse(await readJsonArtifact(runId, "truth_model.json"));
   truthModel = TruthModelSchema.parse(truthModel);
 
   await runStep("B", async () => {
     truthModel = TruthModelSchema.parse(
-      generateTruthModel({ topic, deckLengthMain: expectedDeckLength, audienceLevel, kbContext }, diseaseDossier, episodePitch)
+      generateTruthModel(
+        {
+          topic,
+          deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+          deckLengthMain: deckLengthPolicy.softTarget,
+          audienceLevel,
+          kbContext
+        },
+        diseaseDossier,
+        episodePitch
+      )
     );
     await writeIntermediateJson("B", "truth_model.json", truthModel);
   });
@@ -344,12 +513,57 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
         stage: string;
         reason: string;
       }> = [];
+      const forceSemanticGateFailureThisCycle = fakeForceSemanticFailOnce && gate3Latest?.status !== "regenerate";
       let workingDeck = DeckSpecSchema.parse(
         generateV2DeckSpec({
           topic,
-          deckLengthMain: expectedDeckLength,
+          deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+          deckLengthMain: deckLengthPolicy.softTarget,
           audienceLevel
         })
+      );
+      const adaptiveTimeouts = buildAdaptiveStepCTimeoutPlan({
+        estimatedMainSlides: workingDeck.slides.length,
+        baseAgentTimeoutMs: stepCAgentTimeoutMs(),
+        baseDeckSpecTimeoutMs: stepCDeckSpecTimeoutMs(),
+        baseWatchdogMs: stepCHardWatchdogMs()
+      });
+      const abortThresholdSlides = deckSpecAbortWarningThresholdSlides();
+      const abortRecommended = adaptiveTimeouts.estimatedMainSlides >= abortThresholdSlides;
+      await runs.setV2DeckSpecEstimate(runId, {
+        estimatedMainSlides: adaptiveTimeouts.estimatedMainSlides,
+        deckLengthPolicy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+        softTarget: deckLengthPolicy.constraintEnabled ? deckLengthPolicy.softTarget : undefined,
+        computedAt: nowIso(),
+        adaptiveTimeoutMs: {
+          agent: adaptiveTimeouts.agentTimeoutMs,
+          deckSpec: adaptiveTimeouts.deckSpecTimeoutMs,
+          watchdog: adaptiveTimeouts.watchdogMs
+        },
+        abortThresholdSlides,
+        abortRecommended
+      });
+      await writeIntermediateJson("C", "deck_spec_timeout_plan.json", {
+        schema_version: "1.0.0",
+        workflow: "v2_micro_detectives",
+        computed_at: nowIso(),
+        estimate: {
+          main_slide_count: adaptiveTimeouts.estimatedMainSlides,
+          deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+          deck_length_soft_target: deckLengthPolicy.constraintEnabled ? deckLengthPolicy.softTarget : null
+        },
+        adaptive_timeouts_ms: {
+          agent: adaptiveTimeouts.agentTimeoutMs,
+          deck_spec: adaptiveTimeouts.deckSpecTimeoutMs,
+          watchdog: adaptiveTimeouts.watchdogMs
+        },
+        abort_threshold_slides: abortThresholdSlides,
+        abort_recommended: abortRecommended
+      });
+      runs.log(
+        runId,
+        `DeckSpec estimate: ${adaptiveTimeouts.estimatedMainSlides} main slides (${deckLengthPolicy.constraintEnabled ? `soft_target=${String(deckLengthPolicy.softTarget)}` : "unconstrained"}). Adaptive timeouts: agent=${adaptiveTimeouts.agentTimeoutMs}ms deckspec=${adaptiveTimeouts.deckSpecTimeoutMs}ms watchdog=${adaptiveTimeouts.watchdogMs}ms.${abortRecommended ? " Recommend abort if this exceeds your pilot budget." : ""}`,
+        "C"
       );
       if (fakeForceDeckFallback) {
         fallbackEvents.push({
@@ -358,6 +572,14 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
           reason: "forced_by_fake_mode"
         });
         runs.log(runId, "Fake mode forced fallback path for DeckSpec enabled.", "C");
+      }
+      if (forceSemanticGateFailureThisCycle) {
+        fallbackEvents.push({
+          mode: "deterministic_arbitration",
+          stage: "semanticAcceptanceGate",
+          reason: "forced_by_fake_mode_once"
+        });
+        runs.log(runId, "Fake mode forcing one semantic gate failure before Gate 3 approval.", "C");
       }
 
       let workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(workingDeck, diseaseDossier, truthModel));
@@ -377,13 +599,43 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
 
       const maxPatchLoops = maxQaPatchLoops();
       const maxAttempts = maxPatchLoops + 1;
-      let finalLint = V2DeckSpecLintReportSchema.parse(lintDeckSpecPhase1(workingDeck, expectedDeckLength));
+      const semanticThresholds = semanticAcceptanceThresholds(settings);
+      let finalLint = V2DeckSpecLintReportSchema.parse(
+        lintDeckSpecPhase1(workingDeck, {
+          deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+          targetDeckLengthMain: deckLengthPolicy.softTarget
+        })
+      );
       let finalReader: ReturnType<typeof ReaderSimReportSchema.parse>;
       let finalFactcheck: ReturnType<typeof MedFactcheckReportSchema.parse>;
       let finalQa: ReturnType<typeof V2QaReportSchema.parse>;
+      let finalSemantic = V2SemanticAcceptanceReportSchema.parse({
+        schema_version: "1.0.0",
+        workflow: "v2_micro_detectives",
+        checked_at: new Date().toISOString(),
+        thresholds: {
+          min_story_forward_ratio: semanticThresholds.minStoryForwardRatio,
+          min_hybrid_slide_quality: semanticThresholds.minHybridSlideQuality,
+          min_citation_grounding_coverage: semanticThresholds.minCitationGroundingCoverage
+        },
+        metrics: {
+          main_slide_count: 0,
+          story_forward_ratio: 0,
+          hybrid_slide_quality: 0,
+          citation_grounding_coverage: 0
+        },
+        pass: false,
+        failures: ["semantic acceptance not computed"],
+        required_fixes: []
+      });
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        finalLint = V2DeckSpecLintReportSchema.parse(lintDeckSpecPhase1(workingDeck, expectedDeckLength));
+        finalLint = V2DeckSpecLintReportSchema.parse(
+          lintDeckSpecPhase1(workingDeck, {
+            deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
+            targetDeckLengthMain: deckLengthPolicy.softTarget
+          })
+        );
         await writeIntermediateJson("C", `deck_spec_loop${attempt}.json`, workingDeck);
         await writeIntermediateJson("C", `deck_spec_lint_report_loop${attempt}.json`, finalLint);
 
@@ -398,10 +650,47 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
             lintReport: finalLint,
             readerSimReport: finalReader,
             medFactcheckReport: finalFactcheck,
+            clueGraph: workingClueGraph,
             deckSpec: workingDeck
           })
         );
+        const semanticMetrics = evaluateSemanticAcceptance(workingDeck, semanticThresholds);
+        const semanticFixes = buildSemanticRequiredFixes(semanticMetrics, semanticThresholds);
+        finalSemantic = V2SemanticAcceptanceReportSchema.parse({
+          schema_version: "1.0.0",
+          workflow: "v2_micro_detectives",
+          checked_at: new Date().toISOString(),
+          thresholds: {
+            min_story_forward_ratio: semanticThresholds.minStoryForwardRatio,
+            min_hybrid_slide_quality: semanticThresholds.minHybridSlideQuality,
+            min_citation_grounding_coverage: semanticThresholds.minCitationGroundingCoverage
+          },
+          metrics: {
+            main_slide_count: semanticMetrics.mainSlideCount,
+            story_forward_ratio: semanticMetrics.storyForwardRatio,
+            hybrid_slide_quality: semanticMetrics.hybridSlideQuality,
+            citation_grounding_coverage: semanticMetrics.citationGroundingCoverage
+          },
+          pass: semanticMetrics.pass,
+          failures: semanticMetrics.failures,
+          required_fixes: semanticFixes
+        });
+        if (!finalSemantic.pass) {
+          const mergedRequiredFixes = [...finalQa.required_fixes, ...semanticFixes];
+          const seenFixes = new Set<string>();
+          finalQa = V2QaReportSchema.parse({
+            ...finalQa,
+            accept: false,
+            required_fixes: mergedRequiredFixes.filter((fix) => {
+              if (seenFixes.has(fix.fix_id)) return false;
+              seenFixes.add(fix.fix_id);
+              return true;
+            }),
+            summary: `${finalQa.summary} Semantic acceptance gate failed: ${finalSemantic.failures.join("; ")}.`
+          });
+        }
         await writeIntermediateJson("C", `qa_report_loop${attempt}.json`, finalQa);
+        await writeIntermediateJson("C", `semantic_acceptance_report_loop${attempt}.json`, finalSemantic);
 
         const strictFailed = !finalLint.pass || !finalFactcheck.pass || !finalQa.accept;
         if (!strictFailed) break;
@@ -439,6 +728,25 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
         });
       }
 
+      if (forceSemanticGateFailureThisCycle) {
+        finalSemantic = V2SemanticAcceptanceReportSchema.parse({
+          ...finalSemantic,
+          pass: false,
+          failures: Array.from(new Set([...finalSemantic.failures, "forced semantic gate failure for regenerate path test"])),
+          required_fixes:
+            finalSemantic.required_fixes.length > 0
+              ? finalSemantic.required_fixes
+              : [
+                  {
+                    fix_id: "semantic_regenerate_required_once",
+                    type: "other",
+                    priority: "must",
+                    description: "Regenerate from Gate 3 and rerun semantic acceptance."
+                  }
+                ]
+        });
+      }
+
       await writeIntermediateJson("C", "differential_cast.json", workingDifferential);
       await writeIntermediateJson("C", "clue_graph.json", workingClueGraph);
       await writeIntermediateJson("C", "deck_spec.json", workingDeck);
@@ -446,6 +754,7 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
       await writeIntermediateJson("C", "reader_sim_report.json", finalReader!);
       await writeIntermediateJson("C", "med_factcheck_report.json", finalFactcheck!);
       await writeIntermediateJson("C", "qa_report.json", finalQa!);
+      await writeIntermediateJson("C", "semantic_acceptance_report.json", finalSemantic);
       await writeIntermediateJson(
         "C",
         "citation_traceability.json",

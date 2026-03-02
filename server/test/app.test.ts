@@ -137,6 +137,130 @@ describe("server app", () => {
     expect(res.status).toBe(404);
   });
 
+  it("GET /api/runs/:runId/chapter-outline reads chapter_outline.json", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("outline topic");
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "chapter_outline.json"),
+      JSON.stringify({
+        chapter_outline: {
+          categories: [
+            {
+              order: 1,
+              title: "Common Initial Complaints",
+              topic_areas: [{ id: "1.1", title: "Upper airway", subtopics: [{ id: "1.1.1", title: "Dyspnea", content_md: "x" }] }]
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    const res = await request(app).get(`/api/runs/${run.runId}/chapter-outline`);
+    expect(res.status).toBe(200);
+    expect(res.body.chapter_outline.categories[0].title).toBe("Common Initial Complaints");
+  });
+
+  it("GET /api/runs/:runId/story-beats returns skeleton when story_beats.json is missing", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("outline topic");
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "chapter_outline.json"),
+      JSON.stringify({
+        chapter_outline: {
+          categories: [
+            {
+              order: 1,
+              title: "Common Initial Complaints",
+              topic_areas: [{ id: "1.1", title: "Upper airway", subtopics: [{ id: "1.1.1", title: "Dyspnea", content_md: "x" }] }]
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    const res = await request(app).get(`/api/runs/${run.runId}/story-beats`);
+    expect(res.status).toBe(200);
+    expect(res.body.schema_version).toBe("1.0.0");
+    expect(res.body.topic_area_beats["1.1"]).toBeTruthy();
+    expect(res.body.intro.beat_md).toBe("");
+  });
+
+  it("PUT /api/runs/:runId/story-beats updates notes and persists artifact under step C", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("outline topic");
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "chapter_outline.json"),
+      JSON.stringify({
+        chapter_outline: {
+          categories: [
+            {
+              order: 1,
+              title: "Common Initial Complaints",
+              topic_areas: [{ id: "1.1", title: "Upper airway", subtopics: [{ id: "1.1.1", title: "Dyspnea", content_md: "x" }] }]
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    const res = await request(app).put(`/api/runs/${run.runId}/story-beats`).send({
+      topicAreaId: "1.1",
+      categoryTitle: "Common Initial Complaints",
+      userNotes: "Use membrane clue"
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.topic_area_beats["1.1"].user_notes).toContain("membrane clue");
+
+    const saved = JSON.parse(await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "story_beats.json"), "utf8"));
+    expect(saved.topic_area_beats["1.1"].user_notes).toContain("membrane clue");
+
+    const runState = runs.getRun(run.runId);
+    expect(runState?.steps.C.artifacts).toContain("story_beats.json");
+  });
+
+  it("POST /api/runs/:runId/story-beats/generate writes generated beat", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("outline topic");
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "chapter_outline.json"),
+      JSON.stringify({
+        chapter_outline: {
+          categories: [
+            {
+              order: 1,
+              title: "Common Initial Complaints",
+              topic_areas: [{ id: "1.1", title: "Upper airway", subtopics: [{ id: "1.1.1", title: "Dyspnea", content_md: "x" }] }]
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    const res = await request(app).post(`/api/runs/${run.runId}/story-beats/generate`).send({
+      topicAreaId: "1.1",
+      categoryTitle: "Common Initial Complaints",
+      userNotes: "Make it suspenseful"
+    });
+    expect(res.status).toBe(200);
+    expect(String(res.body.beat_md)).toContain("Beat 1.1");
+
+    const saved = JSON.parse(await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "story_beats.json"), "utf8"));
+    expect(saved.topic_area_beats["1.1"].beat_md).toContain("Beat 1.1");
+    expect(saved.topic_area_beats["1.1"].generation_count).toBe(1);
+  });
+
   it("GET /api/runs/retention returns policy + stats", async () => {
     const runs = new RunManager();
     const app = createApp(runs, makeExecutor() as never);
@@ -370,8 +494,9 @@ describe("server app", () => {
       topic: "v2 topic",
       settings: {
         workflow: "v2_micro_detectives",
+        deckLengthConstraintEnabled: true,
         deckLengthMain: 45,
-        audienceLevel: "RESIDENT",
+        audienceLevel: "COLLEGE_LEVEL",
         adherenceMode: "strict"
       }
     });
@@ -383,11 +508,47 @@ describe("server app", () => {
     expect(runRes.status).toBe(200);
     expect(runRes.body.settings).toMatchObject({
       workflow: "v2_micro_detectives",
+      deckLengthConstraintEnabled: true,
       deckLengthMain: 45,
-      audienceLevel: "RESIDENT",
+      audienceLevel: "COLLEGE_LEVEL",
       adherenceMode: "strict"
     });
     expect(runRes.body.settings.targetSlides).toBeUndefined();
+  });
+
+  it("POST /api/runs accepts v2 semantic threshold overrides", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post("/api/runs").send({
+      topic: "v2 topic thresholds",
+      settings: {
+        workflow: "v2_micro_detectives",
+        deckLengthConstraintEnabled: true,
+        deckLengthMain: 45,
+        audienceLevel: "COLLEGE_LEVEL",
+        minStoryForwardRatio: 0.75,
+        minHybridSlideQuality: 0.85,
+        minCitationGroundingCoverage: 0.9,
+        adherenceMode: "strict"
+      }
+    });
+
+    expect(res.status).toBe(200);
+    const runId = String(res.body.runId);
+
+    const runRes = await request(app).get(`/api/runs/${runId}`);
+    expect(runRes.status).toBe(200);
+    expect(runRes.body.settings).toMatchObject({
+      workflow: "v2_micro_detectives",
+      deckLengthConstraintEnabled: true,
+      deckLengthMain: 45,
+      audienceLevel: "COLLEGE_LEVEL",
+      minStoryForwardRatio: 0.75,
+      minHybridSlideQuality: 0.85,
+      minCitationGroundingCoverage: 0.9,
+      adherenceMode: "strict"
+    });
   });
 
   it("POST /api/runs accepts an empty settings object (stores as undefined)", async () => {
@@ -411,13 +572,32 @@ describe("server app", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/runs rejects v2 settings missing deckLengthMain", async () => {
+  it("POST /api/runs allows v2 settings without deckLengthMain when deck-length constraint is disabled", async () => {
     const runs = new RunManager();
     const app = createApp(runs, makeExecutor() as never);
 
     const res = await request(app)
       .post("/api/runs")
-      .send({ topic: "ok topic", settings: { workflow: "v2_micro_detectives", audienceLevel: "MED_SCHOOL_ADVANCED" } });
+      .send({ topic: "ok topic", settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" } });
+    expect(res.status).toBe(200);
+    const runId = String(res.body.runId);
+    const runRes = await request(app).get(`/api/runs/${runId}`);
+    expect(runRes.status).toBe(200);
+    expect(runRes.body.settings).toMatchObject({
+      workflow: "v2_micro_detectives",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      adherenceMode: "warn"
+    });
+  });
+
+  it("POST /api/runs rejects v2 settings when deck-length constraint is enabled but deckLengthMain is missing", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post("/api/runs").send({
+      topic: "ok topic",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL", deckLengthConstraintEnabled: true }
+    });
     expect(res.status).toBe(400);
   });
 
@@ -436,6 +616,21 @@ describe("server app", () => {
     const res = await request(app)
       .post("/api/runs")
       .send({ topic: "ok topic", settings: { workflow: "legacy", targetSlides: 50 } });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/runs rejects semantic threshold overrides for legacy workflow", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const res = await request(app).post("/api/runs").send({
+      topic: "legacy with v2 semantic threshold",
+      settings: {
+        workflow: "legacy",
+        targetSlides: 120,
+        minHybridSlideQuality: 0.9
+      }
+    });
     expect(res.status).toBe(400);
   });
 
@@ -619,6 +814,145 @@ describe("server app", () => {
     const resumed = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
     expect(resumed.status).toBe(409);
     expect(String(resumed.body.error)).toContain("request_changes");
+  });
+
+  it("POST /api/runs/:runId/gates/:gateId/submit blocks Gate 3 approve when semantic acceptance failed", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("semantic gate block", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      audienceLevel: "COLLEGE_LEVEL"
+    });
+    const app = createApp(runs, makeExecutor() as never);
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"),
+      `${JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          workflow: "v2_micro_detectives",
+          checked_at: "2026-02-28T12:00:00.000Z",
+          thresholds: {
+            min_story_forward_ratio: 0.7,
+            min_hybrid_slide_quality: 0.82,
+            min_citation_grounding_coverage: 0.9
+          },
+          metrics: {
+            main_slide_count: 30,
+            story_forward_ratio: 0.5,
+            hybrid_slide_quality: 0.4,
+            citation_grounding_coverage: 0.2
+          },
+          pass: false,
+          failures: ["hybrid too low", "citation too low"],
+          required_fixes: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const approve = await request(app).post(`/api/runs/${run.runId}/gates/GATE_3_STORYBOARD/submit`).send({
+      status: "approve",
+      notes: "looks good",
+      requested_changes: []
+    });
+    expect(approve.status).toBe(409);
+    expect(String(approve.body.error)).toContain("semantic acceptance gate failed");
+    expect(approve.body.recommendedAction).toBe("resume_regenerate");
+
+    const regenerate = await request(app).post(`/api/runs/${run.runId}/gates/GATE_3_STORYBOARD/submit`).send({
+      status: "regenerate",
+      notes: "regenerate C",
+      requested_changes: []
+    });
+    expect(regenerate.status).toBe(200);
+    expect(regenerate.body.ok).toBe(true);
+  });
+
+  it("POST /api/runs/:runId/resume blocks Gate 3 approved runs when semantic acceptance failed", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("semantic gate resume block");
+
+    await runs.setRunStatus(run.runId, "paused", {
+      activeGate: {
+        gateId: "GATE_3_STORYBOARD",
+        resumeFrom: "C",
+        message: "review required",
+        at: new Date().toISOString(),
+        awaiting: "review_submission"
+      }
+    });
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"),
+      `${JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          workflow: "v2_micro_detectives",
+          checked_at: "2026-02-28T12:00:00.000Z",
+          thresholds: {
+            min_story_forward_ratio: 0.7,
+            min_hybrid_slide_quality: 0.82,
+            min_citation_grounding_coverage: 0.9
+          },
+          metrics: {
+            main_slide_count: 30,
+            story_forward_ratio: 0.5,
+            hybrid_slide_quality: 0.4,
+            citation_grounding_coverage: 0.2
+          },
+          pass: false,
+          failures: ["hybrid too low", "citation too low"],
+          required_fixes: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await fs.writeFile(
+      path.join(runIntermediateDirAbs(run.runId), "human_review.json"),
+      `${JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          latest_by_gate: {
+            GATE_1_PITCH: null,
+            GATE_2_TRUTH_LOCK: null,
+            GATE_3_STORYBOARD: {
+              schema_version: "1.0.0",
+              gate_id: "GATE_3_STORYBOARD",
+              status: "approve",
+              notes: "approved before semantic rule",
+              requested_changes: [],
+              submitted_at: "2026-02-28T12:01:00.000Z"
+            },
+            GATE_4_FINAL: null
+          },
+          history: [
+            {
+              schema_version: "1.0.0",
+              gate_id: "GATE_3_STORYBOARD",
+              status: "approve",
+              notes: "approved before semantic rule",
+              requested_changes: [],
+              submitted_at: "2026-02-28T12:01:00.000Z"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const resumed = await request(app).post(`/api/runs/${run.runId}/resume`).send({});
+    expect(resumed.status).toBe(409);
+    expect(String(resumed.body.error)).toContain("semantic acceptance gate failed");
+    expect(resumed.body.recommendedAction).toBe("resume_regenerate");
   });
 
   it("POST /api/runs/:runId/rerun returns 404 if parent missing", async () => {
@@ -853,6 +1187,153 @@ describe("server app", () => {
     const childRunId = String(res.body.runId);
     const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
     expect(JSON.parse(copiedRaw)).toEqual(payload);
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P falls back to latest iter artifact for sparse legacy parents", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy iter-only parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const iterPayload = {
+      final_slide_spec_patched: {
+        title: "iter-only",
+        reusable_visual_primer: {
+          character_descriptions: ["c"],
+          recurring_scene_descriptions: ["s"],
+          reusable_visual_elements: ["e"],
+          continuity_rules: ["r"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["src"]
+      }
+    };
+
+    await fs.writeFile(path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched_iter1.json"), JSON.stringify({ stale: true }, null, 2) + "\n", "utf8");
+    await fs.writeFile(path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched_iter2.json"), JSON.stringify(iterPayload, null, 2) + "\n", "utf8");
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+
+    const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
+    expect(JSON.parse(copiedRaw)).toEqual(iterPayload);
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P copies patched spec when it exists only under intermediate/", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy intermediate-only parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    const payload = {
+      final_slide_spec_patched: {
+        title: "intermediate-only",
+        reusable_visual_primer: {
+          character_descriptions: ["c"],
+          recurring_scene_descriptions: ["s"],
+          reusable_visual_elements: ["e"],
+          continuity_rules: ["r"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["src"]
+      }
+    };
+
+    await fs.writeFile(path.join(runIntermediateDirAbs(parent.runId), "final_slide_spec_patched.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
+    expect(JSON.parse(copiedRaw)).toEqual(payload);
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P selects highest iter across mixed legacy locations", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("legacy mixed iter locations");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    const now = "2026-02-11T00:00:00.000Z";
+    for (const step of Object.keys(p.steps) as Array<keyof typeof p.steps>) {
+      if (step === "P") continue;
+      p.steps[step].status = "done";
+      p.steps[step].startedAt = now;
+      p.steps[step].finishedAt = now;
+      (p.steps[step] as unknown as { artifacts?: string[] }).artifacts = undefined;
+    }
+
+    await fs.writeFile(
+      path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched_iter2.json"),
+      `${JSON.stringify({ final_slide_spec_patched: { title: "iter2", reusable_visual_primer: { character_descriptions: ["c"], recurring_scene_descriptions: ["s"], reusable_visual_elements: ["e"], continuity_rules: ["r"] }, story_arc_contract: { intro_slide_ids: ["S1", "S2", "S3"], outro_slide_ids: ["S4", "S5"], entry_to_body_slide_id: "S3", return_to_office_slide_id: "S4", callback_slide_id: "S5" }, slides: [], sources: ["src"] } }, null, 2)}\n`,
+      "utf8"
+    );
+    const iter3Payload = {
+      final_slide_spec_patched: {
+        title: "iter3",
+        reusable_visual_primer: {
+          character_descriptions: ["c"],
+          recurring_scene_descriptions: ["s"],
+          reusable_visual_elements: ["e"],
+          continuity_rules: ["r"]
+        },
+        story_arc_contract: {
+          intro_slide_ids: ["S1", "S2", "S3"],
+          outro_slide_ids: ["S4", "S5"],
+          entry_to_body_slide_id: "S3",
+          return_to_office_slide_id: "S4",
+          callback_slide_id: "S5"
+        },
+        slides: [],
+        sources: ["src"]
+      }
+    };
+    await fs.writeFile(path.join(runIntermediateDirAbs(parent.runId), "final_slide_spec_patched_iter3.json"), `${JSON.stringify(iter3Payload, null, 2)}\n`, "utf8");
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    const copiedRaw = await fs.readFile(path.join(runFinalDirAbs(childRunId), "final_slide_spec_patched.json"), "utf8");
+    expect(JSON.parse(copiedRaw)).toEqual(iter3Payload);
   });
 
   it("POST /api/runs/:runId/rerun startFrom=P prefers final/ artifact over stale root duplicate", async () => {

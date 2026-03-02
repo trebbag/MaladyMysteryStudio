@@ -77,6 +77,35 @@ describe("RunManager", () => {
     expect(events.map((e) => e.type)).toEqual(["step_started", "artifact_written", "step_finished"]);
   });
 
+  it("persists and emits v2 DeckSpec estimate events", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("topic v2", { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" });
+
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const unsub = runs.subscribe(run.runId, (type, payload) => {
+      events.push({ type, payload });
+    });
+
+    await runs.setV2DeckSpecEstimate(run.runId, {
+      estimatedMainSlides: 182,
+      deckLengthPolicy: "unconstrained",
+      computedAt: "2026-03-02T00:00:00.000Z",
+      adaptiveTimeoutMs: {
+        agent: 300000,
+        deckSpec: 600000,
+        watchdog: 1800000
+      },
+      abortThresholdSlides: 180,
+      abortRecommended: true
+    });
+
+    unsub?.();
+
+    const stored = runs.getRun(run.runId);
+    expect(stored?.v2DeckSpecEstimate?.estimatedMainSlides).toBe(182);
+    expect(events.some((event) => event.type === "deckspec_estimate")).toBe(true);
+  });
+
   it("error events never crash the process when unobserved", async () => {
     const runs = new RunManager();
     const run = await runs.createRun("topic 3");

@@ -23,9 +23,9 @@
         "target_level": {
           "type": "string",
           "enum": [
-            "MED_SCHOOL_ADVANCED",
-            "RESIDENT",
-            "FELLOWSHIP"
+            "PHYSICIAN_LEVEL",
+            "COLLEGE_LEVEL",
+            "PHYSICIAN_LEVEL"
           ]
         },
         "setting_focus": {
@@ -271,9 +271,9 @@
           "level": {
             "type": "string",
             "enum": [
-              "MED_SCHOOL_ADVANCED",
-              "RESIDENT",
-              "FELLOWSHIP"
+              "PHYSICIAN_LEVEL",
+              "COLLEGE_LEVEL",
+              "PHYSICIAN_LEVEL"
             ]
           },
           "common_mistake": {

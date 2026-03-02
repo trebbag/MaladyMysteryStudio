@@ -20,7 +20,52 @@ afterEach(async () => {
   tmpOut = null;
   delete process.env.MMS_OUTPUT_DIR;
   delete process.env.MMS_FAKE_STEP_DELAY_MS;
+  delete process.env.MMS_V2_DECKSPEC_ABORT_WARNING_SLIDES;
 });
+
+async function advanceToGate3Pause(runs: RunManager, runId: string, topic: string, settings: Parameters<RunManager["createRun"]>[1]) {
+  await expect(
+    runMicroDetectivesFakePipeline(
+      { runId, topic, settings },
+      runs,
+      { signal: new AbortController().signal, startFrom: "KB0" }
+    )
+  ).rejects.toBeInstanceOf(PipelinePause);
+
+  await appendHumanReview(runId, {
+    schema_version: "1.0.0",
+    gate_id: "GATE_1_PITCH",
+    status: "approve",
+    notes: "",
+    requested_changes: [],
+    submitted_at: new Date().toISOString()
+  });
+
+  await expect(
+    runMicroDetectivesFakePipeline(
+      { runId, topic, settings },
+      runs,
+      { signal: new AbortController().signal, startFrom: "B" }
+    )
+  ).rejects.toBeInstanceOf(PipelinePause);
+
+  await appendHumanReview(runId, {
+    schema_version: "1.0.0",
+    gate_id: "GATE_2_TRUTH_LOCK",
+    status: "approve",
+    notes: "",
+    requested_changes: [],
+    submitted_at: new Date().toISOString()
+  });
+
+  await expect(
+    runMicroDetectivesFakePipeline(
+      { runId, topic, settings },
+      runs,
+      { signal: new AbortController().signal, startFrom: "C" }
+    )
+  ).rejects.toBeInstanceOf(PipelinePause);
+}
 
 describe("v2 fake pipeline", () => {
   it("pauses at Gate 1 with dossier + pitch artifacts written", async () => {
@@ -28,7 +73,8 @@ describe("v2 fake pipeline", () => {
     const run = await runs.createRun("V2 topic", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
       adherenceMode: "strict"
     });
 
@@ -50,7 +96,8 @@ describe("v2 fake pipeline", () => {
     const run = await runs.createRun("V2 gate2", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
       adherenceMode: "strict"
     });
 
@@ -88,7 +135,8 @@ describe("v2 fake pipeline", () => {
     const run = await runs.createRun("V2 done", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 30,
-      audienceLevel: "RESIDENT",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
       adherenceMode: "strict"
     });
 
@@ -138,6 +186,7 @@ describe("v2 fake pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "reader_sim_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "med_factcheck_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "citation_traceability.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
 
@@ -171,7 +220,8 @@ describe("v2 fake pipeline", () => {
     const run = await runs.createRun("V2 FORCE_FALLBACK coverage", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 30,
-      audienceLevel: "RESIDENT",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
       adherenceMode: "warn"
     });
 
@@ -219,12 +269,73 @@ describe("v2 fake pipeline", () => {
     expect(fallback.fallback_event_count).toBeGreaterThan(0);
   });
 
+  it("writes adaptive timeout plan + unconstrained estimate details before Gate 3", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun(
+      "Very long unconstrained storyline to force a large estimated deck size with many detail terms and clinical branches",
+      {
+        workflow: "v2_micro_detectives",
+        deckLengthConstraintEnabled: false,
+        audienceLevel: "PHYSICIAN_LEVEL",
+        adherenceMode: "warn"
+      }
+    );
+
+    process.env.MMS_V2_DECKSPEC_ABORT_WARNING_SLIDES = "500";
+    await advanceToGate3Pause(runs, run.runId, run.topic, run.settings);
+
+    const timeoutPlanRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "deck_spec_timeout_plan.json"), "utf8");
+    const timeoutPlan = JSON.parse(timeoutPlanRaw) as {
+      estimate: { main_slide_count: number; deck_length_policy: string; deck_length_soft_target: number | null };
+      adaptive_timeouts_ms: { agent: number; deck_spec: number; watchdog: number };
+      abort_threshold_slides: number;
+      abort_recommended: boolean;
+    };
+
+    expect(timeoutPlan.estimate.deck_length_policy).toBe("unconstrained");
+    expect(timeoutPlan.estimate.deck_length_soft_target).toBeNull();
+    expect(timeoutPlan.estimate.main_slide_count).toBeGreaterThan(45);
+    expect(timeoutPlan.adaptive_timeouts_ms.agent).toBeGreaterThanOrEqual(180_000);
+    expect(timeoutPlan.adaptive_timeouts_ms.deck_spec).toBeGreaterThanOrEqual(300_000);
+    expect(timeoutPlan.adaptive_timeouts_ms.watchdog).toBeGreaterThanOrEqual(900_000);
+    expect(timeoutPlan.abort_threshold_slides).toBe(500);
+    expect(timeoutPlan.abort_recommended).toBe(false);
+
+    const status = runs.getRun(run.runId);
+    expect(status?.v2DeckSpecEstimate?.deckLengthPolicy).toBe("unconstrained");
+    expect(status?.v2DeckSpecEstimate?.adaptiveTimeoutMs.deckSpec).toBe(timeoutPlan.adaptive_timeouts_ms.deck_spec);
+    expect(status?.v2DeckSpecEstimate?.abortRecommended).toBe(false);
+  });
+
+  it("flags abort recommendation when estimate exceeds threshold", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Unconstrained threshold hit topic with multiple words to increase deck size", {
+      workflow: "v2_micro_detectives",
+      deckLengthConstraintEnabled: false,
+      audienceLevel: "COLLEGE_LEVEL",
+      adherenceMode: "warn"
+    });
+
+    process.env.MMS_V2_DECKSPEC_ABORT_WARNING_SLIDES = "45";
+    await advanceToGate3Pause(runs, run.runId, run.topic, run.settings);
+
+    const timeoutPlanRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "deck_spec_timeout_plan.json"), "utf8");
+    const timeoutPlan = JSON.parse(timeoutPlanRaw) as { abort_threshold_slides: number; abort_recommended: boolean };
+    expect(timeoutPlan.abort_threshold_slides).toBe(45);
+    expect(timeoutPlan.abort_recommended).toBe(true);
+
+    const status = runs.getRun(run.runId);
+    expect(status?.v2DeckSpecEstimate?.abortThresholdSlides).toBe(45);
+    expect(status?.v2DeckSpecEstimate?.abortRecommended).toBe(true);
+  });
+
   it("rejects invalid startFrom", async () => {
     const runs = new RunManager();
     const run = await runs.createRun("V2 bad start", {
       workflow: "v2_micro_detectives",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED",
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
       adherenceMode: "strict"
     });
 

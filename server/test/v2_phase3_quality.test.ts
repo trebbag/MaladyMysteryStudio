@@ -9,14 +9,14 @@ describe("v2 phase-3 quality helpers", () => {
   it("builds a combined QA report with grader scores and fix list", () => {
     const base = {
       topic: "Pneumonia",
-      audienceLevel: "RESIDENT" as const,
+      audienceLevel: "COLLEGE_LEVEL" as const,
       deckLengthMain: 45 as const,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
     const truth = generateTruthModel(base, dossier, pitch);
-    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 45, audienceLevel: "RESIDENT" });
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 45, audienceLevel: "COLLEGE_LEVEL" });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
     const reader = generateReaderSimReport(deck, truth, clueGraph);
@@ -27,6 +27,7 @@ describe("v2 phase-3 quality helpers", () => {
       lintReport: lint,
       readerSimReport: reader,
       medFactcheckReport: med,
+      clueGraph,
       deckSpec: deck
     });
 
@@ -36,7 +37,7 @@ describe("v2 phase-3 quality helpers", () => {
   });
 
   it("applies deterministic patch transforms when QA requires fixes", () => {
-    const deck = generateV2DeckSpec({ topic: "AKI", deckLengthMain: 30, audienceLevel: "MED_SCHOOL_ADVANCED" });
+    const deck = generateV2DeckSpec({ topic: "AKI", deckLengthMain: 30, audienceLevel: "PHYSICIAN_LEVEL" });
     const qa = {
       schema_version: "1.0.0",
       lint_pass: false,
@@ -71,14 +72,14 @@ describe("v2 phase-3 quality helpers", () => {
   it("applies targeted QA patches across deck, clue graph, and differential cast", () => {
     const base = {
       topic: "Asthma",
-      audienceLevel: "RESIDENT" as const,
+      audienceLevel: "COLLEGE_LEVEL" as const,
       deckLengthMain: 30 as const,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
     const truth = generateTruthModel(base, dossier, pitch);
-    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "RESIDENT" });
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
     const targetSlideId = deck.slides[0]!.slide_id;
@@ -117,14 +118,14 @@ describe("v2 phase-3 quality helpers", () => {
   it("builds lint-driven required fixes across error-code branches and dedupes duplicates", () => {
     const base = {
       topic: "Pulmonary embolism",
-      audienceLevel: "RESIDENT" as const,
+      audienceLevel: "COLLEGE_LEVEL" as const,
       deckLengthMain: 30 as const,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
     const truth = generateTruthModel(base, dossier, pitch);
-    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "RESIDENT" });
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
     const reader = generateReaderSimReport(deck, truth, clueGraph);
@@ -153,6 +154,7 @@ describe("v2 phase-3 quality helpers", () => {
 
     const lint = {
       workflow: "v2_micro_detectives" as const,
+      deckLengthConstraintEnabled: true,
       expectedDeckLengthMain: 30 as const,
       measuredDeckLengthMain: 30,
       storyForwardRatio: 0.45,
@@ -203,6 +205,7 @@ describe("v2 phase-3 quality helpers", () => {
       lintReport: lint,
       readerSimReport: reader,
       medFactcheckReport: med,
+      clueGraph,
       deckSpec: deck
     });
 
@@ -217,14 +220,14 @@ describe("v2 phase-3 quality helpers", () => {
   it("applies twist receipt and fallback targeting patches when fixes have sparse targets", () => {
     const base = {
       topic: "Acute kidney injury",
-      audienceLevel: "MED_SCHOOL_ADVANCED" as const,
+      audienceLevel: "PHYSICIAN_LEVEL" as const,
       deckLengthMain: 30 as const,
       kbContext: "## Medical / Clinical KB\n- source notes"
     };
     const dossier = generateDiseaseDossier(base);
     const pitch = generateEpisodePitch(base, dossier);
     const truth = generateTruthModel(base, dossier, pitch);
-    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "MED_SCHOOL_ADVANCED" });
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "PHYSICIAN_LEVEL" });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
 
@@ -281,5 +284,145 @@ describe("v2 phase-3 quality helpers", () => {
     if (patched.clueGraph.twist_support_matrix[0]) {
       expect(patched.clueGraph.twist_support_matrix[0]!.supporting_clue_ids.length).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it("rejects QA acceptance when red herrings lack payoff or twists miss receipts", () => {
+    const base = {
+      topic: "Myocarditis",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+
+    clueGraph.red_herrings[0]!.payoff_slide_id = "S99";
+    clueGraph.twist_support_matrix[0]!.supporting_clue_ids = [clueGraph.clues[0]!.clue_id];
+    clueGraph.twist_support_matrix[0]!.recontextualized_slide_ids = [deck.slides[0]!.slide_id];
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    expect(qa.accept).toBe(false);
+    expect(qa.lint_errors.some((err) => err.code === "RED_HERRING_PAYOFF_MISSING")).toBe(true);
+    expect(qa.lint_errors.some((err) => err.code === "TWIST_RECEIPTS_INSUFFICIENT")).toBe(true);
+    expect(qa.required_fixes.some((fix) => fix.type === "add_twist_receipts")).toBe(true);
+  });
+
+  it("flags twists that lack Act I setup clues when require_act1_setup is enabled", () => {
+    const base = {
+      topic: "Aortic stenosis",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+
+    const act2SlideId = deck.slides.find((slide) => slide.act_id === "ACT2")?.slide_id ?? deck.slides[0]!.slide_id;
+    clueGraph.constraints.require_act1_setup = true;
+    for (const clue of clueGraph.clues.slice(0, 3)) {
+      clue.first_seen_slide_id = act2SlideId;
+    }
+
+    clueGraph.twist_support_matrix[0]!.supporting_clue_ids = clueGraph.clues.slice(0, 3).map((clue) => clue.clue_id);
+    clueGraph.twist_support_matrix[0]!.recontextualized_slide_ids = deck.slides.slice(0, 2).map((slide) => slide.slide_id);
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    expect(qa.accept).toBe(false);
+    expect(qa.lint_errors.some((err) => err.code === "TWIST_ACT1_SETUP_MISSING")).toBe(true);
+    expect(qa.required_fixes.some((fix) => fix.fix_id.startsWith("TW-ACT1-"))).toBe(true);
+  });
+
+  it("flags red herrings when payoff slide id is blank", () => {
+    const base = {
+      topic: "Diabetic ketoacidosis",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+
+    clueGraph.red_herrings[0]!.payoff_slide_id = "";
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    expect(qa.accept).toBe(false);
+    expect(qa.lint_errors.some((err) => err.code === "RED_HERRING_PAYOFF_MISSING")).toBe(true);
+    expect(qa.required_fixes.some((fix) => fix.fix_id.startsWith("RH-PAYOFF-"))).toBe(true);
+  });
+
+  it("uses clue first-seen slide as twist focus fallback when payoff is invalid", () => {
+    const base = {
+      topic: "Interstitial lung disease",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+
+    const focusClue = clueGraph.clues[0]!;
+    focusClue.payoff_slide_id = "S-INVALID";
+    clueGraph.twist_support_matrix[0]!.supporting_clue_ids = [focusClue.clue_id];
+    clueGraph.twist_support_matrix[0]!.recontextualized_slide_ids = [];
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    const twistReceiptError = qa.lint_errors.find((err) => err.code === "TWIST_RECEIPTS_INSUFFICIENT");
+    expect(twistReceiptError?.slide_id).toBe(focusClue.first_seen_slide_id);
   });
 });

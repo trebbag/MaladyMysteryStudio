@@ -26,6 +26,7 @@ type Listener = (ev: MessageEvent) => void;
 class FakeEventSource {
   static last: FakeEventSource | null = null;
   url: string;
+  onopen: null | (() => void) = null;
   onerror: null | (() => void) = null;
   closed = false;
   private listeners = new Map<string, Listener[]>();
@@ -190,7 +191,7 @@ describe("RunViewer", () => {
       finishedAt: "2026-02-09T00:10:00.000Z",
       outputFolder: "output/v2run",
       traceId: "trace_v2",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("queued")
     } as never);
     vi.mocked(listArtifacts).mockResolvedValueOnce([
@@ -216,6 +217,37 @@ describe("RunViewer", () => {
     expect(optionValues).toEqual(["KB0", "A", "B", "C"]);
   });
 
+  it("renders legacy sparse runs without v2 artifacts and keeps rerun controls usable", async () => {
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "legacysparse",
+      topic: "legacy sparse topic",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/legacysparse",
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "final_slide_spec_patched_iter2.json", size: 100, mtimeMs: 20, folder: "final" }
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/runs/legacysparse"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Slide spec diffs")).toBeInTheDocument();
+    expect(screen.queryByText(/Storyboard review required/i)).not.toBeInTheDocument();
+    const rerunSelect = screen.getByRole("combobox", { name: /rerun start step/i });
+    const optionValues = within(rerunSelect)
+      .getAllByRole("option")
+      .map((opt) => (opt as HTMLOptionElement).value);
+    expect(optionValues).toEqual(STEP_ORDER);
+  });
+
   it("renders v2 slide drilldown with template guidance and exhibit purpose", async () => {
     const user = userEvent.setup();
     vi.mocked(getRun).mockResolvedValueOnce({
@@ -225,7 +257,7 @@ describe("RunViewer", () => {
       startedAt: "2026-02-09T00:00:00.000Z",
       finishedAt: "2026-02-09T00:10:00.000Z",
       outputFolder: "output/v2drill",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(listArtifacts).mockResolvedValueOnce([
@@ -403,7 +435,7 @@ describe("RunViewer", () => {
       startedAt: "2026-02-09T00:00:00.000Z",
       finishedAt: "2026-02-09T00:10:00.000Z",
       outputFolder: "output/v2broken",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "RESIDENT", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(listArtifacts).mockResolvedValueOnce([{ name: "deck_spec.json", size: 12, mtimeMs: 1, folder: "final" }]);
@@ -430,7 +462,7 @@ describe("RunViewer", () => {
       startedAt: "2026-02-09T00:00:00.000Z",
       finishedAt: "2026-02-09T00:10:00.000Z",
       outputFolder: "output/v2inspect-empty",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "RESIDENT", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(listArtifacts).mockResolvedValueOnce([{ name: "deck_spec.json", size: 40, mtimeMs: 20, folder: "final" }]);
@@ -474,6 +506,111 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/No v2_template_registry\.json artifact yet/i)).toBeInTheDocument();
   });
 
+  it("loads packaging inspector from fallback summary artifact name when final summary is absent", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "v2pack-fallback",
+      topic: "v2 packaging fallback",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/v2pack-fallback",
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "deck_spec.json", size: 40, mtimeMs: 20, folder: "final" },
+      { name: "v2_phase4_packaging_summary.json", size: 20, mtimeMs: 19, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Pilot deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "r", citations: [{ citation_id: "C1", claim: "x" }] },
+                on_slide_text: { headline: "h" }
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "v2_phase4_packaging_summary.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            schema_version: "1.0.0",
+            workflow: "v2_micro_detectives",
+            generated_at: "2026-02-09T00:05:00.000Z",
+            deck: { episode_title: "Pilot deck", main_slide_count: 30, appendix_slide_count: 12 },
+            package: {
+              template_count: 11,
+              files: {
+                deck_spec: "deck_spec.json",
+                template_registry: "v2_template_registry.json",
+                main_render_plan: "V2_MAIN_DECK_RENDER_PLAN.md"
+              }
+            }
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2pack-fallback"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("V2 artifact inspectors")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Packaging" }));
+    expect(await screen.findByText(/Deck package summary/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Pilot deck/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Final package files/i)).toBeInTheDocument();
+    expect(fetchArtifact).toHaveBeenCalledWith("v2pack-fallback", "v2_phase4_packaging_summary.json");
+    expect(fetchArtifact).not.toHaveBeenCalledWith("v2pack-fallback", "V2_PACKAGING_SUMMARY.json");
+  });
+
+  it("does not render v2-only review banners or inspectors for legacy runs even when v2 artifacts exist", async () => {
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "legacy-v2-artifacts",
+      topic: "legacy compatibility",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/legacy-v2-artifacts",
+      settings: { workflow: "legacy", targetSlides: 120, adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "deck_spec.json", size: 40, mtimeMs: 20, folder: "final" },
+      { name: "GATE_3_STORYBOARD_REQUIRED.json", size: 20, mtimeMs: 19, folder: "intermediate" },
+      { name: "v2_phase4_packaging_summary.json", size: 20, mtimeMs: 18, folder: "intermediate" }
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/runs/legacy-v2-artifacts"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Slide spec diffs")).toBeInTheDocument();
+    expect(screen.queryByText(/Storyboard review required/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/V2 artifact inspectors/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/V2 packaging status/i)).not.toBeInTheDocument();
+  });
+
   it("renders paused gate controls and submits review/resume actions", async () => {
     const user = userEvent.setup();
     vi.mocked(getRun).mockResolvedValue({
@@ -482,7 +619,7 @@ describe("RunViewer", () => {
       status: "paused",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/pausedrun",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       activeGate: {
         gateId: "GATE_1_PITCH",
         resumeFrom: "B",
@@ -522,6 +659,154 @@ describe("RunViewer", () => {
     expect(resumeRun).toHaveBeenCalledWith("pausedrun");
   });
 
+  it("disables Gate 3 approve when semantic acceptance report is failing", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "paused-gate3",
+      topic: "v2 gate3 blocked topic",
+      status: "paused",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/paused-gate3",
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
+      activeGate: {
+        gateId: "GATE_3_STORYBOARD",
+        resumeFrom: "C",
+        message: "Gate 3 review required.",
+        at: "2026-02-09T00:03:00.000Z"
+      },
+      steps: makeSteps("queued")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValue([
+      { name: "deck_spec.json", size: 10, mtimeMs: 1, folder: "intermediate" },
+      { name: "semantic_acceptance_report.json", size: 10, mtimeMs: 2, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Blocked deck", deck_length_main: "45" },
+            slides: [
+              {
+                slide_id: "S01",
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "r", citations: [{ citation_id: "C1", claim: "x" }] },
+                on_slide_text: { headline: "h" }
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "semantic_acceptance_report.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            checked_at: "2026-02-09T00:05:00.000Z",
+            pass: false,
+            failures: ["hybrid too low"],
+            thresholds: {
+              min_story_forward_ratio: 0.7,
+              min_hybrid_slide_quality: 0.82,
+              min_citation_grounding_coverage: 0.9
+            },
+            metrics: {
+              main_slide_count: 45,
+              story_forward_ratio: 0.61,
+              hybrid_slide_quality: 0.44,
+              citation_grounding_coverage: 0.66
+            }
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/paused-gate3"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Semantic acceptance failed/i)).toBeInTheDocument();
+    const approveOption = within(screen.getByRole("combobox", { name: /gate decision/i })).getByRole("option", { name: "approve" });
+    expect(approveOption).toBeDisabled();
+    expect((await screen.findAllByText(/hybrid too low/i)).length).toBeGreaterThan(0);
+  });
+
+  it("renders v2 semantic acceptance drilldown metrics when artifact exists", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "v2-semantic",
+      topic: "v2 semantic drilldown",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/v2-semantic",
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValue([
+      { name: "deck_spec.json", size: 100, mtimeMs: 1, folder: "intermediate" },
+      { name: "semantic_acceptance_report.json", size: 100, mtimeMs: 2, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Semantic deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "r", citations: [{ citation_id: "C1", claim: "x" }] },
+                on_slide_text: { headline: "h" }
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "semantic_acceptance_report.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            checked_at: "2026-02-09T00:05:00.000Z",
+            pass: true,
+            failures: [],
+            thresholds: {
+              min_story_forward_ratio: 0.7,
+              min_hybrid_slide_quality: 0.82,
+              min_citation_grounding_coverage: 0.9
+            },
+            metrics: {
+              main_slide_count: 30,
+              story_forward_ratio: 0.87,
+              hybrid_slide_quality: 0.84,
+              citation_grounding_coverage: 0.96
+            }
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2-semantic"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("V2 semantic acceptance")).toBeInTheDocument();
+    expect(await screen.findByText("main slides")).toBeInTheDocument();
+    expect(await screen.findByText(/87%/)).toBeInTheDocument();
+    expect(await screen.findByText(/96%/)).toBeInTheDocument();
+  });
+
   it("renders gate history entries when available", async () => {
     vi.mocked(getRun).mockResolvedValue({
       runId: "v2history",
@@ -529,7 +814,7 @@ describe("RunViewer", () => {
       status: "done",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/v2history",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(getGateHistory).mockResolvedValue({
@@ -568,7 +853,7 @@ describe("RunViewer", () => {
       status: "paused",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/pausedrun",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       activeGate: {
         gateId: "GATE_1_PITCH",
         resumeFrom: "B",
@@ -621,7 +906,7 @@ describe("RunViewer", () => {
       status: "paused",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/pausedrun",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       activeGate: {
         gateId: "GATE_1_PITCH",
         resumeFrom: "B",
@@ -657,7 +942,7 @@ describe("RunViewer", () => {
       status: "paused",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/pausedrun",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       activeGate: {
         gateId: "GATE_2_TRUTH_LOCK",
         resumeFrom: "C",
@@ -693,7 +978,7 @@ describe("RunViewer", () => {
       status: "paused",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/pausedrun",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       activeGate: {
         gateId: "GATE_2_TRUTH_LOCK",
         resumeFrom: "C",
@@ -721,6 +1006,93 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/resume-nope/i)).toBeInTheDocument();
   });
 
+  it("shows specific resume guidance for request_changes, missing review, not paused, and semantic gate failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "pausedrun-hints",
+      topic: "v2 paused hints",
+      status: "paused",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/pausedrun-hints",
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
+      activeGate: {
+        gateId: "GATE_3_STORYBOARD",
+        resumeFrom: "C",
+        message: "Gate review required.",
+        at: "2026-02-09T00:03:00.000Z"
+      },
+      steps: makeSteps("queued")
+    } as never);
+    vi.mocked(getGateHistory).mockResolvedValue({
+      schema_version: "1.0.0",
+      latest_by_gate: { GATE_3_STORYBOARD: null },
+      history: []
+    });
+    vi.mocked(resumeRun)
+      .mockRejectedValueOnce(new Error("request_changes"))
+      .mockRejectedValueOnce(new Error("no submitted review for active gate"))
+      .mockRejectedValueOnce(new Error("run is not paused at a gate"))
+      .mockRejectedValueOnce(new Error("semantic acceptance gate failed"));
+
+    render(
+      <MemoryRouter initialEntries={["/runs/pausedrun-hints"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const resumeButton = await screen.findByRole("button", { name: /Resume run/i });
+
+    await user.click(resumeButton);
+    expect(await screen.findByText(/This run is still in request_changes\. Submit approve or regenerate, then click Resume run/i)).toBeInTheDocument();
+
+    await user.click(resumeButton);
+    expect(await screen.findByText(/Submit a gate decision first, then resume/i)).toBeInTheDocument();
+
+    await user.click(resumeButton);
+    expect(await screen.findByText(/Resume is only available while the run is paused at an active gate/i)).toBeInTheDocument();
+
+    await user.click(resumeButton);
+    expect(await screen.findByText(/Semantic acceptance failed\. Use regenerate at Gate 3 to rebuild C artifacts before resume/i)).toBeInTheDocument();
+  });
+
+  it("shows semantic gate guidance when gate review submit is rejected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "pausedrun-submit-semantic",
+      topic: "v2 gate submit semantic",
+      status: "paused",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/pausedrun-submit-semantic",
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
+      activeGate: {
+        gateId: "GATE_3_STORYBOARD",
+        resumeFrom: "C",
+        message: "Gate review required.",
+        at: "2026-02-09T00:03:00.000Z"
+      },
+      steps: makeSteps("queued")
+    } as never);
+    vi.mocked(getGateHistory).mockResolvedValue({
+      schema_version: "1.0.0",
+      latest_by_gate: { GATE_3_STORYBOARD: null },
+      history: []
+    });
+    vi.mocked(submitGateReview).mockRejectedValueOnce(new Error("semantic acceptance gate failed"));
+
+    render(
+      <MemoryRouter initialEntries={["/runs/pausedrun-submit-semantic"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Submit gate review/i }));
+    expect(await screen.findByText(/Gate 3 approval is blocked by semantic acceptance checks\. Submit regenerate, then Resume run\./i)).toBeInTheDocument();
+  });
+
   it("refreshes v2 gate history from the panel refresh action", async () => {
     const user = userEvent.setup();
     vi.mocked(getRun).mockResolvedValue({
@@ -729,7 +1101,7 @@ describe("RunViewer", () => {
       status: "done",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/v2history",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "MED_SCHOOL_ADVANCED", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 45, audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(getGateHistory).mockResolvedValue({
@@ -800,6 +1172,8 @@ describe("RunViewer", () => {
 
     const es = FakeEventSource.last;
     if (!es) throw new Error("missing EventSource instance");
+    es.onopen?.();
+    expect(await screen.findByText(/events:\s*live/i)).toBeInTheDocument();
 
     es.emit("step_started", JSON.stringify({ step: "A", at: "t" }));
     const timeline = document.querySelector<HTMLElement>(".stepList");
@@ -843,6 +1217,20 @@ describe("RunViewer", () => {
     es.emit("run_resumed", "not json");
     expect(await screen.findByText(/run_resumed \(unparseable\)/i)).toBeInTheDocument();
 
+    es.emit(
+      "deckspec_estimate",
+      JSON.stringify({
+        estimatedMainSlides: 212,
+        deckLengthPolicy: "unconstrained",
+        computedAt: "2026-03-02T00:00:00.000Z",
+        adaptiveTimeoutMs: { agent: 210000, deckSpec: 360000, watchdog: 980000 },
+        abortThresholdSlides: 180,
+        abortRecommended: true
+      })
+    );
+    es.emit("deckspec_estimate", "not json");
+    expect(await screen.findByText(/deckspec_estimate \(unparseable\)/i)).toBeInTheDocument();
+
     es.emit("log", JSON.stringify({ message: "hello", step: "A" }));
     expect(await screen.findByText(/hello/)).toBeInTheDocument();
 
@@ -872,6 +1260,43 @@ describe("RunViewer", () => {
 
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(await screen.findByText(/\(no logs yet\)/i)).toBeInTheDocument();
+  });
+
+  it("renders v2 DeckSpec estimate panel with abort warning and uses abort action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "v2-estimate",
+      topic: "v2 estimate topic",
+      status: "running",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/v2-estimate",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "warn" },
+      v2DeckSpecEstimate: {
+        estimatedMainSlides: 214,
+        deckLengthPolicy: "unconstrained",
+        computedAt: "2026-03-02T00:00:00.000Z",
+        adaptiveTimeoutMs: { agent: 210_000, deckSpec: 360_000, watchdog: 980_000 },
+        abortThresholdSlides: 180,
+        abortRecommended: true
+      },
+      steps: makeSteps("running")
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2-estimate"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/214 slides \(unconstrained\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Estimated length exceeds abort threshold/i)).toBeInTheDocument();
+    const abortBtn = screen.getByRole("button", { name: "Abort run" });
+    expect(abortBtn).toBeEnabled();
+
+    await user.click(abortBtn);
+    expect(cancelRun).toHaveBeenCalledWith("v2-estimate");
   });
 
   it("shows action errors when cancel/rerun fails (non-Error throws)", async () => {
@@ -1057,7 +1482,7 @@ describe("RunViewer", () => {
       status: "done",
       startedAt: "2026-02-09T00:00:00.000Z",
       outputFolder: "output/v2empty",
-      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "RESIDENT", adherenceMode: "strict" },
+      settings: { workflow: "v2_micro_detectives", deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
       steps: makeSteps("done")
     } as never);
     vi.mocked(listArtifacts).mockResolvedValueOnce([{ name: "GATE_3_STORYBOARD_REQUIRED.json", size: 20, mtimeMs: 19, folder: "intermediate" }]);

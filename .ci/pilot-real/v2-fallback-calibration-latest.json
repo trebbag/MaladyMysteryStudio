@@ -1,13 +1,14 @@
 {
-  "generatedAt": "2026-02-27T22:12:36.517Z",
+  "generatedAt": "2026-03-02T18:22:58.908Z",
   "sourceReportGeneratedAt": "2026-02-27T22:11:42.193Z",
   "sample": {
     "runCount": 3,
     "doneCount": 3
   },
   "observed": {
-    "fallbackRunRate": 1,
+    "deterministicFallbackRunRate": 1,
     "avgFallbackEventCount": 5,
+    "avgAgentRetryEventCount": 0,
     "avgStoryScore": 3.8,
     "avgTwistScore": 3.7,
     "avgClarityScore": 3.6

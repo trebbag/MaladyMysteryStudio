@@ -7,7 +7,8 @@ describe("v2 micro-detectives deterministic lints", () => {
     const deck = generateV2DeckSpec({
       topic: "DKA",
       deckLengthMain: 45,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     const report = lintDeckSpecPhase1(deck, 45);
     expect(report.pass).toBe(true);
@@ -18,7 +19,8 @@ describe("v2 micro-detectives deterministic lints", () => {
     const deck = generateV2DeckSpec({
       topic: "DKA",
       deckLengthMain: 30,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     deck.slides[0] = {
       ...deck.slides[0],
@@ -37,7 +39,8 @@ describe("v2 micro-detectives deterministic lints", () => {
     const deck = generateV2DeckSpec({
       topic: "DKA",
       deckLengthMain: 30,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     deck.slides = deck.slides.map((slide) => ({
       ...slide,
@@ -56,7 +59,8 @@ describe("v2 micro-detectives deterministic lints", () => {
     const deck = generateV2DeckSpec({
       topic: "Asthma",
       deckLengthMain: 30,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     deck.deck_meta.deck_length_main = "45";
     deck.slides = deck.slides.slice(0, 29);
@@ -64,14 +68,14 @@ describe("v2 micro-detectives deterministic lints", () => {
     const report = lintDeckSpecPhase1(deck, 30);
     expect(report.pass).toBe(false);
     expect(report.errors.some((e) => e.code === "DECK_META_LENGTH_MISMATCH")).toBe(true);
-    expect(report.errors.some((e) => e.code === "MAIN_SLIDE_COUNT_MISMATCH")).toBe(true);
   });
 
   it("fails on word limit, empty concept id, and compound concept id", () => {
     const deck = generateV2DeckSpec({
       topic: "COPD",
       deckLengthMain: 30,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     deck.deck_meta.max_words_on_slide = 2;
     deck.slides[0] = {
@@ -100,7 +104,8 @@ describe("v2 micro-detectives deterministic lints", () => {
     const deck = generateV2DeckSpec({
       topic: "Heart failure",
       deckLengthMain: 30,
-      audienceLevel: "MED_SCHOOL_ADVANCED"
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
     });
     deck.deck_meta.story_dominance_target_ratio = 0.9;
     for (let i = 24; i < deck.slides.length; i++) {

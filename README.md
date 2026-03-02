@@ -60,6 +60,8 @@ npm run start
 
 - App (server + UI): http://localhost:5050
 
+Operator checklist and acceptance gate: `docs/PILOT_RUNBOOK.md`.
+
 ## Local real-backend E2E (fake pipeline mode)
 
 Playwright E2E starts the app in single-process pilot mode and drives real backend APIs/SSE without mocking.  
@@ -177,6 +179,9 @@ npm run pilot:v2:quality -- --enforce-slo \
   --min-twist-score 3.0 \
   --min-clarity-score 3.4 \
   --min-story-forward-ratio 0.7 \
+  --min-intro-outro-pass-rate 0.95 \
+  --min-hybrid-slide-quality 0.9 \
+  --min-citation-grounding-coverage 0.95 \
   --min-packaging-completeness 1 \
   --min-main-render-coverage 0.95 \
   --min-clue-payoff-coverage 1 \
@@ -208,6 +213,9 @@ Qualitative gates added to the pilot harness:
 - Main render-plan slide coverage (ratio of `deck_spec.slides[].slide_id` represented in `V2_MAIN_DECK_RENDER_PLAN.md`).
 - Clue payoff coverage (red herrings with explicit payoff slide IDs).
 - Render-plan marker pass (required sections: recurring constraints, zone/setpiece mapping, slide blocks).
+- Intro/outro contract pass rate (intro beats in opening window and outro beats in closing window).
+- Hybrid-slide quality score (story-turn + medical payload/citations per non-`none` main slide).
+- Citation grounding coverage (payload and speaker-note citation coverage across main slides).
 - Placeholder run rate (rejects excessive TBD/TODO/placeholder/lorem style artifacts).
 - Fallback usage visibility (`fallback_usage.json`): deterministic fallback run rate + average deterministic fallback event count + agent retry event count.
 
@@ -230,6 +238,16 @@ Calibrate fallback SLO from the latest real-key report:
 npm run pilot:v2:calibrate:fallback
 ```
 
+Calibrate semantic gate thresholds from the latest real-key report:
+
+```bash
+npm run pilot:v2:calibrate:semantic
+```
+
+Output:
+
+- `.ci/pilot/v2-semantic-calibration-latest.json`
+
 Step C DeckSpec generation modes:
 
 - `MMS_V2_DECKSPEC_MODE=deterministic_refine` (default in `warn`): deterministic seeded deck + lightweight model refinement.
@@ -247,7 +265,14 @@ Verify prompt/schema lock integrity (used by runtime strict lock checks):
 ```bash
 npm run v2:assets:lock
 npm run v2:assets:lock:check
+npm run v2:assets:sync:check
 ```
+
+Optional semantic gate thresholds (defaults shown):
+
+- `MMS_V2_MIN_STORY_FORWARD_RATIO=0.70`
+- `MMS_V2_MIN_HYBRID_SLIDE_QUALITY=0.82`
+- `MMS_V2_MIN_CITATION_GROUNDING_COVERAGE=0.90`
 
 Run the one-command pre-pilot checklist (typecheck, lint, unit tests, coverage, build, targeted v2 gate e2e):
 

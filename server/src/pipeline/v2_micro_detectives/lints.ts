@@ -39,26 +39,84 @@ function pushError(errors: V2DeckSpecLintError[], code: string, message: string,
   });
 }
 
-export function lintDeckSpecPhase1(deck: DeckSpec, expectedDeckLengthMain: 30 | 45 | 60): V2DeckSpecLintReport {
+type DeckLengthLintConfig = {
+  deckLengthConstraintEnabled?: boolean;
+  targetDeckLengthMain?: 30 | 45 | 60;
+  softTargetToleranceSlides?: number;
+};
+
+function normalizeDeckLengthLintConfig(input: 30 | 45 | 60 | DeckLengthLintConfig | undefined): {
+  deckLengthConstraintEnabled: boolean;
+  targetDeckLengthMain?: 30 | 45 | 60;
+  softTargetToleranceSlides?: number;
+} {
+  if (typeof input === "number") {
+    return {
+      deckLengthConstraintEnabled: true,
+      targetDeckLengthMain: input
+    };
+  }
+  if (!input) {
+    return {
+      deckLengthConstraintEnabled: false
+    };
+  }
+  return {
+    deckLengthConstraintEnabled: input.deckLengthConstraintEnabled === true,
+    targetDeckLengthMain: input.targetDeckLengthMain,
+    softTargetToleranceSlides: input.softTargetToleranceSlides
+  };
+}
+
+function pushWarning(errors: V2DeckSpecLintError[], code: string, message: string, slideId?: string): void {
+  errors.push({
+    code,
+    message,
+    severity: "warning",
+    ...(slideId ? { slide_id: slideId } : {})
+  });
+}
+
+export function lintDeckSpecPhase1(
+  deck: DeckSpec,
+  options?: 30 | 45 | 60 | DeckLengthLintConfig
+): V2DeckSpecLintReport {
+  const deckLengthConfig = normalizeDeckLengthLintConfig(options);
   const errors: V2DeckSpecLintError[] = [];
   const mainSlides = deck.slides;
   const measuredDeckLengthMain = mainSlides.length;
 
   const declaredLength = Number(deck.deck_meta.deck_length_main);
-  if (declaredLength !== expectedDeckLengthMain) {
+  if (!Number.isFinite(declaredLength)) {
+    pushError(errors, "DECK_META_LENGTH_INVALID", "deck_meta.deck_length_main must be a numeric string.");
+  } else if (declaredLength !== measuredDeckLengthMain) {
     pushError(
       errors,
       "DECK_META_LENGTH_MISMATCH",
-      `deck_meta.deck_length_main=${declaredLength} but expected ${expectedDeckLengthMain}.`
+      `deck_meta.deck_length_main=${declaredLength} but measured main slide count=${measuredDeckLengthMain}.`
     );
   }
 
-  if (measuredDeckLengthMain !== expectedDeckLengthMain) {
-    pushError(
-      errors,
-      "MAIN_SLIDE_COUNT_MISMATCH",
-      `Main deck has ${measuredDeckLengthMain} slides but expected ${expectedDeckLengthMain}.`
-    );
+  if (deckLengthConfig.deckLengthConstraintEnabled && typeof deckLengthConfig.targetDeckLengthMain === "number") {
+    const tolerance =
+      typeof deckLengthConfig.softTargetToleranceSlides === "number"
+        ? Math.max(0, Math.round(deckLengthConfig.softTargetToleranceSlides))
+        : Math.max(4, Math.round(deckLengthConfig.targetDeckLengthMain * 0.2));
+    const delta = Math.abs(measuredDeckLengthMain - deckLengthConfig.targetDeckLengthMain);
+    if (delta > tolerance) {
+      pushWarning(
+        errors,
+        "MAIN_SLIDE_COUNT_OUTSIDE_SOFT_TARGET",
+        `Main deck has ${measuredDeckLengthMain} slides; soft target=${deckLengthConfig.targetDeckLengthMain} (tolerance ±${tolerance}).`
+      );
+    }
+    if (Number.isFinite(declaredLength) && declaredLength !== deckLengthConfig.targetDeckLengthMain) {
+      pushWarning(
+        errors,
+        "DECK_META_LENGTH_OUTSIDE_SOFT_TARGET",
+        `deck_meta.deck_length_main=${declaredLength} differs from soft target ${deckLengthConfig.targetDeckLengthMain}.`
+      );
+    }
   }
 
   for (const slide of mainSlides) {
@@ -101,7 +159,14 @@ export function lintDeckSpecPhase1(deck: DeckSpec, expectedDeckLengthMain: 30 | 
 
   const report: V2DeckSpecLintReport = {
     workflow: "v2_micro_detectives",
-    expectedDeckLengthMain,
+    deckLengthConstraintEnabled: deckLengthConfig.deckLengthConstraintEnabled,
+    expectedDeckLengthMain: deckLengthConfig.deckLengthConstraintEnabled ? deckLengthConfig.targetDeckLengthMain : undefined,
+    softTargetToleranceSlides:
+      deckLengthConfig.deckLengthConstraintEnabled && typeof deckLengthConfig.targetDeckLengthMain === "number"
+        ? typeof deckLengthConfig.softTargetToleranceSlides === "number"
+          ? Math.max(0, Math.round(deckLengthConfig.softTargetToleranceSlides))
+          : Math.max(4, Math.round(deckLengthConfig.targetDeckLengthMain * 0.2))
+        : undefined,
     measuredDeckLengthMain,
     storyForwardRatio,
     storyForwardTargetRatio,
@@ -112,4 +177,3 @@ export function lintDeckSpecPhase1(deck: DeckSpec, expectedDeckLengthMain: 30 | 
   };
   return report;
 }
-

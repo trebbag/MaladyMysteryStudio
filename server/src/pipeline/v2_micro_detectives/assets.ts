@@ -41,7 +41,7 @@ const DOD_GUARDRAIL_APPENDIX = [
   "## [MMS_DOD_GUARDRAIL]",
   "- Return schema-valid JSON only. No markdown wrappers.",
   "- Do not omit required fields; use conservative defaults when uncertain.",
-  "- Keep outputs consistent with the fixed-length deck and story-dominance constraints.",
+  "- Keep outputs consistent with unconstrained-by-default deck policy, soft-target behavior when enabled, and story-dominance constraints.",
   "- Preserve citation traceability for all load-bearing claims."
 ].join("\n");
 

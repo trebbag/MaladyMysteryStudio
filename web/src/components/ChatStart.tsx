@@ -14,6 +14,12 @@ import {
 } from "../api";
 
 const STEP_ORDER = ["KB0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"] as const;
+const TOPIC_SUGGESTIONS = [
+  "Stroke mimics and first-line differentiation in primary care",
+  "Community-acquired pneumonia diagnosis and treatment in adults",
+  "Diabetic ketoacidosis diagnosis and initial management",
+  "Takotsubo cardiomyopathy vs acute coronary syndrome workup"
+] as const;
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -50,8 +56,9 @@ export default function ChatStart({ health }: ChatStartProps) {
   const [workflow, setWorkflow] = useState<NonNullable<RunSettings["workflow"]>>("legacy");
   const [durationMinutes, setDurationMinutes] = useState<string>("");
   const [targetSlides, setTargetSlides] = useState<string>("120");
+  const [deckLengthConstraintEnabled, setDeckLengthConstraintEnabled] = useState<boolean>(false);
   const [deckLengthMain, setDeckLengthMain] = useState<NonNullable<RunSettings["deckLengthMain"]>>(45);
-  const [audienceLevel, setAudienceLevel] = useState<NonNullable<RunSettings["audienceLevel"]>>("MED_SCHOOL_ADVANCED");
+  const [audienceLevel, setAudienceLevel] = useState<NonNullable<RunSettings["audienceLevel"]>>("PHYSICIAN_LEVEL");
   const [level, setLevel] = useState<NonNullable<RunSettings["level"]>>("student");
   const [adherenceMode, setAdherenceMode] = useState<NonNullable<RunSettings["adherenceMode"]>>("strict");
   const [busy, setBusy] = useState(false);
@@ -147,8 +154,11 @@ export default function ChatStart({ health }: ChatStartProps) {
     }
 
     if (workflow === "v2_micro_detectives") {
-      s.deckLengthMain = deckLengthMain;
       s.audienceLevel = audienceLevel;
+      if (deckLengthConstraintEnabled) {
+        s.deckLengthConstraintEnabled = true;
+        s.deckLengthMain = deckLengthMain;
+      }
     } else {
       const slides = Number(targetSlides);
       if (targetSlides.trim().length > 0 && Number.isFinite(slides) && slides > 0) {
@@ -158,6 +168,14 @@ export default function ChatStart({ health }: ChatStartProps) {
     }
     s.adherenceMode = adherenceMode;
     return s;
+  }
+
+  function onWorkflowChange(next: NonNullable<RunSettings["workflow"]>) {
+    setWorkflow(next);
+    if (next === "v2_micro_detectives" && adherenceMode === "strict") {
+      // v2 defaults to warn mode to keep long-running pilot flows resilient.
+      setAdherenceMode("warn");
+    }
   }
 
   async function onRun() {
@@ -242,10 +260,42 @@ export default function ChatStart({ health }: ChatStartProps) {
   }
 
   const largestRuns = retentionAnalytics?.perRun.slice(0, 5) ?? [];
+  const runStatusCounts = runs.reduce(
+    (acc, row) => {
+      acc[row.status] = (acc[row.status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   return (
-    <div className="homeGrid">
-      <section className="panel homeStartCard">
+    <div className="homePage">
+      <section className="panel homeHero">
+        <div className="panelBody">
+          <div className="heroBadge">Multi-Agent Medical Mystery Studio</div>
+          <h1 className="heroTitle">Malady Mystery Studio</h1>
+          <p className="heroSubtitle">
+            Launch full pipeline runs, monitor cross-agent handoffs in real time, and review every artifact from a single workspace.
+          </p>
+          <div className="statusChipRow">
+            <span className="statusChip statusChipActive">
+              Running <span className="statusChipCount">{runStatusCounts.running ?? 0}</span>
+            </span>
+            <span className="statusChip">
+              Paused <span className="statusChipCount">{runStatusCounts.paused ?? 0}</span>
+            </span>
+            <span className="statusChip">
+              Done <span className="statusChipCount">{runStatusCounts.done ?? 0}</span>
+            </span>
+            <span className="statusChip">
+              Error <span className="statusChipCount">{runStatusCounts.error ?? 0}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <div className="homeGrid">
+        <section className="panel homeStartCard">
         <div className="panelHeader">
           <div>
             <h2 className="sectionTitle">Start New Episode</h2>
@@ -270,6 +320,18 @@ export default function ChatStart({ health }: ChatStartProps) {
               }
             }}
           />
+          <div className="topicSuggestionRow">
+            {TOPIC_SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                className="topicSuggestionButton"
+                onClick={() => setTopic(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
 
           <div className="settingsBlock">
             <div className="settingsBlockHeader">
@@ -280,7 +342,7 @@ export default function ChatStart({ health }: ChatStartProps) {
             <div className="settingsRow">
               <div>
                 <div className="subtle">Workflow</div>
-                <select value={workflow} onChange={(e) => setWorkflow(e.target.value as NonNullable<RunSettings["workflow"]>)}>
+                <select value={workflow} onChange={(e) => onWorkflowChange(e.target.value as NonNullable<RunSettings["workflow"]>)}>
                   <option value="legacy">Legacy</option>
                   <option value="v2_micro_detectives">Micro-Detectives v2</option>
                 </select>
@@ -301,12 +363,31 @@ export default function ChatStart({ health }: ChatStartProps) {
               {workflow === "v2_micro_detectives" ? (
                 <>
                   <div>
-                    <div className="subtle">Deck length (main)</div>
-                    <select value={String(deckLengthMain)} onChange={(e) => setDeckLengthMain(Number(e.target.value) as NonNullable<RunSettings["deckLengthMain"]>)}>
-                      <option value="30">30</option>
-                      <option value="45">45</option>
-                      <option value="60">60</option>
-                    </select>
+                    <div className="subtle">Deck length guidance</div>
+                    <label className="row" style={{ gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={deckLengthConstraintEnabled}
+                        onChange={(e) => setDeckLengthConstraintEnabled(e.target.checked)}
+                      />
+                      <span className="subtle">Enable soft target</span>
+                    </label>
+                    {!deckLengthConstraintEnabled && (
+                      <div className="subtle" style={{ marginTop: 6 }}>
+                        Unconstrained by default. Story and medical content determine length.
+                      </div>
+                    )}
+                    {deckLengthConstraintEnabled && (
+                      <select
+                        aria-label="Deck length soft target"
+                        value={String(deckLengthMain)}
+                        onChange={(e) => setDeckLengthMain(Number(e.target.value) as NonNullable<RunSettings["deckLengthMain"]>)}
+                      >
+                        <option value="30">~30</option>
+                        <option value="45">~45</option>
+                        <option value="60">~60</option>
+                      </select>
+                    )}
                   </div>
 
                   <div>
@@ -315,9 +396,8 @@ export default function ChatStart({ health }: ChatStartProps) {
                       value={audienceLevel}
                       onChange={(e) => setAudienceLevel(e.target.value as NonNullable<RunSettings["audienceLevel"]>)}
                     >
-                      <option value="MED_SCHOOL_ADVANCED">Med School (Advanced)</option>
-                      <option value="RESIDENT">Resident</option>
-                      <option value="FELLOWSHIP">Fellowship</option>
+                      <option value="PHYSICIAN_LEVEL">Physician Level</option>
+                      <option value="COLLEGE_LEVEL">College Level</option>
                     </select>
                   </div>
                 </>
@@ -359,15 +439,15 @@ export default function ChatStart({ health }: ChatStartProps) {
           </div>
 
           <div className="row" style={{ marginTop: 14, justifyContent: "space-between", flexWrap: "wrap" }}>
-            <button disabled={busy || topic.trim().length < 3} onClick={() => void onRun()}>
+            <button className="primaryButton" disabled={busy || topic.trim().length < 3} onClick={() => void onRun()}>
               {busy ? "Starting..." : "Run Episode"}
             </button>
             {err && <span className="badge badgeErr">{err}</span>}
           </div>
         </div>
-      </section>
+        </section>
 
-      <aside className="panel homeStatusCard">
+        <aside className="panel homeStatusCard">
         <div className="panelHeader">
           <div style={{ fontWeight: 600 }}>System status</div>
         </div>
@@ -394,18 +474,35 @@ export default function ChatStart({ health }: ChatStartProps) {
               </div>
             </div>
           )}
-        </div>
-      </aside>
 
-      <section className="panel homeRunsCard">
+          <div className="quickLinkRow">
+            <Link className="badge badgeLinkCta" to="/runs">
+              Case archive
+            </Link>
+            <Link className="badge badgeLinkCta" to={runs[0] ? `/runs/${runs[0].runId}/artifacts` : "/runs"}>
+              Evidence vault
+            </Link>
+            <Link className="badge badgeLinkCta" to={runs[0] ? `/runs/${runs[0].runId}/workshop` : "/runs"}>
+              Beat workshop
+            </Link>
+          </div>
+        </div>
+        </aside>
+
+        <section className="panel homeRunsCard">
         <div className="panelHeader">
           <div>
             <div style={{ fontWeight: 600 }}>Recent runs</div>
             <div className="subtle">Newest first</div>
           </div>
-          <button disabled={runsBusy || cleanupBusy} onClick={() => void loadRuns()}>
-            {runsBusy ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <Link className="badge" to="/runs">
+              View all
+            </Link>
+            <button disabled={runsBusy || cleanupBusy} onClick={() => void loadRuns()}>
+              {runsBusy ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
 
         <div className="panelBody">
@@ -501,9 +598,9 @@ export default function ChatStart({ health }: ChatStartProps) {
             </div>
           )}
         </div>
-      </section>
+        </section>
 
-      <section className="panel homeSloCard">
+        <section className="panel homeSloCard">
         <div className="panelHeader">
           <div>
             <div style={{ fontWeight: 600 }}>Step SLO policy</div>
@@ -542,7 +639,8 @@ export default function ChatStart({ health }: ChatStartProps) {
           {sloMsg && <div className="badge badgeOk">{sloMsg}</div>}
           {sloErr && <div className="badge badgeErr">{sloErr}</div>}
         </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

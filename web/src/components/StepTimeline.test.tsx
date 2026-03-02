@@ -83,7 +83,7 @@ describe("StepTimeline", () => {
     expect(screen.getByText(/done \(slow\)/i)).toBeInTheDocument();
   });
 
-  it("uses phase-1 ordering/labels for v2 workflow", () => {
+  it("uses expanded agent-stage ordering/labels for v2 workflow", () => {
     render(
       <StepTimeline
         workflow="v2_micro_detectives"
@@ -93,12 +93,37 @@ describe("StepTimeline", () => {
           B: { name: "B", status: "done", artifacts: [] },
           C: { name: "C", status: "done", artifacts: [] }
         }}
+        artifacts={[
+          { name: "disease_dossier.json" },
+          { name: "episode_pitch.json" },
+          { name: "truth_model.json" },
+          { name: "differential_cast.json" },
+          { name: "clue_graph.json" },
+          { name: "deck_spec.json" },
+          { name: "reader_sim_report.json" },
+          { name: "med_factcheck_report.json" },
+          { name: "qa_report.json" },
+          { name: "semantic_acceptance_report.json" },
+          { name: "micro_world_map.json" },
+          { name: "drama_plan.json" },
+          { name: "setpiece_plan.json" },
+          { name: "V2_MAIN_DECK_RENDER_PLAN.md" },
+          { name: "V2_APPENDIX_RENDER_PLAN.md" },
+          { name: "V2_SPEAKER_NOTES_WITH_CITATIONS.md" },
+          { name: "v2_template_registry.json" },
+          { name: "V2_PACKAGING_SUMMARY.json" }
+        ]}
       />
     );
 
-    expect(screen.getByText("Disease Dossier + Gate 1")).toBeInTheDocument();
-    expect(screen.getByText("Truth Model + Gate 2")).toBeInTheDocument();
-    expect(screen.getByText("DeckSpec + QA + Gate 3 + Packaging")).toBeInTheDocument();
+    expect(screen.getByText("Disease Research Desk")).toBeInTheDocument();
+    expect(screen.getByText("Episode Pitch Builder")).toBeInTheDocument();
+    expect(screen.getByText("Truth Model Engineer")).toBeInTheDocument();
+    expect(screen.getByText("Plot Director DeckSpec")).toBeInTheDocument();
+    expect(screen.getByText("Micro World Mapper")).toBeInTheDocument();
+    expect(screen.getByText("Drama Architect")).toBeInTheDocument();
+    expect(screen.getByText("Setpiece Choreographer")).toBeInTheDocument();
+    expect(screen.getByText("Final Packager")).toBeInTheDocument();
     expect(screen.queryByText("P")).not.toBeInTheDocument();
   });
 });

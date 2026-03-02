@@ -26,6 +26,9 @@ function parseArgs(argv) {
       minAvgMainRenderPlanCoverage: 0.95,
       minAvgCluePayoffCoverage: 1,
       minRenderPlanMarkerPassRate: 1,
+      minIntroOutroPassRate: 0.95,
+      minAvgHybridSlideQuality: 0.9,
+      minAvgCitationGroundingCoverage: 0.95,
       maxPlaceholderRunRate: 0.15,
       maxFallbackRunRate: 0.05,
       maxErrorRate: 0.2,
@@ -130,6 +133,21 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (arg === "--min-intro-outro-pass-rate") {
+      options.sloTargets.minIntroOutroPassRate = Number(argv[i + 1] || options.sloTargets.minIntroOutroPassRate);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-hybrid-slide-quality") {
+      options.sloTargets.minAvgHybridSlideQuality = Number(argv[i + 1] || options.sloTargets.minAvgHybridSlideQuality);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-citation-grounding-coverage") {
+      options.sloTargets.minAvgCitationGroundingCoverage = Number(argv[i + 1] || options.sloTargets.minAvgCitationGroundingCoverage);
+      i += 1;
+      continue;
+    }
     if (arg === "--max-placeholder-run-rate") {
       options.sloTargets.maxPlaceholderRunRate = Number(argv[i + 1] || options.sloTargets.maxPlaceholderRunRate);
       i += 1;
@@ -224,6 +242,65 @@ function storyForwardRatio(deckSpec) {
   if (slides.length === 0) return 0;
   const storyForward = slides.filter((slide) => ["clue", "dialogue", "action"].includes(slide?.medical_payload?.delivery_mode)).length;
   return storyForward / slides.length;
+}
+
+function introOutroContract(deckSpec) {
+  const slides = Array.isArray(deckSpec?.slides) ? deckSpec.slides : [];
+  if (slides.length === 0) {
+    return { pass: false, introCount: 0, outroCount: 0 };
+  }
+  const introWindow = Math.max(1, Math.ceil(slides.length * 0.15));
+  const outroWindowStart = Math.max(0, slides.length - introWindow);
+  const introSlice = slides.slice(0, introWindow);
+  const outroSlice = slides.slice(outroWindowStart);
+  const introCount = introSlice.filter((slide) => ["cold_open", "case_intake", "first_dive"].includes(String(slide?.beat_type || ""))).length;
+  const outroCount = outroSlice.filter((slide) => ["showdown", "proof", "aftermath"].includes(String(slide?.beat_type || ""))).length;
+  return {
+    pass: introCount > 0 && outroCount > 0,
+    introCount,
+    outroCount
+  };
+}
+
+function hybridSlideQuality(deckSpec) {
+  const slides = Array.isArray(deckSpec?.slides) ? deckSpec.slides : [];
+  if (slides.length === 0) return 0;
+  const usable = slides.filter((slide) => String(slide?.medical_payload?.delivery_mode || "") !== "none");
+  if (usable.length === 0) return 0;
+  const strong = usable.filter((slide) => {
+    const story = slide?.story_panel ?? {};
+    const medical = slide?.medical_payload ?? {};
+    const notes = slide?.speaker_notes ?? {};
+    const hasStory =
+      typeof story.goal === "string" &&
+      story.goal.trim().length > 0 &&
+      typeof story.opposition === "string" &&
+      story.opposition.trim().length > 0 &&
+      typeof story.turn === "string" &&
+      story.turn.trim().length > 0 &&
+      typeof story.decision === "string" &&
+      story.decision.trim().length > 0;
+    const hasMedical =
+      typeof medical.major_concept_id === "string" &&
+      medical.major_concept_id.trim().length > 0 &&
+      Array.isArray(medical.dossier_citations) &&
+      medical.dossier_citations.length > 0 &&
+      typeof notes.medical_reasoning === "string" &&
+      notes.medical_reasoning.trim().length > 0;
+    return hasStory && hasMedical;
+  }).length;
+  return strong / usable.length;
+}
+
+function citationGroundingCoverage(deckSpec) {
+  const slides = Array.isArray(deckSpec?.slides) ? deckSpec.slides : [];
+  if (slides.length === 0) return 0;
+  const grounded = slides.filter((slide) => {
+    const payloadCitations = Array.isArray(slide?.medical_payload?.dossier_citations) ? slide.medical_payload.dossier_citations.length : 0;
+    const notesCitations = Array.isArray(slide?.speaker_notes?.citations) ? slide.speaker_notes.citations.length : 0;
+    return payloadCitations > 0 && notesCitations > 0;
+  }).length;
+  return grounded / slides.length;
 }
 
 function requiredPackagingNames() {
@@ -372,6 +449,17 @@ async function runOne(options, topic) {
       const packagingCompleteness = Number(packagingCompletenessRatio(artifactNames).toFixed(3));
       const renderCoverage = mainRenderPlanCoverage(deckSpec, mainRenderPlanText);
       const clueCoverage = cluePayoffCoverage(clueGraph);
+      const introOutro = introOutroContract(deckSpec);
+      const hybridQuality = Number(hybridSlideQuality(deckSpec).toFixed(3));
+      const groundingCoverage = Number(citationGroundingCoverage(deckSpec).toFixed(3));
+      const deterministicFallbackUsed = Boolean(fallbackUsage?.deterministic_fallback_used ?? fallbackUsage?.used);
+      const fallbackUsedAny = Boolean(fallbackUsage?.used);
+      const retryOnlyFallbackUsed = fallbackUsedAny && !deterministicFallbackUsed;
+      const deterministicFallbackEventCount = Number(
+        (fallbackUsage?.deterministic_fallback_event_count ?? fallbackUsage?.fallback_event_count) || 0
+      );
+      const fallbackEventCountAny = Number(fallbackUsage?.fallback_event_count || 0);
+      const agentRetryEventCount = Number(fallbackUsage?.agent_retry_event_count || 0);
 
       return {
         runId,
@@ -386,18 +474,26 @@ async function runOne(options, topic) {
         clarityScore: readerSim?.overall_clarity_score_0_to_5 ?? null,
         requiredFixes: Array.isArray(qaReport?.required_fixes) ? qaReport.required_fixes.length : null,
         storyForwardRatio: Number(storyForwardRatio(deckSpec).toFixed(3)),
+        introOutroPass: introOutro.pass,
+        introBeatCount: introOutro.introCount,
+        outroBeatCount: introOutro.outroCount,
+        hybridSlideQuality: hybridQuality,
+        citationGroundingCoverage: groundingCoverage,
         packagingCompleteness,
         mainRenderPlanCoverage: renderCoverage === null ? null : Number(renderCoverage.toFixed(3)),
         cluePayoffCoverage: Number(clueCoverage.toFixed(3)),
         renderPlanMarkerPass: renderPlanMarkerPass(mainRenderPlanText),
         placeholderSignals: placeholder,
-        fallbackUsed: Boolean(fallbackUsage?.used),
-        fallbackEventCount: Number(fallbackUsage?.fallback_event_count || 0),
-        deterministicFallbackUsed: Boolean(fallbackUsage?.deterministic_fallback_used ?? fallbackUsage?.used),
-        deterministicFallbackEventCount: Number(
-          (fallbackUsage?.deterministic_fallback_event_count ?? fallbackUsage?.fallback_event_count) || 0
-        ),
-        agentRetryEventCount: Number(fallbackUsage?.agent_retry_event_count || 0),
+        // `fallbackUsed` is the deterministic-fallback signal used by summary/SLO metrics.
+        // keep explicit *_Any fields to expose retry-only recoveries without conflating metrics.
+        fallbackUsed: deterministicFallbackUsed,
+        fallbackUsedAny,
+        retryOnlyFallbackUsed,
+        fallbackEventCount: deterministicFallbackEventCount,
+        fallbackEventCountAny,
+        deterministicFallbackUsed,
+        deterministicFallbackEventCount,
+        agentRetryEventCount,
         errorAgents: errorAgents(durations),
         maxAgentMs: maxAgentMs(durations)
       };
@@ -416,13 +512,21 @@ async function runOne(options, topic) {
     clarityScore: null,
     requiredFixes: null,
     storyForwardRatio: 0,
+    introOutroPass: false,
+    introBeatCount: 0,
+    outroBeatCount: 0,
+    hybridSlideQuality: 0,
+    citationGroundingCoverage: 0,
     packagingCompleteness: 0,
     mainRenderPlanCoverage: null,
     cluePayoffCoverage: null,
     renderPlanMarkerPass: false,
     placeholderSignals: ["timeout"],
     fallbackUsed: false,
+    fallbackUsedAny: false,
+    retryOnlyFallbackUsed: false,
     fallbackEventCount: 0,
+    fallbackEventCountAny: 0,
     deterministicFallbackUsed: false,
     deterministicFallbackEventCount: 0,
     agentRetryEventCount: 0,
@@ -449,13 +553,19 @@ function summarize(results) {
     avgTwistScore: avg(completed.map((item) => item.twistScore)),
     avgClarityScore: avg(completed.map((item) => item.clarityScore)),
     avgStoryForwardRatio: avg(completed.map((item) => item.storyForwardRatio)),
+    introOutroPassRate: avg(completed.map((item) => (item.introOutroPass ? 1 : 0))),
+    avgHybridSlideQuality: avg(completed.map((item) => item.hybridSlideQuality)),
+    avgCitationGroundingCoverage: avg(completed.map((item) => item.citationGroundingCoverage)),
     avgPackagingCompleteness: avg(completed.map((item) => item.packagingCompleteness)),
     avgMainRenderPlanCoverage: avg(completed.map((item) => item.mainRenderPlanCoverage)),
     avgCluePayoffCoverage: avg(completed.map((item) => item.cluePayoffCoverage)),
     renderPlanMarkerPassRate: avg(completed.map((item) => (item.renderPlanMarkerPass ? 1 : 0))),
     placeholderRunRate: avg(completed.map((item) => (item.placeholderSignals.length > 0 ? 1 : 0))),
-    fallbackRunRate: avg(completed.map((item) => (item.deterministicFallbackUsed ? 1 : 0))),
-    avgFallbackEventCount: avg(completed.map((item) => item.deterministicFallbackEventCount)),
+    fallbackRunRate: avg(completed.map((item) => (item.fallbackUsed ? 1 : 0))),
+    fallbackRunRateAny: avg(completed.map((item) => (item.fallbackUsedAny ? 1 : 0))),
+    retryOnlyFallbackRunRate: avg(completed.map((item) => (item.retryOnlyFallbackUsed ? 1 : 0))),
+    avgFallbackEventCount: avg(completed.map((item) => item.fallbackEventCount)),
+    avgFallbackEventCountAny: avg(completed.map((item) => item.fallbackEventCountAny)),
     avgAgentRetryEventCount: avg(completed.map((item) => item.agentRetryEventCount))
   };
 }
@@ -493,6 +603,9 @@ function evaluateSlo(summary, targets) {
   checkMin("avgTwistScore", summary.avgTwistScore, targets.minAvgTwistScore);
   checkMin("avgClarityScore", summary.avgClarityScore, targets.minAvgClarityScore);
   checkMin("avgStoryForwardRatio", summary.avgStoryForwardRatio, targets.minAvgStoryForwardRatio);
+  checkMin("introOutroPassRate", summary.introOutroPassRate, targets.minIntroOutroPassRate);
+  checkMin("avgHybridSlideQuality", summary.avgHybridSlideQuality, targets.minAvgHybridSlideQuality);
+  checkMin("avgCitationGroundingCoverage", summary.avgCitationGroundingCoverage, targets.minAvgCitationGroundingCoverage);
   checkMin("avgPackagingCompleteness", summary.avgPackagingCompleteness, targets.minAvgPackagingCompleteness);
   checkMin("avgMainRenderPlanCoverage", summary.avgMainRenderPlanCoverage, targets.minAvgMainRenderPlanCoverage);
   checkMin("avgCluePayoffCoverage", summary.avgCluePayoffCoverage, targets.minAvgCluePayoffCoverage);
@@ -529,13 +642,19 @@ function toMarkdown(report) {
     `- Avg twist score: ${String(report.summary.avgTwistScore)}`,
     `- Avg clarity score: ${String(report.summary.avgClarityScore)}`,
     `- Avg story-forward ratio: ${String(report.summary.avgStoryForwardRatio)}`,
+    `- Intro/outro pass rate: ${String(report.summary.introOutroPassRate)}`,
+    `- Avg hybrid-slide quality: ${String(report.summary.avgHybridSlideQuality)}`,
+    `- Avg citation-grounding coverage: ${String(report.summary.avgCitationGroundingCoverage)}`,
     `- Avg packaging completeness: ${String(report.summary.avgPackagingCompleteness)}`,
     `- Avg main render-plan coverage: ${String(report.summary.avgMainRenderPlanCoverage)}`,
     `- Avg clue payoff coverage: ${String(report.summary.avgCluePayoffCoverage)}`,
     `- Render-plan marker pass rate: ${String(report.summary.renderPlanMarkerPassRate)}`,
     `- Placeholder run rate: ${String(report.summary.placeholderRunRate)}`,
-    `- Fallback run rate: ${String(report.summary.fallbackRunRate)}`,
+    `- Fallback run rate (deterministic): ${String(report.summary.fallbackRunRate)}`,
+    `- Fallback run rate (any): ${String(report.summary.fallbackRunRateAny)}`,
+    `- Retry-only fallback run rate: ${String(report.summary.retryOnlyFallbackRunRate)}`,
     `- Avg fallback event count: ${String(report.summary.avgFallbackEventCount)}`,
+    `- Avg fallback event count (any): ${String(report.summary.avgFallbackEventCountAny)}`,
     `- Avg agent-retry event count: ${String(report.summary.avgAgentRetryEventCount)}`,
     `- Error rate: ${String(report.slo.evaluation.errorRate)}`,
     `- Timeout rate: ${String(report.slo.evaluation.timeoutRate)}`,
@@ -549,6 +668,9 @@ function toMarkdown(report) {
     `- minAvgTwistScore: ${String(report.slo.targets.minAvgTwistScore)}`,
     `- minAvgClarityScore: ${String(report.slo.targets.minAvgClarityScore)}`,
     `- minAvgStoryForwardRatio: ${String(report.slo.targets.minAvgStoryForwardRatio)}`,
+    `- minIntroOutroPassRate: ${String(report.slo.targets.minIntroOutroPassRate)}`,
+    `- minAvgHybridSlideQuality: ${String(report.slo.targets.minAvgHybridSlideQuality)}`,
+    `- minAvgCitationGroundingCoverage: ${String(report.slo.targets.minAvgCitationGroundingCoverage)}`,
     `- minAvgPackagingCompleteness: ${String(report.slo.targets.minAvgPackagingCompleteness)}`,
     `- minAvgMainRenderPlanCoverage: ${String(report.slo.targets.minAvgMainRenderPlanCoverage)}`,
     `- minAvgCluePayoffCoverage: ${String(report.slo.targets.minAvgCluePayoffCoverage)}`,
@@ -572,21 +694,24 @@ function toMarkdown(report) {
     "",
     "## Runs",
     "",
-    "| Topic | Run ID | Status | QA Accept | Med Pass | Story/Twist/Clarity | Story Ratio | Packaging | Render Cov | Clue Payoff | Placeholders | Fallback | Error Agents |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    "| Topic | Run ID | Status | QA Accept | Med Pass | Story/Twist/Clarity | Story Ratio | Intro/Outro | Hybrid | Citation | Packaging | Render Cov | Clue Payoff | Placeholders | Fallback | Error Agents |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   );
 
   for (const run of report.results) {
     const scores = [run.storyScore, run.twistScore, run.clarityScore].map((v) => (v === null ? "n/a" : String(v))).join("/");
     const errors = run.errorAgents.length > 0 ? run.errorAgents.join(", ") : "-";
     const placeholders = run.placeholderSignals.length > 0 ? run.placeholderSignals.join(", ") : "-";
-    const fallback = run.deterministicFallbackUsed
-      ? `deterministic (${run.deterministicFallbackEventCount})`
-      : run.fallbackUsed
+    const fallback = run.fallbackUsed
+      ? `deterministic (${run.fallbackEventCount})`
+      : run.fallbackUsedAny
         ? `retry-only (${run.agentRetryEventCount})`
         : "no";
+    const introOutro = run.introOutroPass
+      ? `pass (${run.introBeatCount}/${run.outroBeatCount})`
+      : `fail (${run.introBeatCount}/${run.outroBeatCount})`;
     lines.push(
-      `| ${run.topic} | ${run.runId} | ${run.status} | ${String(run.qaAccept)} | ${String(run.medPass)} | ${scores} | ${String(run.storyForwardRatio)} | ${String(run.packagingCompleteness)} | ${String(run.mainRenderPlanCoverage)} | ${String(run.cluePayoffCoverage)} | ${placeholders} | ${fallback} | ${errors} |`
+      `| ${run.topic} | ${run.runId} | ${run.status} | ${String(run.qaAccept)} | ${String(run.medPass)} | ${scores} | ${String(run.storyForwardRatio)} | ${introOutro} | ${String(run.hybridSlideQuality)} | ${String(run.citationGroundingCoverage)} | ${String(run.packagingCompleteness)} | ${String(run.mainRenderPlanCoverage)} | ${String(run.cluePayoffCoverage)} | ${placeholders} | ${fallback} | ${errors} |`
     );
   }
 

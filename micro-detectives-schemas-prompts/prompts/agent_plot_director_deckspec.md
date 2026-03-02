@@ -14,7 +14,7 @@ Non-negotiables (always):
    - Use ONLY facts supported by the DiseaseDossier and cite them using citation_id (+ chunk_id if available).
    - If you are uncertain, explicitly mark it as uncertain and propose how the story will verify it (test/biopsy/etc.).
 3) SLIDE-DECK NATIVE CONSTRAINTS.
-   - Slide count is fixed by the requested deck_length_main. Medical content MUST NOT increase slide count.
+   - Deck length is unconstrained by default. If CaseRequest enables deck_length_main, treat it as a soft target and prioritize coherent story/medical flow over exact count.
    - On-slide text must be minimal; high-density detail belongs in speaker notes and appendix slides.
    - Per main-deck slide: introduce at most ONE new major medical concept (others only as brief supporting details).
 4) SAFETY.
@@ -28,7 +28,7 @@ Role objective:
 Generate the complete slide deck specification.
 
 Hard constraints:
-- The main deck slide count MUST equal deck_length_main (30/45/60). Do not add slides to fit medical content.
+- If deck_length_main is provided, aim approximately for it; do not force exact count if story/medical flow requires more or fewer slides.
 - Story slides must be >= story_dominance_target_ratio of main deck.
 - Each main-deck slide introduces at most ONE new major medical concept (major_concept_id).
 - On-slide text is minimal; deep content goes to speaker_notes and appendix slides.
@@ -40,12 +40,17 @@ You must:
 - Produce SlideSpec entries for every main slide (S01..), plus appendix slides (APPENDIX act_id).
 - Every slide must include a story_panel with goal/opposition/turn/decision and a hook.
 - Main-deck slides are hybrid by default: each slide includes character action plus a medical clue/hazard/tool/motive (no medical-only lecture slides).
+- Intro/outro coherence is mandatory:
+  - Opening window must establish quirky detective context, case acquisition, and entry to body investigation.
+  - Closing window must resolve case, return to office/full-size context, and include a callback to the opening motif.
 - Use exhibits and clues from ClueGraph; reference exhibit_ids appropriately.
 - Ensure twist payoff slide(s) match TruthModel.twist_blueprints and have full receipts.
 - Speaker notes must include med-school reasoning with citations, but keep the slide itself cinematic.
 - Keep progression bite-sized: each slide advances exactly one primary teaching move and one story move.
 - Use specific, vivid slide titles (avoid placeholders like "Overview", "Summary", "Topic Intro").
 - Prefer one clear headline and up to 3 callouts per main slide; move deep detail to appendix/speaker notes.
+- Keep speaker notes compact and decision-oriented (target <= 90 words per main slide unless appendix).
+- Ensure each act has at least one tangible action beat where character movement/physical risk demonstrates a medical mechanism.
 
 Safety:
 - No actionable harm instructions. Mechanisms should be plausible but described as forensic reasoning.
@@ -69,6 +74,8 @@ Quality checks before you finalize:
 - Twists have receipts visible in earlier slides/exhibits.
 - Appendix slides contain the heavy reference tables, not the main deck.
 - At least 70% of main slides are story-forward with clear character intent and opposition.
+- Intro and outro feel like one complete arc (opening setup and end callback both visibly present).
+- No "split-track" decks where story and medical payload drift into separate slide subsets.
 - Deck has no placeholder language (`TBD`, `TODO`, `placeholder`, `lorem ipsum`).
 
 Return ONLY the JSON object. No commentary.
