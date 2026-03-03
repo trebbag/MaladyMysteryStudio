@@ -5,6 +5,7 @@
 
 export const V2CanonicalSchemaFiles = [
   "clue_graph.schema.json",
+  "deck_cohesion_pass.schema.json",
   "deck_spec.schema.json",
   "differential_cast.schema.json",
   "disease_dossier.schema.json",
@@ -13,14 +14,17 @@ export const V2CanonicalSchemaFiles = [
   "human_review.schema.json",
   "med_factcheck_report.schema.json",
   "micro_world_map.schema.json",
+  "narrative_state.schema.json",
   "qa_report.schema.json",
   "reader_sim_report.schema.json",
   "setpiece_plan.schema.json",
+  "slide_block.schema.json",
   "truth_model.schema.json"
 ] as const;
 
 export const V2CanonicalSchemaHashes = {
   "clue_graph.schema.json": "9bfef9b2ce5eb527815b1a0b120a7e7e33caf6ce020b3665931667c203188627",
+  "deck_cohesion_pass.schema.json": "07afdb214172dffc94d8c9c549c576f2a72bfe2c5fc75df30e6b9aeff164167d",
   "deck_spec.schema.json": "6ec27011b5ff01a3a8c3f9380699144b6cfcc364ddeb2475db35aa0e2c241f65",
   "differential_cast.schema.json": "bfe2185c9cb8cbbafbce69edea1dc8efdb151616f95f2030710c04784d3a47bd",
   "disease_dossier.schema.json": "de476862b0241e0892dcd080ae50b6d554a8faad141ed26cd0b2b46bca8dff36",
@@ -29,9 +33,11 @@ export const V2CanonicalSchemaHashes = {
   "human_review.schema.json": "70fc101a3ca770743a0f355f05c304e18e2c6e8376ee3dd91160f33f22ae20ba",
   "med_factcheck_report.schema.json": "b0cc7c9391d385f2d9f0f5f40f94b145685f0a3ab51d431afcf94a08125b9ab9",
   "micro_world_map.schema.json": "8dd84b2a010de524cf261803c0193445fa06a0bded472669ce98fe991da48c6f",
+  "narrative_state.schema.json": "86229431d42b6a74a2cefe1cec1a9c7894f65bdcf3445dadee3b486faa0e5abb",
   "qa_report.schema.json": "d0e372d88543777c7386d939f9f99ac03a16f110fe12c4c3feb2588713dfd6b0",
   "reader_sim_report.schema.json": "88d0c4c29ed0bc920f162346b4dcbceb02f53e44536a5a20ec1ef2a99170315c",
   "setpiece_plan.schema.json": "d47f24d4af9ef745df7c79fc937b340d7caf436724a5ead50627ddb9043d8c80",
+  "slide_block.schema.json": "3645c6d9e0b2024656536361bf1ec4747150887c0edf38c9485e1b03a7ce1e46",
   "truth_model.schema.json": "193a89566bed9b9fb2b08a89816d1970e054008ea0f5b32e593f7fc10cfa10e2"
 } as const;
 
@@ -437,6 +443,53 @@ export const V2CanonicalSchemas = {
       "constraints",
       "citations_used"
     ]
+  },
+  "deck_cohesion_pass.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "DeckCohesionPass",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "global_continuity_findings",
+      "act_obligation_gaps",
+      "must_fix_operations",
+      "narrative_risk_flags"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "global_continuity_findings": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "act_obligation_gaps": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "must_fix_operations": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "narrative_risk_flags": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
   },
   "deck_spec.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4179,6 +4232,102 @@ export const V2CanonicalSchemas = {
       "visual_style_guide"
     ]
   },
+  "narrative_state.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "NarrativeState",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "block_id",
+      "current_false_theory",
+      "relationship_state_detective_deputy",
+      "unresolved_emotional_thread",
+      "active_clue_obligations",
+      "active_motif_callback_lexicon",
+      "pressure_channels",
+      "recent_slide_excerpts",
+      "active_differential_ordering",
+      "delta_from_previous_block",
+      "canonical_profile_excerpt",
+      "episode_memory_excerpt"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "block_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "current_false_theory": {
+        "type": "string",
+        "minLength": 1
+      },
+      "relationship_state_detective_deputy": {
+        "type": "string",
+        "minLength": 1
+      },
+      "unresolved_emotional_thread": {
+        "type": "string",
+        "minLength": 1
+      },
+      "active_clue_obligations": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "active_motif_callback_lexicon": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "pressure_channels": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "recent_slide_excerpts": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 4,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "active_differential_ordering": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "delta_from_previous_block": {
+        "type": "string",
+        "minLength": 1
+      },
+      "canonical_profile_excerpt": {
+        "type": "string",
+        "minLength": 1
+      },
+      "episode_memory_excerpt": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
   "qa_report.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "QAReport",
@@ -4727,6 +4876,190 @@ export const V2CanonicalSchemas = {
       "schema_version",
       "setpieces",
       "quotas"
+    ]
+  },
+  "slide_block.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SlideBlock",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "block_id",
+      "act_id",
+      "slide_range",
+      "block_summary_out"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "block_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "act_id": {
+        "type": "string",
+        "enum": [
+          "ACT1",
+          "ACT2",
+          "ACT3",
+          "ACT4"
+        ]
+      },
+      "slide_range": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "prior_block_summary": {
+        "type": "string",
+        "minLength": 1
+      },
+      "unresolved_threads_in": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "slide_overrides": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "slide_id"
+          ],
+          "properties": {
+            "slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hook": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visual_description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delivery_mode": {
+              "type": "string",
+              "enum": [
+                "clue",
+                "dialogue",
+                "action",
+                "exhibit",
+                "note_only",
+                "none"
+              ]
+            },
+            "major_concept_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "speaker_notes_patch": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "operations": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "replace_slide",
+                "insert_after",
+                "split_slide",
+                "drop_slide",
+                "replace_window"
+              ]
+            },
+            "slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "after_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "start_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "end_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "replacement_slide": {
+              "type": "object"
+            },
+            "replacement_slides": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "unresolved_threads_out": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "block_summary_out": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "anyOf": [
+      {
+        "required": [
+          "slide_overrides"
+        ]
+      },
+      {
+        "required": [
+          "operations"
+        ]
+      }
     ]
   },
   "truth_model.schema.json": {

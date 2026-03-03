@@ -19,6 +19,7 @@ const REQUIRED_PROMPT_FILES = [
   "agent_drama_architect.md",
   "agent_episode_pitch.md",
   "agent_micro_world_mapper.md",
+  "agent_plot_director_cohesion_pass.md",
   "agent_plot_director_deckspec.md",
   "agent_qa_med_factcheck.md",
   "agent_qa_reader_sim.md",

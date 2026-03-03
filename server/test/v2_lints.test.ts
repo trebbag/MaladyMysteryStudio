@@ -124,7 +124,7 @@ describe("v2 micro-detectives deterministic lints", () => {
     expect(report.errors.some((e) => e.code === "STORY_DOMINANCE_BELOW_TARGET")).toBe(true);
   });
 
-  it("emits anti-generic quality warnings for repeated templates", () => {
+  it("escalates repeated template patterns to errors in strict quality lint mode", () => {
     const deck = generateV2DeckSpec({
       topic: "Hypertension",
       deckLengthMain: 30,
@@ -145,8 +145,8 @@ describe("v2 micro-detectives deterministic lints", () => {
       generationProfile: "quality",
       enforceQualityLints: true
     });
-    expect(report.errors.some((e) => e.code === "REPEATED_SLIDE_TITLE_TEMPLATE" && e.severity === "warning")).toBe(true);
-    expect(report.errors.some((e) => e.code === "REPEATED_HOOK_TEMPLATE" && e.severity === "warning")).toBe(true);
+    expect(report.errors.some((e) => e.code === "REPEATED_SLIDE_TITLE_TEMPLATE" && e.severity === "error")).toBe(true);
+    expect(report.errors.some((e) => e.code === "REPEATED_HOOK_TEMPLATE" && e.severity === "error")).toBe(true);
   });
 
   it("fails quality lint when story-planning stages use deterministic fallback provenance", () => {

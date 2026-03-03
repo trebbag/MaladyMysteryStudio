@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeckCohesionPass",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "global_continuity_findings",
+    "act_obligation_gaps",
+    "must_fix_operations",
+    "narrative_risk_flags"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "global_continuity_findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "act_obligation_gaps": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "must_fix_operations": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "narrative_risk_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

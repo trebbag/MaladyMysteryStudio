@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NarrativeState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "block_id",
+    "current_false_theory",
+    "relationship_state_detective_deputy",
+    "unresolved_emotional_thread",
+    "active_clue_obligations",
+    "active_motif_callback_lexicon",
+    "pressure_channels",
+    "recent_slide_excerpts",
+    "active_differential_ordering",
+    "delta_from_previous_block",
+    "canonical_profile_excerpt",
+    "episode_memory_excerpt"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "block_id": { "type": "string", "minLength": 1 },
+    "current_false_theory": { "type": "string", "minLength": 1 },
+    "relationship_state_detective_deputy": { "type": "string", "minLength": 1 },
+    "unresolved_emotional_thread": { "type": "string", "minLength": 1 },
+    "active_clue_obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "active_motif_callback_lexicon": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "pressure_channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recent_slide_excerpts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "active_differential_ordering": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "delta_from_previous_block": { "type": "string", "minLength": 1 },
+    "canonical_profile_excerpt": { "type": "string", "minLength": 1 },
+    "episode_memory_excerpt": { "type": "string", "minLength": 1 }
+  }
+}

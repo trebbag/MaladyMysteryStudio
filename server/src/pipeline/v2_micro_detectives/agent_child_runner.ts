@@ -17,6 +17,7 @@ export type V2AgentKey =
   | "storyBlueprint"
   | "actOutline"
   | "slideBlockAuthor"
+  | "deckCohesionPass"
   | "plotDirectorDeckSpec"
   | "readerSim"
   | "medFactcheck";

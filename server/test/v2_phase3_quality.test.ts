@@ -467,4 +467,44 @@ describe("v2 phase-3 quality helpers", () => {
     expect(qa.required_fixes.some((fix) => fix.fix_id === "NAR-FALSE-THEORY-COLLAPSE")).toBe(true);
     expect(qa.required_fixes.some((fix) => fix.fix_id === "NAR-ENDING-CALLBACK")).toBe(true);
   });
+
+  it("uses higher story-dominance intervention threshold in quality profile", () => {
+    const base = {
+      topic: "Heart block",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+    reader.overall_story_dominance_score_0_to_5 = 3.5;
+    reader.required_fixes = [];
+
+    const qualityQa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck,
+      generationProfile: "quality"
+    });
+    const pilotQa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck,
+      generationProfile: "pilot"
+    });
+
+    expect(qualityQa.required_fixes.some((fix) => fix.fix_id === "NAR-READER-STORY-DOMINANCE")).toBe(true);
+    expect(pilotQa.required_fixes.some((fix) => fix.fix_id === "NAR-READER-STORY-DOMINANCE")).toBe(false);
+  });
 });

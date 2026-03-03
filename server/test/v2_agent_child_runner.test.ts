@@ -7,7 +7,7 @@ vi.mock("node:child_process", () => ({
   fork: forkMock
 }));
 
-import { runV2AgentInChild } from "../src/pipeline/v2_micro_detectives/agent_child_runner.js";
+import { runV2AgentInChild, type V2AgentKey } from "../src/pipeline/v2_micro_detectives/agent_child_runner.js";
 
 type MockChild = EventEmitter & {
   stdout: EventEmitter;
@@ -34,6 +34,29 @@ afterEach(() => {
 });
 
 describe("v2 agent child runner", () => {
+  it("keeps child-runner key contract aligned with pipeline-required agents", () => {
+    const requiredKeys = [
+      "kbCompiler",
+      "diseaseResearch",
+      "episodePitch",
+      "truthModel",
+      "differentialCast",
+      "clueArchitect",
+      "microWorldMap",
+      "dramaPlan",
+      "setpiecePlan",
+      "storyBlueprint",
+      "actOutline",
+      "slideBlockAuthor",
+      "deckCohesionPass",
+      "plotDirectorDeckSpec",
+      "readerSim",
+      "medFactcheck"
+    ] as const;
+    const typedKeys: V2AgentKey[] = [...requiredKeys];
+    expect(new Set(typedKeys).size).toBe(requiredKeys.length);
+  });
+
   it("returns output when child responds with ok=true", async () => {
     forkMock.mockImplementation(() =>
       makeMockChild((child, payload) => {

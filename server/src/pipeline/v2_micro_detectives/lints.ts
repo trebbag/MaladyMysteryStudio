@@ -302,8 +302,7 @@ export function lintDeckSpecPhase1(
       3
     );
     for (const group of duplicateTitleGroups) {
-      pushWarning(
-        errors,
+      pushNarrativeSignal(
         "REPEATED_SLIDE_TITLE_TEMPLATE",
         `Slides reuse the same title template across ${group.slideIds.length} slides (${group.slideIds.slice(0, 5).join(", ")}).`,
         group.slideIds[0]
@@ -315,8 +314,7 @@ export function lintDeckSpecPhase1(
       3
     );
     for (const group of duplicateHookGroups) {
-      pushWarning(
-        errors,
+      pushNarrativeSignal(
         "REPEATED_HOOK_TEMPLATE",
         `Slides reuse the same hook template across ${group.slideIds.length} slides (${group.slideIds.slice(0, 5).join(", ")}).`,
         group.slideIds[0]
@@ -333,8 +331,7 @@ export function lintDeckSpecPhase1(
       3
     );
     for (const group of duplicateStoryPanelGroups) {
-      pushWarning(
-        errors,
+      pushNarrativeSignal(
         "REPEATED_STORY_PANEL_TEMPLATE",
         `Slides reuse the same story-panel template across ${group.slideIds.length} slides (${group.slideIds.slice(0, 5).join(", ")}).`,
         group.slideIds[0]

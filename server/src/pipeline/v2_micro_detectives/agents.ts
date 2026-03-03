@@ -3,6 +3,7 @@ import type { V2AssetBundle } from "./assets.js";
 import {
   ActOutlineSchema,
   ClueGraphSchema,
+  DeckCohesionPassSchema,
   DeckSpecSchema,
   SlideBlockSchema,
   StoryBlueprintSchema,
@@ -24,6 +25,7 @@ export const factcheckSettings = { ...baseSettings, temperature: 0.1, maxOutputT
 export const structureSettings = { ...baseSettings, maxOutputTokens: 12000 };
 export const storySettings = { ...baseSettings, temperature: 0.55, maxOutputTokens: 22000 };
 export const deckBlockSettings = { ...baseSettings, temperature: 0.5, maxOutputTokens: 24000 };
+export const readerSimSettings = { ...baseSettings, temperature: 0.35, maxOutputTokens: 16000 };
 export const storyBlueprintSettings = { ...storySettings, temperature: 0.58, maxOutputTokens: 24000 };
 export const actOutlineSettings = { ...structureSettings, temperature: 0.35, maxOutputTokens: 16000 };
 export const plotDirectorSettings = { ...deckBlockSettings, temperature: 0.48, maxOutputTokens: 26000 };
@@ -166,11 +168,22 @@ export function makeV2SlideBlockAuthorAgent(assets: V2AssetBundle) {
   });
 }
 
+export function makeV2DeckCohesionPassAgent(assets: V2AssetBundle) {
+  return new Agent({
+    name: "V2 Deck Cohesion Pass",
+    model: baseModel,
+    modelSettings: structureSettings,
+    tools: [],
+    outputType: DeckCohesionPassSchema,
+    instructions: instructionsFromAssets(assets, "agent_plot_director_cohesion_pass.md")
+  });
+}
+
 export function makeV2ReaderSimAgent(assets: V2AssetBundle) {
   return new Agent({
     name: "V2 Reader Simulator",
     model: baseModel,
-    modelSettings: factcheckSettings,
+    modelSettings: readerSimSettings,
     tools: [],
     outputType: ReaderSimReportSchema,
     instructions: instructionsFromAssets(assets, "agent_qa_reader_sim.md")

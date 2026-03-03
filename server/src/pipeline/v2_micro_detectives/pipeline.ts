@@ -5,6 +5,7 @@ import { z } from "zod";
 import { PipelinePause } from "../../executor.js";
 import type { RunManager, RunSettings, StepName } from "../../run_manager.js";
 import { loadCanonicalProfile } from "../canon.js";
+import { loadEpisodeMemory } from "../memory.js";
 import { makeKbCompilerAgent } from "../agents.js";
 import { nowIso, resolveArtifactPathAbs, runFinalDirAbs, runIntermediateDirAbs, writeJsonFile, writeTextFile } from "../utils.js";
 import { parseChapterOutlineArtifact, StoryBeatsSchema } from "../workshop.js";
@@ -14,6 +15,7 @@ import { runV2AgentInChild, type V2AgentKey } from "./agent_child_runner.js";
 import {
   makeV2ActOutlineAgent,
   makeV2ClueArchitectAgent,
+  makeV2DeckCohesionPassAgent,
   makeV2DifferentialCastAgent,
   makeV2DiseaseResearchAgent,
   makeV2DramaPlanAgent,
@@ -29,10 +31,13 @@ import {
 } from "./agents.js";
 import {
   assembleDeckFromSlideBlocks,
+  buildNarrativeStateForBlock,
   buildActOutlineFallback,
   buildBlockPromptContext,
   buildSlideBlockFallback,
   buildStoryBlueprintFallback,
+  collectBlockAuthoredSlideIds,
+  normalizeSlideBlockOperations,
   planSlideBlocksFromOutline
 } from "./authoring_stages.js";
 import { buildCitationTraceabilityReport } from "./citation_traceability.js";
@@ -68,6 +73,7 @@ import { gateRequirementArtifactName, latestGateDecision, readHumanReviewStore }
 import {
   ClueGraphSchema,
   DeckAssemblyReportSchema,
+  DeckCohesionPassSchema,
   DeckSpecSchema,
   DifferentialCastSchema,
   DramaPlanSchema,
@@ -77,6 +83,7 @@ import {
   MedFactcheckReportSchema,
   MicroWorldMapSchema,
   ReaderSimReportSchema,
+  NarrativeStateSchema,
   SetpiecePlanSchema,
   SlideBlockSchema,
   StoryBlueprintSchema,
@@ -515,6 +522,106 @@ function buildStageAuthoringProvenance(input: {
       setpiece_plan: { source: input.setpiece.source, reason: input.setpiece.reason, timestamp: at }
     }
   });
+}
+
+function clipExcerpt(text: string, maxChars = 1800): string {
+  const normalized = String(text ?? "").replace(/\r\n/g, "\n").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars)}\n[TRUNCATED]`;
+}
+
+function buildCanonicalProfileExcerpt(canonicalProfile: Awaited<ReturnType<typeof loadCanonicalProfile>>): string {
+  const sections = [
+    canonicalProfile.character_bible_md ?? "",
+    canonicalProfile.series_style_bible_md ?? "",
+    canonicalProfile.deck_spec_md ?? ""
+  ]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+  return clipExcerpt(sections.length > 0 ? sections : canonicalProfile.combined_markdown, 2200);
+}
+
+function buildEpisodeMemoryExcerpt(memory: Awaited<ReturnType<typeof loadEpisodeMemory>>): string {
+  const recent = memory.recent.slice(0, 8);
+  if (recent.length === 0) return "No prior episode memory entries.";
+  const lines = recent.map((entry, index) => {
+    const motifs = entry.variety?.motifs?.slice(0, 3).join(", ") || "none";
+    return `${index + 1}. ${entry.runId} | key=${entry.key} | genre=${entry.variety?.genre_wrapper ?? "unknown"} | body=${entry.variety?.body_setting ?? "unknown"} | motifs=${motifs}`;
+  });
+  return clipExcerpt(lines.join("\n"), 1500);
+}
+
+function recentSlideExcerpts(deck: ReturnType<typeof DeckSpecSchema.parse>, start: number, end: number): string[] {
+  const inWindow = deck.slides
+    .filter((slide) => {
+      const n = parseSlideNumber(slide.slide_id);
+      return n !== null && n >= start && n <= end;
+    })
+    .slice(0, 4);
+  return inWindow.map((slide) =>
+    clipExcerpt(`${slide.slide_id} ${slide.title}\n${slide.hook}\n${slide.story_panel.turn}\n${slide.speaker_notes.narrative_notes ?? ""}`, 260)
+  );
+}
+
+function compactMedicalSliceForBlock(input: {
+  plan: { start: number; end: number };
+  diseaseDossier: ReturnType<typeof DiseaseDossierSchema.parse>;
+  truthModel: ReturnType<typeof TruthModelSchema.parse>;
+  differentialCast: ReturnType<typeof DifferentialCastSchema.parse>;
+  clueGraph: ReturnType<typeof ClueGraphSchema.parse>;
+  microWorldMap: ReturnType<typeof MicroWorldMapSchema.parse>;
+  dramaPlan: ReturnType<typeof DramaPlanSchema.parse>;
+  setpiecePlan: ReturnType<typeof SetpiecePlanSchema.parse>;
+}) {
+  const clueWindow = input.clueGraph.clues.filter((clue) => {
+    const firstSeen = parseSlideNumber(clue.first_seen_slide_id);
+    const payoff = parseSlideNumber(clue.payoff_slide_id);
+    return (
+      (firstSeen !== null && firstSeen >= input.plan.start - 6 && firstSeen <= input.plan.end + 6) ||
+      (payoff !== null && payoff >= input.plan.start - 6 && payoff <= input.plan.end + 6)
+    );
+  });
+  return {
+    dossier_focus: {
+      canonical_name: input.diseaseDossier.canonical_name,
+      top_sections: input.diseaseDossier.sections.slice(0, 4).map((section) => ({
+        section: section.section,
+        key_points: section.key_points.slice(0, 3),
+        citations: section.citations.slice(0, 2).map((cite) => cite.citation_id)
+      }))
+    },
+    truth_focus: {
+      final_diagnosis: input.truthModel.final_diagnosis,
+      twist_blueprint: input.truthModel.twist_blueprint,
+      cover_story: input.truthModel.cover_story
+    },
+    differential_focus: {
+      suspects: input.differentialCast.primary_suspects.slice(0, 5).map((suspect) => ({
+        dx_id: suspect.dx_id,
+        name: suspect.name,
+        why_tempting: clampText(suspect.why_tempting, 140)
+      })),
+      rotation_plan: input.differentialCast.rotation_plan
+    },
+    clue_focus: {
+      clues: clueWindow.slice(0, 8),
+      red_herrings: input.clueGraph.red_herrings.slice(0, 4),
+      twist_support_matrix: input.clueGraph.twist_support_matrix.slice(0, 6)
+    },
+    micro_world_focus: {
+      zones: input.microWorldMap.zones.slice(0, 4),
+      hazards: input.microWorldMap.hazards.slice(0, 4)
+    },
+    drama_focus: {
+      relationship_arcs: input.dramaPlan.relationship_arcs.slice(0, 3),
+      pressure_ladder: input.dramaPlan.pressure_ladder,
+      chapter_or_act_setups: (input.dramaPlan.chapter_or_act_setups ?? []).slice(0, 4)
+    },
+    setpiece_focus: {
+      setpieces: input.setpiecePlan.setpieces.filter((sp) => sp.act_id !== "ACT4" || input.plan.end >= input.plan.start).slice(0, 6)
+    }
+  };
 }
 
 function storyBeatsMarkerCoverage(storyBeats: z.infer<typeof StoryBeatsSchema>) {
@@ -1176,6 +1283,21 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
   const canonicalProfile = await loadCanonicalProfile();
   await runs.setCanonicalSources(runId, { ...canonicalProfile.paths, foundAny: canonicalProfile.foundAny });
+  const canonicalProfileExcerpt = buildCanonicalProfileExcerpt(canonicalProfile);
+  const episodeMemory = await loadEpisodeMemory().catch(() => ({ recent: [] as Array<{
+    at: string;
+    runId: string;
+    key: string;
+    variety: {
+      genre_wrapper: string;
+      body_setting: string;
+      antagonist_archetype: string;
+      twist_type: string;
+      signature_gadget: string;
+      motifs: string[];
+    };
+  }> }));
+  const episodeMemoryExcerpt = buildEpisodeMemoryExcerpt(episodeMemory);
 
   const runnerBundle = createStructuredRunners();
   const childIsolation = useChildAgentIsolation();
@@ -1468,6 +1590,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     const storyBlueprintAgent = makeV2StoryBlueprintAgent(assets);
     const actOutlineAgent = makeV2ActOutlineAgent(assets);
     const slideBlockAuthorAgent = makeV2SlideBlockAuthorAgent(assets);
+    const deckCohesionPassAgent = makeV2DeckCohesionPassAgent(assets);
     const plotDirectorDeckSpecAgent = makeV2PlotDirectorDeckSpecAgent(assets);
     const readerSimAgent = makeV2ReaderSimAgent(assets);
     const medFactcheckAgent = makeV2MedFactcheckAgent(assets);
@@ -2289,7 +2412,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         }
         await writeIntermediateJson("C", "act_outline.json", actOutline);
 
-        const blockPlans = planSlideBlocksFromOutline(actOutline);
+        let blockPlans = planSlideBlocksFromOutline(actOutline);
         await writeIntermediateJson(
           "C",
           "slide_block_plan.json",
@@ -2329,16 +2452,75 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
         const authoredBlocks: ReturnType<typeof SlideBlockSchema.parse>[] = [];
         const agentAuthoredSlideIds = new Set<string>();
+        let assembledForNarrativeState = DeckSpecSchema.parse(fallbackSeedDeck);
+        let currentNarrativeState = NarrativeStateSchema.parse(
+          buildNarrativeStateForBlock({
+            blockId: "INIT",
+            storyBlueprint,
+            actOutline,
+            unresolvedThreads: storyBlueprint.unresolved_threads.slice(0, 8),
+            priorBlockSummary: "Initial narrative state before block authoring.",
+            recentSlideExcerpts: recentSlideExcerpts(fallbackSeedDeck, 1, Math.min(4, fallbackSeedDeck.slides.length)),
+            activeDifferentialOrdering: [
+              ...(workingDifferential.rotation_plan.act1_focus_dx_ids ?? []),
+              ...(workingDifferential.rotation_plan.act2_expansion_dx_ids ?? []),
+              ...(workingDifferential.rotation_plan.act3_collapse_dx_ids ?? []),
+              workingDifferential.rotation_plan.act4_final_dx_id
+            ]
+              .filter((dx): dx is string => typeof dx === "string" && dx.trim().length > 0)
+              .slice(0, 6),
+            canonicalProfileExcerpt,
+            episodeMemoryExcerpt
+          })
+        );
+        await writeIntermediateJson("C", "narrative_state_current.json", currentNarrativeState);
         let priorSummary = "No prior block summary.";
         let unresolvedThreads = storyBlueprint.unresolved_threads.slice(0, 8);
         for (const [planIndex, plan] of blockPlans.entries()) {
+          const narrativeState = NarrativeStateSchema.parse(
+            buildNarrativeStateForBlock({
+              blockId: plan.blockId,
+              storyBlueprint,
+              actOutline,
+              unresolvedThreads,
+              priorBlockSummary: priorSummary,
+              recentSlideExcerpts: recentSlideExcerpts(assembledForNarrativeState, Math.max(1, plan.start - 4), Math.min(assembledForNarrativeState.slides.length, plan.start + 2)),
+              activeDifferentialOrdering: [
+                ...(workingDifferential.rotation_plan.act1_focus_dx_ids ?? []),
+                ...(workingDifferential.rotation_plan.act2_expansion_dx_ids ?? []),
+                ...(workingDifferential.rotation_plan.act3_collapse_dx_ids ?? []),
+                workingDifferential.rotation_plan.act4_final_dx_id
+              ]
+                .filter((dx): dx is string => typeof dx === "string" && dx.trim().length > 0)
+                .slice(0, 6),
+              canonicalProfileExcerpt,
+              episodeMemoryExcerpt,
+              previousState: currentNarrativeState
+            })
+          );
+          currentNarrativeState = narrativeState;
+          await writeIntermediateJson("C", `narrative_state_block_${plan.blockId}.json`, narrativeState);
+
+          const medicalSlice = compactMedicalSliceForBlock({
+            plan,
+            diseaseDossier,
+            truthModel,
+            differentialCast: workingDifferential,
+            clueGraph: workingClueGraph,
+            microWorldMap: workingMicroWorldMap,
+            dramaPlan: workingDramaPlan,
+            setpiecePlan: workingSetpiecePlan
+          });
+
           let block = buildSlideBlockFallback({
             deck: fallbackSeedDeck,
             plan,
             priorSummary
           });
           let blockFromAgent = false;
-          if (!deterministicPlanning && !fallbackForLowBudget(`slideBlock.${plan.blockId}.preflight`, Math.max(80_000, Math.round(cTimeoutMs * 0.6)))) {
+          const blockPreflightSkipped =
+            deterministicPlanning || fallbackForLowBudget(`slideBlock.${plan.blockId}.preflight`, Math.max(80_000, Math.round(cTimeoutMs * 0.6)));
+          if (!blockPreflightSkipped) {
             try {
               block = SlideBlockSchema.parse(
                 await runIsolatedAgentOutput({
@@ -2350,15 +2532,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                     plan,
                     storyBlueprint,
                     actOutline,
-                    priorBlockSummary: priorSummary,
-                    unresolvedThreads,
-                    diseaseDossier,
-                    truthModel,
-                    differentialCast: workingDifferential,
-                    clueGraph: workingClueGraph,
-                    microWorldMap: workingMicroWorldMap,
-                    dramaPlan: workingDramaPlan,
-                    setpiecePlan: workingSetpiecePlan
+                    narrativeState,
+                    medicalSlice
                   }) + `\n\n${storyBeatsPromptSection}`,
                   maxTurns: 8,
                   timeoutMs: cTimeoutMs,
@@ -2366,17 +2541,48 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 })
               );
               blockFromAgent = true;
+              deckAuthoringContextManifest.attempts.push({
+                attempt_id: `slideBlockAuthor.${plan.blockId}.primary`,
+                prompt_variant: "block_primary",
+                context_mode: "compact",
+                reason: "block_authoring",
+                result: "success"
+              });
             } catch (err) {
               if (shouldAbortOnError(err, cSignal)) throw err;
               const msg = err instanceof Error ? err.message : String(err);
               runs.log(runId, `SlideBlockAuthor agent fallback activated (${plan.blockId}; ${msg}).`, "C");
               recordFallback("deterministic_fallback", `slideBlockAuthor.${plan.blockId}`, msg);
+              deckAuthoringContextManifest.attempts.push({
+                attempt_id: `slideBlockAuthor.${plan.blockId}.primary`,
+                prompt_variant: "block_primary",
+                context_mode: "compact",
+                reason: "block_authoring",
+                result: "error",
+                details: clampText(msg, 320)
+              });
             }
+          } else {
+            deckAuthoringContextManifest.attempts.push({
+              attempt_id: `slideBlockAuthor.${plan.blockId}.primary`,
+              prompt_variant: "block_primary",
+              context_mode: "compact",
+              reason: deterministicPlanning ? "deterministic_planning_mode" : "budget_guard_preflight",
+              result: "skipped"
+            });
           }
+          const normalizedOps = normalizeSlideBlockOperations({
+            block,
+            currentSlides: assembledForNarrativeState.slides
+          });
+          await writeIntermediateJson("C", `block_authoring_ops_${plan.blockId}.json`, {
+            schema_version: "1.0.0",
+            block_id: plan.blockId,
+            operations: normalizedOps.operations,
+            warnings: normalizedOps.warnings
+          });
           if (blockFromAgent) {
-            for (const override of block.slide_overrides) {
-              agentAuthoredSlideIds.add(override.slide_id);
-            }
+            for (const slideId of collectBlockAuthoredSlideIds(block)) agentAuthoredSlideIds.add(slideId);
           }
           authoredBlocks.push(block);
           priorSummary = block.block_summary_out;
@@ -2388,6 +2594,12 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             completed_at: nowIso()
           };
           await writeIntermediateJson("C", "slide_block_checkpoint_index.json", blockCheckpointIndex);
+          const partialAssembly = assembleDeckFromSlideBlocks({
+            scaffoldDeck: fallbackSeedDeck,
+            blocks: authoredBlocks
+          });
+          assembledForNarrativeState = DeckSpecSchema.parse(partialAssembly.deck);
+          await writeIntermediateJson("C", "narrative_state_current.json", currentNarrativeState);
         }
 
         const assembled = (() => {
@@ -2416,6 +2628,87 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         let workingDeck: ReturnType<typeof DeckSpecSchema.parse> = assembled.deck;
         let deckUsedDeterministicFallback = false;
         const useMonolithicDeckAuthoring = generationProfile === "pilot" || deterministicPlanning;
+        if (!useMonolithicDeckAuthoring) {
+          try {
+            const cohesionPrompt =
+              `DECK SPEC (json):\n${JSON.stringify(workingDeck, null, 2)}\n\n` +
+              `STORY BLUEPRINT (json):\n${JSON.stringify(storyBlueprint, null, 2)}\n\n` +
+              `ACT OUTLINE (json):\n${JSON.stringify(actOutline, null, 2)}\n\n` +
+              `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+              `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
+              `SETPIECE PLAN (json):\n${JSON.stringify(workingSetpiecePlan, null, 2)}\n\n` +
+              `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+            const cohesionPass = DeckCohesionPassSchema.parse(
+              await runIsolatedAgentOutput({
+                step: "C",
+                agentKey: "deckCohesionPass",
+                agent: deckCohesionPassAgent,
+                prompt: cohesionPrompt,
+                maxTurns: 6,
+                timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.65)),
+                signal: cSignal
+              })
+            );
+            deckAuthoringContextManifest.attempts.push({
+              attempt_id: "deckCohesionPass.primary",
+              prompt_variant: "cohesion_pass",
+              context_mode: "full",
+              reason: "quality_continuity_pass",
+              result: "success"
+            });
+            await writeIntermediateJson("C", "deck_cohesion_pass.json", cohesionPass);
+            if (cohesionPass.must_fix_operations.length > 0) {
+              const cohesionBlock = SlideBlockSchema.parse({
+                schema_version: "1.0.0",
+                block_id: "COHESION_PASS",
+                act_id: "ACT4",
+                slide_range: { start: 1, end: Math.max(1, workingDeck.slides.length) },
+                operations: cohesionPass.must_fix_operations,
+                block_summary_out: "Applied deck cohesion pass operations."
+              });
+              for (const slideId of collectBlockAuthoredSlideIds(cohesionBlock)) agentAuthoredSlideIds.add(slideId);
+              const cohesionOps = normalizeSlideBlockOperations({
+                block: cohesionBlock,
+                currentSlides: workingDeck.slides
+              });
+              await writeIntermediateJson("C", "block_authoring_ops_COHESION_PASS.json", {
+                schema_version: "1.0.0",
+                block_id: "COHESION_PASS",
+                operations: cohesionOps.operations,
+                warnings: cohesionOps.warnings
+              });
+              const cohesionAssembly = assembleDeckFromSlideBlocks({
+                scaffoldDeck: workingDeck,
+                blocks: [cohesionBlock]
+              });
+              workingDeck = DeckSpecSchema.parse({
+                ...cohesionAssembly.deck,
+                slides: cohesionAssembly.deck.slides.map((slide) =>
+                  agentAuthoredSlideIds.has(slide.slide_id)
+                    ? { ...slide, authoring_provenance: "agent_authored" as const }
+                    : slide
+                )
+              });
+              await writeIntermediateJson("C", "deck_assembly_report_cohesion_pass.json", DeckAssemblyReportSchema.parse(cohesionAssembly.report));
+              await writeIntermediateJson("C", "deck_spec_after_cohesion_pass.json", workingDeck);
+              runs.log(runId, `Applied ${cohesionPass.must_fix_operations.length} cohesion-pass operation(s).`, "C");
+            }
+          } catch (cohesionErr) {
+            if (shouldAbortOnError(cohesionErr, cSignal)) throw cohesionErr;
+            const msg = cohesionErr instanceof Error ? cohesionErr.message : String(cohesionErr);
+            deckAuthoringContextManifest.attempts.push({
+              attempt_id: "deckCohesionPass.primary",
+              prompt_variant: "cohesion_pass",
+              context_mode: "full",
+              reason: "quality_continuity_pass",
+              result: "error",
+              details: clampText(msg, 320)
+            });
+            if (adherenceMode === "strict") throw cohesionErr;
+            runs.log(runId, `Deck cohesion pass unavailable; continuing with assembled deck (${msg}).`, "C");
+            recordFallback("agent_retry", "deckCohesionPass", msg);
+          }
+        }
         if (useMonolithicDeckAuthoring) {
           if (
             deckSpecMode === "agent_full" &&
@@ -2800,7 +3093,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               readerSimReport: finalReader,
               medFactcheckReport: finalFactcheck,
               clueGraph: workingClueGraph,
-              deckSpec: workingDeck
+              deckSpec: workingDeck,
+              generationProfile
             })
           );
           const semanticMetrics = evaluateSemanticAcceptance(workingDeck, semanticThresholds);
@@ -2850,6 +3144,97 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           let structuralRegenApplied = false;
 
           if (generationProfile === "quality" && structuralFixes.length > 0) {
+            const structuralTrace: {
+              schema_version: "1.0.0";
+              loop: number;
+              fix_count: number;
+              fix_types: string[];
+              routes: string[];
+              regenerated_blocks: string[];
+              warnings: string[];
+            } = {
+              schema_version: "1.0.0",
+              loop: attempt,
+              fix_count: structuralFixes.length,
+              fix_types: [...new Set(structuralFixes.map((fix) => fix.type))],
+              routes: [],
+              regenerated_blocks: [],
+              warnings: []
+            };
+            const requiresArcRegen = structuralFixes.some(
+              (fix) =>
+                fix.type === "increase_story_turn" ||
+                fix.type === "regenerate_section" ||
+                fix.type === "add_twist_receipts"
+            );
+            if (requiresArcRegen) {
+              const arcFixSummary = structuralFixes
+                .map((fix) => `${fix.type}: ${fix.description}`)
+                .slice(0, 16);
+              try {
+                storyBlueprint = StoryBlueprintSchema.parse(
+                  await runIsolatedAgentOutput({
+                    step: "C",
+                    agentKey: "storyBlueprint",
+                    agent: storyBlueprintAgent,
+                    prompt:
+                      `${storyBlueprintPrompt}\n\n` +
+                      `STRUCTURAL QUALITY FIXES (json):\n${JSON.stringify(arcFixSummary, null, 2)}\n\n` +
+                      "REGEN OBJECTIVE:\n" +
+                      "- Strengthen false-theory lock/collapse and detective/deputy rupture+repair continuity.\n" +
+                      "- Preserve clue fairness and ending callback closure.",
+                    maxTurns: 8,
+                    timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.75)),
+                    signal: cSignal
+                  })
+                );
+                structuralTrace.routes.push("story_blueprint_regen");
+                await writeIntermediateJson("C", `story_blueprint_regen_loop${attempt}.json`, storyBlueprint);
+              } catch (storyRegenErr) {
+                if (shouldAbortOnError(storyRegenErr, cSignal)) throw storyRegenErr;
+                const msg = storyRegenErr instanceof Error ? storyRegenErr.message : String(storyRegenErr);
+                structuralTrace.warnings.push(`story_blueprint_regen_failed: ${msg}`);
+                if (adherenceMode === "strict") throw storyRegenErr;
+                runs.log(runId, `Story blueprint regeneration unavailable (${msg}); continuing with prior blueprint.`, "C");
+              }
+
+              try {
+                actOutline = ActOutlineSchema.parse(
+                  await runIsolatedAgentOutput({
+                    step: "C",
+                    agentKey: "actOutline",
+                    agent: actOutlineAgent,
+                    prompt:
+                      `TOPIC:\n${topic}\n\n` +
+                      `STORY BLUEPRINT (json):\n${JSON.stringify(storyBlueprint, null, 2)}\n\n` +
+                      `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+                      `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+                      `STRUCTURAL QUALITY FIXES (json):\n${JSON.stringify(arcFixSummary, null, 2)}\n\n` +
+                      `${storyBeatsPromptSection}`,
+                    maxTurns: 8,
+                    timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.75)),
+                    signal: cSignal
+                  })
+                );
+                structuralTrace.routes.push("act_outline_regen");
+                await writeIntermediateJson("C", `act_outline_regen_loop${attempt}.json`, actOutline);
+                const nextPlans = planSlideBlocksFromOutline(actOutline);
+                if (nextPlans.length === blockPlans.length) {
+                  blockPlans = nextPlans;
+                } else {
+                  structuralTrace.warnings.push(
+                    `act_outline_regen produced ${nextPlans.length} blocks; keeping prior block plan count=${blockPlans.length}`
+                  );
+                }
+              } catch (actRegenErr) {
+                if (shouldAbortOnError(actRegenErr, cSignal)) throw actRegenErr;
+                const msg = actRegenErr instanceof Error ? actRegenErr.message : String(actRegenErr);
+                structuralTrace.warnings.push(`act_outline_regen_failed: ${msg}`);
+                if (adherenceMode === "strict") throw actRegenErr;
+                runs.log(runId, `Act outline regeneration unavailable (${msg}); continuing with prior outline.`, "C");
+              }
+            }
+
             const blockIndexes = resolveStructuralBlockIndexes(
               structuralFixes,
               blockPlans.map((plan) => ({ start: plan.start, end: plan.end }))
@@ -2875,6 +3260,37 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                   return false;
                 })
                 .map((fix) => `${fix.type}: ${fix.description}`);
+              const regenNarrativeState = NarrativeStateSchema.parse(
+                buildNarrativeStateForBlock({
+                  blockId: `${plan.blockId}:regen_loop${attempt}`,
+                  storyBlueprint,
+                  actOutline,
+                  unresolvedThreads: unresolvedThreadsIn,
+                  priorBlockSummary,
+                  recentSlideExcerpts: recentSlideExcerpts(workingDeck, plan.start, plan.end),
+                  activeDifferentialOrdering: [
+                    ...(workingDifferential.rotation_plan.act1_focus_dx_ids ?? []),
+                    ...(workingDifferential.rotation_plan.act2_expansion_dx_ids ?? []),
+                    ...(workingDifferential.rotation_plan.act3_collapse_dx_ids ?? []),
+                    workingDifferential.rotation_plan.act4_final_dx_id
+                  ]
+                    .filter((dx): dx is string => typeof dx === "string" && dx.trim().length > 0)
+                    .slice(0, 6),
+                  canonicalProfileExcerpt,
+                  episodeMemoryExcerpt,
+                  previousState: currentNarrativeState
+                })
+              );
+              const regenMedicalSlice = compactMedicalSliceForBlock({
+                plan,
+                diseaseDossier,
+                truthModel,
+                differentialCast: workingDifferential,
+                clueGraph: workingClueGraph,
+                microWorldMap: workingMicroWorldMap,
+                dramaPlan: workingDramaPlan,
+                setpiecePlan: workingSetpiecePlan
+              });
 
               try {
                 const regenerated = SlideBlockSchema.parse(
@@ -2888,15 +3304,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                         plan,
                         storyBlueprint,
                         actOutline,
-                        priorBlockSummary,
-                        unresolvedThreads: unresolvedThreadsIn,
-                        diseaseDossier,
-                        truthModel,
-                        differentialCast: workingDifferential,
-                        clueGraph: workingClueGraph,
-                        microWorldMap: workingMicroWorldMap,
-                        dramaPlan: workingDramaPlan,
-                        setpiecePlan: workingSetpiecePlan
+                        narrativeState: regenNarrativeState,
+                        medicalSlice: regenMedicalSlice
                       })}\n\n` +
                       `${storyBeatsPromptSection}\n\n` +
                       `QUALITY REGEN FIXES FOR THIS BLOCK:\n${JSON.stringify(blockFixDescriptions, null, 2)}\n\n` +
@@ -2910,10 +3319,22 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                   })
                 );
                 authoredBlocks[blockIndex] = regenerated;
-                for (const override of regenerated.slide_overrides) agentAuthoredSlideIds.add(override.slide_id);
+                for (const slideId of collectBlockAuthoredSlideIds(regenerated)) agentAuthoredSlideIds.add(slideId);
                 await writeIntermediateJson("C", `slide_block_${plan.blockId}_regen_loop${attempt}.json`, regenerated);
+                await writeIntermediateJson("C", `narrative_state_block_${plan.blockId}_regen_loop${attempt}.json`, regenNarrativeState);
+                const regenOps = normalizeSlideBlockOperations({
+                  block: regenerated,
+                  currentSlides: workingDeck.slides
+                });
+                await writeIntermediateJson("C", `block_authoring_ops_${plan.blockId}_regen_loop${attempt}.json`, {
+                  schema_version: "1.0.0",
+                  block_id: plan.blockId,
+                  operations: regenOps.operations,
+                  warnings: regenOps.warnings
+                });
                 structuralRegeneratedBlocks += 1;
                 structuralRegenApplied = true;
+                structuralTrace.regenerated_blocks.push(plan.blockId);
               } catch (regenErr) {
                 if (shouldAbortOnError(regenErr, cSignal)) throw regenErr;
                 const regenMsg = regenErr instanceof Error ? regenErr.message : String(regenErr);
@@ -2928,6 +3349,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 await writeIntermediateJson("C", `slide_block_${plan.blockId}_regen_fallback_loop${attempt}.json`, fallbackBlock);
                 structuralRegeneratedBlocks += 1;
                 structuralRegenApplied = true;
+                structuralTrace.regenerated_blocks.push(plan.blockId);
+                structuralTrace.warnings.push(`slideBlockRegen fallback used for ${plan.blockId}: ${regenMsg}`);
               }
             }
 
@@ -2946,7 +3369,10 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               });
               await writeIntermediateJson("C", `deck_assembly_report_regen_loop${attempt}.json`, DeckAssemblyReportSchema.parse(structuralAssembly.report));
               await writeIntermediateJson("C", `deck_spec_regen_loop${attempt}.json`, workingDeck);
+              assembledForNarrativeState = workingDeck;
+              await writeIntermediateJson("C", "narrative_state_current.json", currentNarrativeState);
             }
+            await writeIntermediateJson("C", `block_regen_trace_loop${attempt}.json`, structuralTrace);
           }
 
           const patchFixes = structuralRegenApplied

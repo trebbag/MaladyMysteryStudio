@@ -54,6 +54,7 @@ import { generateV2DeckSpec } from "../src/pipeline/v2_micro_detectives/generato
 import { generateDiseaseDossier, generateEpisodePitch, generateMedFactcheckReport, generateTruthModel } from "../src/pipeline/v2_micro_detectives/phase2_generator.js";
 import { generateClueGraph, generateDifferentialCast, generateReaderSimReport } from "../src/pipeline/v2_micro_detectives/phase3_generator.js";
 import { generateDramaPlan, generateMicroWorldMap, generateSetpiecePlan } from "../src/pipeline/v2_micro_detectives/phase4_generator.js";
+import { buildActOutlineFallback, buildStoryBlueprintFallback } from "../src/pipeline/v2_micro_detectives/authoring_stages.js";
 import { runMicroDetectivesPipeline } from "../src/pipeline/v2_micro_detectives/pipeline.js";
 import { appendHumanReview } from "../src/pipeline/v2_micro_detectives/reviews.js";
 import { runFinalDirAbs, runIntermediateDirAbs } from "../src/pipeline/utils.js";
@@ -114,7 +115,7 @@ type BlockPlan = {
 };
 
 function parseBlockPlan(prompt: string): BlockPlan {
-  const match = prompt.match(/BLOCK PLAN \(json\):\n([\s\S]*?)\n\nSTORY BLUEPRINT/);
+  const match = prompt.match(/BLOCK PLAN \(json\):\n([\s\S]*?)\n\nACT OBLIGATIONS/);
   if (!match?.[1]) {
     return { blockId: "ACT1_B01", actId: "ACT1", start: 1, end: 12 };
   }
@@ -222,6 +223,17 @@ beforeEach(async () => {
     if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
     if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
     if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+    if (name === "V2 Deck Cohesion Pass") {
+      return {
+        finalOutput: {
+          schema_version: "1.0.0",
+          global_continuity_findings: ["Continuity pass completed."],
+          act_obligation_gaps: [],
+          must_fix_operations: [],
+          narrative_risk_flags: []
+        }
+      };
+    }
     if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
     if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
     if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -387,10 +399,13 @@ describe("v2 real pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "slide_block_checkpoint_index.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_assembly_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_spec_assembled.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "narrative_state_current.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_authoring_context_manifest.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
     const filesBeforeGate3 = await fs.readdir(runIntermediateDirAbs(run.runId));
     expect(filesBeforeGate3.some((name) => /^slide_block_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
+    expect(filesBeforeGate3.some((name) => /^narrative_state_block_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
+    expect(filesBeforeGate3.some((name) => /^block_authoring_ops_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
     const contextManifestRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "deck_authoring_context_manifest.json"), "utf8");
     const contextManifest = JSON.parse(contextManifestRaw) as {
       attempts: Array<{ context_mode: "full" | "compact"; result: "success" | "error" | "skipped" }>;
@@ -692,6 +707,14 @@ describe("v2 real pipeline", () => {
             }
           }))
         };
+        const storyBlueprint = buildStoryBlueprintFallback({
+          topic,
+          clueObligations: []
+        });
+        const actOutline = buildActOutlineFallback({
+          deck: degradedDeck,
+          storyBlueprint
+        });
         const differential = generateDifferentialCast(degradedDeck, dossier, truth);
         const clueGraph = generateClueGraph(degradedDeck, dossier, differential);
         const microWorld = generateMicroWorldMap(degradedDeck, dossier, truth);
@@ -710,6 +733,23 @@ describe("v2 real pipeline", () => {
         if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
         if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
         if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+        if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+        if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+        if (name === "V2 Slide Block Author") {
+          const plan = parseBlockPlan(prompt);
+          return { finalOutput: makeSlideBlockForTest(plan, "note_only", "DEGRADE") };
+        }
+        if (name === "V2 Deck Cohesion Pass") {
+          return {
+            finalOutput: {
+              schema_version: "1.0.0",
+              global_continuity_findings: ["Continuity pass completed."],
+              act_obligation_gaps: [],
+              must_fix_operations: [],
+              narrative_risk_flags: []
+            }
+          };
+        }
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: degradedDeck };
         if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(degradedDeck, truth, clueGraph) };
         if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(degradedDeck, dossier) };
@@ -872,6 +912,17 @@ describe("v2 real pipeline", () => {
         if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
         if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
         if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+        if (name === "V2 Deck Cohesion Pass") {
+          return {
+            finalOutput: {
+              schema_version: "1.0.0",
+              global_continuity_findings: ["Continuity pass completed."],
+              act_obligation_gaps: [],
+              must_fix_operations: [],
+              narrative_risk_flags: []
+            }
+          };
+        }
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
         if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
         if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -984,6 +1035,17 @@ describe("v2 real pipeline", () => {
       if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
       if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
       if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Deck Cohesion Pass") {
+        return {
+          finalOutput: {
+            schema_version: "1.0.0",
+            global_continuity_findings: ["Continuity pass completed."],
+            act_obligation_gaps: [],
+            must_fix_operations: [],
+            narrative_risk_flags: []
+          }
+        };
+      }
       if (name === "V2 Plot Director DeckSpec") throw new Error("Request was aborted.");
       if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
       if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -1174,6 +1236,17 @@ describe("v2 real pipeline", () => {
       if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
       if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
       if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Deck Cohesion Pass") {
+        return {
+          finalOutput: {
+            schema_version: "1.0.0",
+            global_continuity_findings: ["Continuity pass completed."],
+            act_obligation_gaps: [],
+            must_fix_operations: [],
+            narrative_risk_flags: []
+          }
+        };
+      }
       if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
       if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
       if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };

@@ -393,12 +393,16 @@ function buildNarrativeGrade(input: {
   deckSpec: DeckSpec;
   clueGraph: ClueGraph;
   readerSimReport: ReaderSimReport;
+  generationProfile?: "quality" | "pilot";
 }): {
   scores: V2QaReport["grader_scores"];
   requiredFixes: RequiredFix[];
   criticalPass: boolean;
 } {
   const { deckSpec, clueGraph, readerSimReport } = input;
+  const generationProfile = input.generationProfile ?? "quality";
+  const criticalNarrativeThreshold = generationProfile === "quality" ? 4.0 : 3.0;
+  const storyDominanceInterventionThreshold = generationProfile === "quality" ? 3.8 : 3.0;
   const signals = collectNarrativeSignals(deckSpec);
   const mainSlides = deckSpec.slides;
   const falseTheoryBeats = mainSlides.filter((slide) => FALSE_THEORY_BEATS.has(slide.beat_type)).length;
@@ -497,7 +501,7 @@ function buildNarrativeGrade(input: {
     requiredFixes.push({
       fix_id: "NAR-GENERIC-LANGUAGE",
       type: "regenerate_section",
-      priority: "should",
+      priority: generationProfile === "quality" ? "must" : "should",
       description: "Reduce repeated title/hook/story templates and increase scene-specific language.",
       targets: deckSpec.slides.slice(0, 12).map((slide) => slide.slide_id)
     });
@@ -511,7 +515,7 @@ function buildNarrativeGrade(input: {
       targets: ["twist_support_matrix"]
     });
   }
-  if (readerSimReport.overall_story_dominance_score_0_to_5 < 3) {
+  if (readerSimReport.overall_story_dominance_score_0_to_5 < storyDominanceInterventionThreshold) {
     requiredFixes.push({
       fix_id: "NAR-READER-STORY-DOMINANCE",
       type: "increase_story_turn",
@@ -521,7 +525,7 @@ function buildNarrativeGrade(input: {
     });
   }
 
-  const criticalPass = scores.filter((score) => score.critical).every((score) => score.score_0_to_5 >= 2.8);
+  const criticalPass = scores.filter((score) => score.critical).every((score) => score.score_0_to_5 >= criticalNarrativeThreshold);
   return { scores, requiredFixes, criticalPass };
 }
 
@@ -629,11 +633,14 @@ export function buildCombinedQaReport(input: {
   medFactcheckReport: MedFactcheckReport;
   clueGraph: ClueGraph;
   deckSpec: DeckSpec;
+  generationProfile?: "quality" | "pilot";
 }): V2QaReport {
   const { lintReport, readerSimReport, medFactcheckReport, clueGraph, deckSpec } = input;
+  const generationProfile = input.generationProfile ?? "quality";
+  const criticalScoreThreshold = generationProfile === "quality" ? 4.0 : 3.0;
   const lintFixes = buildLintFixes(lintReport, deckSpec);
   const mysteryLint = deterministicMysteryLint({ deckSpec, clueGraph });
-  const narrativeGrade = buildNarrativeGrade({ deckSpec, clueGraph, readerSimReport });
+  const narrativeGrade = buildNarrativeGrade({ deckSpec, clueGraph, readerSimReport, generationProfile });
   const combinedLintErrors = [...toQaLintErrors(lintReport.errors), ...mysteryLint.errors];
   const lintPass = lintReport.pass && mysteryLint.errors.length === 0;
   const requiredFixes = dedupeFixes([
@@ -685,7 +692,9 @@ export function buildCombinedQaReport(input: {
     ...narrativeGrade.scores
   ];
 
-  const criticalScoresOk = graderScores.filter((g) => g.critical).every((g) => g.score_0_to_5 >= 3) && narrativeGrade.criticalPass;
+  const criticalScoresOk =
+    graderScores.filter((g) => g.critical).every((g) => g.score_0_to_5 >= criticalScoreThreshold) &&
+    narrativeGrade.criticalPass;
   const accept = lintPass && medFactcheckReport.pass && criticalScoresOk && !hasMustFix;
 
   const fallbackCitation = baseCitation(deckSpec);

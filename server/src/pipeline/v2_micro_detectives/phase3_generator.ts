@@ -206,9 +206,9 @@ export function generateReaderSimReport(deck: DeckSpec, truthModel: TruthModel, 
         was_twist_predictable: "surprising_but_fair"
       }
     ],
-    overall_story_dominance_score_0_to_5: 3.8,
-    overall_twist_quality_score_0_to_5: 3.7,
-    overall_clarity_score_0_to_5: 3.6,
+    overall_story_dominance_score_0_to_5: 4.2,
+    overall_twist_quality_score_0_to_5: 4.1,
+    overall_clarity_score_0_to_5: 4.0,
     biggest_strengths: ["Consistent clue payoffs", "Twist supported by receipts"],
     biggest_risks: notes.length > 0 ? ["Pacing pressure in shorter decks"] : [],
     slide_notes: notes,

@@ -8,6 +8,13 @@ const makeV2EpisodePitchAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "episo
 const makeV2TruthModelAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "truthModelAgent" })));
 const makeV2DifferentialCastAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "differentialCastAgent" })));
 const makeV2ClueArchitectAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "clueArchitectAgent" })));
+const makeV2MicroWorldMapAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "microWorldMapAgent" })));
+const makeV2DramaPlanAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "dramaPlanAgent" })));
+const makeV2SetpiecePlanAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "setpiecePlanAgent" })));
+const makeV2StoryBlueprintAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "storyBlueprintAgent" })));
+const makeV2ActOutlineAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "actOutlineAgent" })));
+const makeV2SlideBlockAuthorAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "slideBlockAuthorAgent" })));
+const makeV2DeckCohesionPassAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "deckCohesionPassAgent" })));
 const makeV2PlotDirectorDeckSpecAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "plotDirectorAgent" })));
 const makeV2ReaderSimAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "readerSimAgent" })));
 const makeV2MedFactcheckAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "medFactcheckAgent" })));
@@ -32,6 +39,13 @@ vi.mock("../src/pipeline/v2_micro_detectives/agents.js", () => ({
   makeV2TruthModelAgent: makeV2TruthModelAgentMock,
   makeV2DifferentialCastAgent: makeV2DifferentialCastAgentMock,
   makeV2ClueArchitectAgent: makeV2ClueArchitectAgentMock,
+  makeV2MicroWorldMapAgent: makeV2MicroWorldMapAgentMock,
+  makeV2DramaPlanAgent: makeV2DramaPlanAgentMock,
+  makeV2SetpiecePlanAgent: makeV2SetpiecePlanAgentMock,
+  makeV2StoryBlueprintAgent: makeV2StoryBlueprintAgentMock,
+  makeV2ActOutlineAgent: makeV2ActOutlineAgentMock,
+  makeV2SlideBlockAuthorAgent: makeV2SlideBlockAuthorAgentMock,
+  makeV2DeckCohesionPassAgent: makeV2DeckCohesionPassAgentMock,
   makeV2PlotDirectorDeckSpecAgent: makeV2PlotDirectorDeckSpecAgentMock,
   makeV2ReaderSimAgent: makeV2ReaderSimAgentMock,
   makeV2MedFactcheckAgent: makeV2MedFactcheckAgentMock
@@ -136,5 +150,23 @@ describe("v2 agent child process helpers", () => {
     expect(makeKbCompilerAgentMock).toHaveBeenCalledWith("vs_123");
     expect(runStructuredAgentOutputMock).toHaveBeenCalledTimes(1);
     expect(setDefaultOpenAIKeyMock).toHaveBeenCalledWith("sk-test");
+  });
+
+  it("runChildRequest dispatches to deckCohesionPass agent key", async () => {
+    const mod = await loadModule();
+
+    const out = await mod.runChildRequest({
+      requestId: "r4",
+      runId: "run_test",
+      step: "C",
+      agentKey: "deckCohesionPass",
+      prompt: "prompt",
+      maxTurns: 4,
+      timeoutMs: 10_000
+    });
+
+    expect(out).toEqual({ ok: true });
+    expect(makeV2DeckCohesionPassAgentMock).toHaveBeenCalledTimes(1);
+    expect(runStructuredAgentOutputMock).toHaveBeenCalledTimes(1);
   });
 });

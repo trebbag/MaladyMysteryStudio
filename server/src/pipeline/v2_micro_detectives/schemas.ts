@@ -269,6 +269,19 @@ export const SlideBlockOverrideSchema = z
   })
   .strict();
 
+export const SlideBlockOperationSchema = z
+  .object({
+    op: z.enum(["replace_slide", "insert_after", "split_slide", "drop_slide", "replace_window"]),
+    slide_id: z.string().min(1).optional(),
+    after_slide_id: z.string().min(1).optional(),
+    start_slide_id: z.string().min(1).optional(),
+    end_slide_id: z.string().min(1).optional(),
+    replacement_slide: SlideSpecSchema.optional(),
+    replacement_slides: z.array(SlideSpecSchema).optional(),
+    reason: z.string().min(1).optional()
+  })
+  .strict();
+
 export const SlideBlockSchema = z
   .object({
     schema_version: z.string().min(1),
@@ -282,9 +295,49 @@ export const SlideBlockSchema = z
       .strict(),
     prior_block_summary: z.string().min(1).optional(),
     unresolved_threads_in: z.array(z.string().min(1)).optional(),
-    slide_overrides: z.array(SlideBlockOverrideSchema).min(1),
+    slide_overrides: z.array(SlideBlockOverrideSchema).min(1).optional(),
+    operations: z.array(SlideBlockOperationSchema).min(1).optional(),
     unresolved_threads_out: z.array(z.string().min(1)).optional(),
     block_summary_out: z.string().min(1)
+  })
+  .superRefine((value, ctx) => {
+    const hasOverrides = Array.isArray(value.slide_overrides) && value.slide_overrides.length > 0;
+    const hasOperations = Array.isArray(value.operations) && value.operations.length > 0;
+    if (!hasOverrides && !hasOperations) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operations"],
+        message: "SlideBlock requires at least one operation or slide_overrides entry."
+      });
+    }
+  })
+  .strict();
+
+export const NarrativeStateSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    block_id: z.string().min(1),
+    current_false_theory: z.string().min(1),
+    relationship_state_detective_deputy: z.string().min(1),
+    unresolved_emotional_thread: z.string().min(1),
+    active_clue_obligations: z.array(z.string().min(1)).min(1),
+    active_motif_callback_lexicon: z.array(z.string().min(1)).min(1),
+    pressure_channels: z.array(z.string().min(1)).min(1),
+    recent_slide_excerpts: z.array(z.string().min(1)).min(2).max(4),
+    active_differential_ordering: z.array(z.string().min(1)).min(1),
+    delta_from_previous_block: z.string().min(1),
+    canonical_profile_excerpt: z.string().min(1),
+    episode_memory_excerpt: z.string().min(1)
+  })
+  .strict();
+
+export const DeckCohesionPassSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    global_continuity_findings: z.array(z.string().min(1)).min(1),
+    act_obligation_gaps: z.array(z.string().min(1)),
+    must_fix_operations: z.array(SlideBlockOperationSchema),
+    narrative_risk_flags: z.array(z.string().min(1))
   })
   .strict();
 
@@ -1082,6 +1135,9 @@ export type DeckSlideSpec = z.infer<typeof SlideSpecSchema>;
 export type StoryBlueprint = z.infer<typeof StoryBlueprintSchema>;
 export type ActOutline = z.infer<typeof ActOutlineSchema>;
 export type SlideBlock = z.infer<typeof SlideBlockSchema>;
+export type SlideBlockOperation = z.infer<typeof SlideBlockOperationSchema>;
+export type NarrativeState = z.infer<typeof NarrativeStateSchema>;
+export type DeckCohesionPass = z.infer<typeof DeckCohesionPassSchema>;
 export type DeckAssemblyReport = z.infer<typeof DeckAssemblyReportSchema>;
 export type V2DeckSpecLintError = z.infer<typeof V2LintErrorSchema>;
 export type V2DeckSpecLintReport = z.infer<typeof V2DeckSpecLintReportSchema>;

@@ -5,6 +5,7 @@ import { loadV2Assets } from "./assets.js";
 import {
   makeV2ActOutlineAgent,
   makeV2ClueArchitectAgent,
+  makeV2DeckCohesionPassAgent,
   makeV2DifferentialCastAgent,
   makeV2DiseaseResearchAgent,
   makeV2DramaPlanAgent,
@@ -76,6 +77,7 @@ export async function runChildRequest(req: AgentChildRequest): Promise<unknown> 
     if (req.agentKey === "storyBlueprint") return makeV2StoryBlueprintAgent(assets);
     if (req.agentKey === "actOutline") return makeV2ActOutlineAgent(assets);
     if (req.agentKey === "slideBlockAuthor") return makeV2SlideBlockAuthorAgent(assets);
+    if (req.agentKey === "deckCohesionPass") return makeV2DeckCohesionPassAgent(assets);
     if (req.agentKey === "plotDirectorDeckSpec") return makeV2PlotDirectorDeckSpecAgent(assets);
     if (req.agentKey === "readerSim") return makeV2ReaderSimAgent(assets);
     if (req.agentKey === "medFactcheck") return makeV2MedFactcheckAgent(assets);

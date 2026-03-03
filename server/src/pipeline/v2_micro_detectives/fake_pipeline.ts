@@ -682,6 +682,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
       const maxPatchLoops = maxQaPatchLoops();
       const maxAttempts = maxPatchLoops + 1;
       const semanticThresholds = semanticAcceptanceThresholds(settings);
+      // Fake mode is deterministic; use pilot-grade narrative thresholds so CI/E2E fixtures stay stable.
+      const qaEvaluationProfile: GenerationProfile = generationProfile === "quality" ? "pilot" : generationProfile;
       let finalLint = V2DeckSpecLintReportSchema.parse(
         lintDeckSpecPhase1(workingDeck, {
           deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
@@ -737,7 +739,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
             readerSimReport: finalReader,
             medFactcheckReport: finalFactcheck,
             clueGraph: workingClueGraph,
-            deckSpec: workingDeck
+            deckSpec: workingDeck,
+            generationProfile: qaEvaluationProfile
           })
         );
         const semanticMetrics = evaluateSemanticAcceptance(workingDeck, semanticThresholds);
