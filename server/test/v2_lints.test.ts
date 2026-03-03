@@ -205,6 +205,41 @@ describe("v2 micro-detectives deterministic lints", () => {
       enforceQualityLints: true
     });
 
-    expect(report.errors.some((e) => e.code === "THEORY_UPDATE_LOW_CONSEQUENCE" && e.severity === "warning")).toBe(true);
+    expect(report.errors.some((e) => e.code === "THEORY_UPDATE_LOW_CONSEQUENCE")).toBe(true);
+  });
+
+  it("does not enforce any hard max slide cap in unconstrained mode", () => {
+    const deck = generateV2DeckSpec({
+      topic: "Acute pancreatitis complex case",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      deckLengthConstraintEnabled: false
+    });
+    const baseSlides = [...deck.slides];
+    for (let i = 0; deck.slides.length < 120; i += 1) {
+      const template = baseSlides[i % baseSlides.length]!;
+      const slideNo = deck.slides.length + 1;
+      const slideId = `S${String(slideNo).padStart(3, "0")}`;
+      deck.slides.push({
+        ...template,
+        slide_id: slideId,
+        title: `${template.title} (${slideId})`,
+        on_slide_text: {
+          ...template.on_slide_text,
+          labels: [slideId]
+        }
+      });
+    }
+    deck.deck_meta.deck_length_main = String(deck.slides.length);
+
+    const report = lintDeckSpecPhase1(deck, {
+      deckLengthConstraintEnabled: false,
+      generationProfile: "quality",
+      enforceQualityLints: false
+    });
+
+    expect(report.measuredDeckLengthMain).toBe(120);
+    expect(report.errors.some((e) => e.code === "MAIN_SLIDE_COUNT_OUTSIDE_SOFT_TARGET")).toBe(false);
+    expect(report.errors.some((e) => e.code === "DECK_META_LENGTH_OUTSIDE_SOFT_TARGET")).toBe(false);
+    expect(report.errors.some((e) => e.code.includes("MAX"))).toBe(false);
   });
 });

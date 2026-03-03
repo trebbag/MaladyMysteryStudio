@@ -199,8 +199,11 @@ export function polishDeckSpecForFallback(input: {
   clueGraph: ClueGraph;
   truthModel: TruthModel;
   topic: string;
+  mode?: "repair_only" | "scaffold_enrichment";
 }): DeckSpec {
   const { deckSpec, dossier, differentialCast, clueGraph, truthModel, topic } = input;
+  const mode = input.mode ?? "scaffold_enrichment";
+  const repairOnly = mode === "repair_only";
   const deck = JSON.parse(JSON.stringify(deckSpec)) as DeckSpec;
   const sections =
     dossier.sections.length > 0
@@ -269,74 +272,161 @@ export function polishDeckSpecForFallback(input: {
       .slice(0, 1);
     const actVerb = turnVerbs[idx % turnVerbs.length]!;
 
-    slide.title = `${slide.slide_id}: ${shortWords(`${sectionTitle} ${evidencePhrase}`, 8)}`;
-    slide.on_slide_text.headline = shortWords(`${sectionTitle}`, 4);
-    slide.on_slide_text.subtitle = shortWords(`${evidencePhrase}`, 4);
-    slide.on_slide_text.callouts = [shortWords(sectionPointA, 4), shortWords(`${actVerb} signal`, 3)];
-    slide.on_slide_text.labels = [slide.slide_id, `Act ${slide.act_id.replace("ACT", "")}`];
+    if (!repairOnly || String(slide.title ?? "").trim().length === 0) {
+      slide.title = `${slide.slide_id}: ${shortWords(`${sectionTitle} ${evidencePhrase}`, 8)}`;
+    }
+    if (!repairOnly || slide.on_slide_text.headline.trim().length === 0) {
+      slide.on_slide_text.headline = shortWords(`${sectionTitle}`, 4);
+    }
+    if (!repairOnly || !slide.on_slide_text.subtitle || slide.on_slide_text.subtitle.trim().length === 0) {
+      slide.on_slide_text.subtitle = shortWords(`${evidencePhrase}`, 4);
+    }
+    if (!repairOnly || !Array.isArray(slide.on_slide_text.callouts) || slide.on_slide_text.callouts.length === 0) {
+      slide.on_slide_text.callouts = [shortWords(sectionPointA, 4), shortWords(`${actVerb} signal`, 3)];
+    }
+    if (!repairOnly || !Array.isArray(slide.on_slide_text.labels) || slide.on_slide_text.labels.length === 0) {
+      slide.on_slide_text.labels = [slide.slide_id, `Act ${slide.act_id.replace("ACT", "")}`];
+    }
 
-    slide.story_panel.goal = shortWords(`${actVerb} this signal at ${slide.slide_id} to advance ${sectionTitle}.`, 12);
-    slide.story_panel.opposition = shortWords(oppositionTemplates[idx % oppositionTemplates.length]!, 11);
-    slide.story_panel.turn = shortWords(cleanNarrativeText(sectionPointA), 12);
-    slide.story_panel.decision = shortWords(decisionTemplates[idx % decisionTemplates.length]!, 9);
-    slide.story_panel.consequence = shortWords(consequenceTemplates[idx % consequenceTemplates.length]!, 9);
-    slide.hook = shortWords(`How does this signal reweight suspects?`, 8);
+    if (!repairOnly || slide.story_panel.goal.trim().length === 0) {
+      slide.story_panel.goal = shortWords(`${actVerb} this signal at ${slide.slide_id} to advance ${sectionTitle}.`, 12);
+    }
+    if (!repairOnly || slide.story_panel.opposition.trim().length === 0) {
+      slide.story_panel.opposition = shortWords(oppositionTemplates[idx % oppositionTemplates.length]!, 11);
+    }
+    if (!repairOnly || slide.story_panel.turn.trim().length === 0) {
+      slide.story_panel.turn = shortWords(cleanNarrativeText(sectionPointA), 12);
+    }
+    if (!repairOnly || slide.story_panel.decision.trim().length === 0) {
+      slide.story_panel.decision = shortWords(decisionTemplates[idx % decisionTemplates.length]!, 9);
+    }
+    if (!repairOnly || !slide.story_panel.consequence || slide.story_panel.consequence.trim().length === 0) {
+      slide.story_panel.consequence = shortWords(consequenceTemplates[idx % consequenceTemplates.length]!, 9);
+    }
+    if (!repairOnly || slide.hook.trim().length === 0) {
+      slide.hook = shortWords(`How does this signal reweight suspects?`, 8);
+    }
 
-    slide.medical_payload.major_concept_id = normalizeMajorConceptId(slide.medical_payload.major_concept_id, section.section, idx);
-    slide.medical_payload.supporting_details = [sectionPointA, sectionPointB];
-    if (!STORY_FORWARD_MODES.includes(slide.medical_payload.delivery_mode)) {
+    if (!repairOnly || slide.medical_payload.major_concept_id.trim().length === 0) {
+      slide.medical_payload.major_concept_id = normalizeMajorConceptId(slide.medical_payload.major_concept_id, section.section, idx);
+    }
+    if (!repairOnly || !Array.isArray(slide.medical_payload.supporting_details) || slide.medical_payload.supporting_details.length === 0) {
+      slide.medical_payload.supporting_details = [sectionPointA, sectionPointB];
+    }
+    if (!repairOnly && !STORY_FORWARD_MODES.includes(slide.medical_payload.delivery_mode)) {
       slide.medical_payload.delivery_mode = STORY_FORWARD_MODES[idx % STORY_FORWARD_MODES.length]!;
     }
-    slide.medical_payload.linked_learning_objectives = [`lo_${sectionToken(section.section)}`, `lo_${sectionToken(truthModel.final_diagnosis.name)}`];
-    slide.medical_payload.dossier_citations = [preferredCitation];
-
-    if (clue?.associated_exhibit_ids?.length) {
-      slide.exhibit_ids = clue.associated_exhibit_ids.slice(0, 2);
-    } else if (exhibits.length > 0) {
-      slide.exhibit_ids = [exhibits[idx % exhibits.length]!];
+    if (!repairOnly || !Array.isArray(slide.medical_payload.linked_learning_objectives) || slide.medical_payload.linked_learning_objectives.length === 0) {
+      slide.medical_payload.linked_learning_objectives = [`lo_${sectionToken(section.section)}`, `lo_${sectionToken(truthModel.final_diagnosis.name)}`];
+    }
+    const hasValidMedicalCitations =
+      Array.isArray(slide.medical_payload.dossier_citations) &&
+      slide.medical_payload.dossier_citations.length > 0 &&
+      slide.medical_payload.dossier_citations.every((citation) => !GENERIC_CITATION_ID_RE.test(citation.citation_id));
+    if (!repairOnly || !hasValidMedicalCitations) {
+      slide.medical_payload.dossier_citations = [preferredCitation];
     }
 
-    slide.speaker_notes.medical_reasoning = shortWords(`Evidence anchor: ${cleanNarrativeText(sectionPointA)} ${cleanNarrativeText(sectionPointB)}`, 26);
-    slide.speaker_notes.what_this_slide_teaches = [shortWords(`How ${sectionTitle} shifts differential priorities.`, 10)];
-    slide.speaker_notes.differential_update.top_dx_ids = normalizeDxIds(
-      slide.speaker_notes.differential_update.top_dx_ids ?? [topDxA, topDxB],
-      validDxIds,
-      topDxA,
-      topDxB
-    ).slice(0, 2);
-    if (slide.speaker_notes.differential_update.top_dx_ids.length < 2) {
+    if (!repairOnly || !Array.isArray(slide.exhibit_ids) || slide.exhibit_ids.length === 0) {
+      if (clue?.associated_exhibit_ids?.length) {
+        slide.exhibit_ids = clue.associated_exhibit_ids.slice(0, 2);
+      } else if (exhibits.length > 0) {
+        slide.exhibit_ids = [exhibits[idx % exhibits.length]!];
+      }
+    }
+
+    if (!repairOnly || slide.speaker_notes.medical_reasoning.trim().length === 0) {
+      slide.speaker_notes.medical_reasoning = shortWords(`Evidence anchor: ${cleanNarrativeText(sectionPointA)} ${cleanNarrativeText(sectionPointB)}`, 26);
+    }
+    if (!repairOnly || !Array.isArray(slide.speaker_notes.what_this_slide_teaches) || slide.speaker_notes.what_this_slide_teaches.length === 0) {
+      slide.speaker_notes.what_this_slide_teaches = [shortWords(`How ${sectionTitle} shifts differential priorities.`, 10)];
+    }
+    if (
+      !repairOnly ||
+      !Array.isArray(slide.speaker_notes.differential_update.top_dx_ids) ||
+      slide.speaker_notes.differential_update.top_dx_ids.length === 0
+    ) {
+      const topDxSeed =
+        Array.isArray(slide.speaker_notes.differential_update.top_dx_ids) &&
+        slide.speaker_notes.differential_update.top_dx_ids.length > 0
+          ? slide.speaker_notes.differential_update.top_dx_ids
+          : [topDxA, topDxB];
+      slide.speaker_notes.differential_update.top_dx_ids = normalizeDxIds(
+        topDxSeed,
+        validDxIds,
+        topDxA,
+        topDxB
+      ).slice(0, 2);
+    }
+    if (!repairOnly && slide.speaker_notes.differential_update.top_dx_ids.length < 2) {
       slide.speaker_notes.differential_update.top_dx_ids = [topDxA, topDxB];
     }
-    slide.speaker_notes.differential_update.eliminated_dx_ids = normalizeDxIds(
-      slide.speaker_notes.differential_update.eliminated_dx_ids ?? eliminated,
-      validDxIds,
-      topDxA,
-      topDxB
-    ).filter((dxId) => !slide.speaker_notes.differential_update.top_dx_ids.includes(dxId));
-    slide.speaker_notes.differential_update.why = shortWords(
-      `${sectionTitle} evidence supports ${truthModel.final_diagnosis.name} over weaker mimics.`,
-      15
-    );
-    slide.speaker_notes.citations = [preferredCitation];
+    if (!repairOnly || !Array.isArray(slide.speaker_notes.differential_update.eliminated_dx_ids)) {
+      slide.speaker_notes.differential_update.eliminated_dx_ids = normalizeDxIds(
+        slide.speaker_notes.differential_update.eliminated_dx_ids ?? eliminated,
+        validDxIds,
+        topDxA,
+        topDxB
+      ).filter((dxId) => !slide.speaker_notes.differential_update.top_dx_ids.includes(dxId));
+    }
+    if (!repairOnly || slide.speaker_notes.differential_update.why.trim().length === 0) {
+      slide.speaker_notes.differential_update.why = shortWords(
+        `${sectionTitle} evidence supports ${truthModel.final_diagnosis.name} over weaker mimics.`,
+        15
+      );
+    }
+    const hasValidSpeakerCitations =
+      Array.isArray(slide.speaker_notes.citations) &&
+      slide.speaker_notes.citations.length > 0 &&
+      slide.speaker_notes.citations.every((citation) => !GENERIC_CITATION_ID_RE.test(citation.citation_id));
+    if (!repairOnly || !hasValidSpeakerCitations) {
+      slide.speaker_notes.citations = [preferredCitation];
+    }
   }
 
   for (let idx = 0; idx < deck.appendix_slides.length; idx++) {
     const slide = deck.appendix_slides[idx]!;
     const citation = citations[idx % citations.length]!;
-    slide.medical_payload.major_concept_id = normalizeMajorConceptId(
-      slide.medical_payload.major_concept_id,
-      `appendix_${topic || truthModel.final_diagnosis.name}`,
-      idx
-    );
-    slide.medical_payload.dossier_citations = [citation];
-    slide.speaker_notes.citations = [citation];
-    slide.speaker_notes.differential_update.top_dx_ids = [canonicalDx(truthModel.final_diagnosis.dx_id)];
-    slide.speaker_notes.differential_update.eliminated_dx_ids = [];
-    slide.speaker_notes.differential_update.why = shortWords("Appendix evidence supports final diagnostic lock.", 12);
+    if (!repairOnly || slide.medical_payload.major_concept_id.trim().length === 0) {
+      slide.medical_payload.major_concept_id = normalizeMajorConceptId(
+        slide.medical_payload.major_concept_id,
+        `appendix_${topic || truthModel.final_diagnosis.name}`,
+        idx
+      );
+    }
+    const appendixHasValidMedicalCitation =
+      Array.isArray(slide.medical_payload.dossier_citations) &&
+      slide.medical_payload.dossier_citations.length > 0 &&
+      slide.medical_payload.dossier_citations.every((item) => !GENERIC_CITATION_ID_RE.test(item.citation_id));
+    if (!repairOnly || !appendixHasValidMedicalCitation) {
+      slide.medical_payload.dossier_citations = [citation];
+    }
+    const appendixHasValidSpeakerCitation =
+      Array.isArray(slide.speaker_notes.citations) &&
+      slide.speaker_notes.citations.length > 0 &&
+      slide.speaker_notes.citations.every((item) => !GENERIC_CITATION_ID_RE.test(item.citation_id));
+    if (!repairOnly || !appendixHasValidSpeakerCitation) {
+      slide.speaker_notes.citations = [citation];
+    }
+    if (
+      !repairOnly ||
+      !Array.isArray(slide.speaker_notes.differential_update.top_dx_ids) ||
+      slide.speaker_notes.differential_update.top_dx_ids.length === 0
+    ) {
+      slide.speaker_notes.differential_update.top_dx_ids = [canonicalDx(truthModel.final_diagnosis.dx_id)];
+    }
+    if (!repairOnly || !Array.isArray(slide.speaker_notes.differential_update.eliminated_dx_ids)) {
+      slide.speaker_notes.differential_update.eliminated_dx_ids = [];
+    }
+    if (!repairOnly || slide.speaker_notes.differential_update.why.trim().length === 0) {
+      slide.speaker_notes.differential_update.why = shortWords("Appendix evidence supports final diagnostic lock.", 12);
+    }
   }
 
-  ensureStoryForwardRatio(deck, Math.max(deck.deck_meta.story_dominance_target_ratio, 0.8));
-  deck.deck_meta.story_dominance_target_ratio = Math.max(deck.deck_meta.story_dominance_target_ratio, 0.8);
-  deck.deck_meta.max_words_on_slide = Math.min(deck.deck_meta.max_words_on_slide, 22);
+  if (!repairOnly) {
+    ensureStoryForwardRatio(deck, Math.max(deck.deck_meta.story_dominance_target_ratio, 0.8));
+    deck.deck_meta.story_dominance_target_ratio = Math.max(deck.deck_meta.story_dominance_target_ratio, 0.8);
+    deck.deck_meta.max_words_on_slide = Math.min(deck.deck_meta.max_words_on_slide, 22);
+  }
   return DeckSpecSchema.parse(deck);
 }

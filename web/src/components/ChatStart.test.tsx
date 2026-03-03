@@ -266,6 +266,33 @@ describe("ChatStart", () => {
     });
   });
 
+  it("does not auto-flip adherence mode when generation profile changes", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<ChatStart />} />
+          <Route path="/runs/:runId" element={<div>run viewer</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.type(screen.getByPlaceholderText(/Example:/), "AKI mystery");
+    await user.selectOptions(screen.getByDisplayValue("Legacy"), "v2_micro_detectives");
+    await user.selectOptions(screen.getByDisplayValue("Strict (block on fail)"), "warn");
+    await user.selectOptions(screen.getByDisplayValue("Quality authoring"), "pilot");
+    await user.selectOptions(screen.getByDisplayValue("Pilot resilient"), "quality");
+    await user.click(screen.getByRole("button", { name: "Run Episode" }));
+
+    expect(createRun).toHaveBeenCalledWith("AKI mystery", {
+      workflow: "v2_micro_detectives",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      generationProfile: "quality",
+      adherenceMode: "warn"
+    });
+  });
+
   it("shows an error when createRun fails (non-Error throw)", async () => {
     vi.mocked(createRun).mockRejectedValueOnce("nope");
     const user = userEvent.setup();

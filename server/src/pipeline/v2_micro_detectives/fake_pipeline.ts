@@ -22,7 +22,9 @@ import {
   buildAppendixRenderPlanMd,
   buildMainDeckRenderPlanMd,
   buildSpeakerNotesWithCitationsMd,
-  buildTemplateRegistry,
+  buildTemplateRegistry
+} from "./phase4_packaging.js";
+import {
   generateDramaPlan,
   generateMicroWorldMap,
   generateSetpiecePlan
@@ -52,6 +54,7 @@ import {
   V2GateRequirementSchema,
   V2QaReportSchema,
   V2SemanticAcceptanceReportSchema,
+  V2StageAuthoringProvenanceSchema,
   V2TemplateRegistrySchema,
   V2StoryboardGateSchema,
   type V2GateId
@@ -247,6 +250,13 @@ async function readJsonArtifact<T>(runId: string, name: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+async function readJsonArtifactIfPresent<T>(runId: string, name: string): Promise<T | null> {
+  const resolved = await resolveArtifactPathAbs(runId, name);
+  if (!resolved) return null;
+  const raw = await fs.readFile(resolved, "utf8");
+  return JSON.parse(raw) as T;
+}
+
 export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunManager, options: PipelineOptions): Promise<void> {
   const { runId, topic, settings } = input;
   const { signal } = options;
@@ -292,10 +302,33 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
     const truthModel = TruthModelSchema.parse(await readJsonArtifact(runId, "truth_model.json"));
     const differentialCast = DifferentialCastSchema.parse(await readJsonArtifact(runId, "differential_cast.json"));
     const clueGraph = ClueGraphSchema.parse(await readJsonArtifact(runId, "clue_graph.json"));
+    const stageProvenanceRaw = await readJsonArtifactIfPresent<unknown>(runId, "v2_stage_authoring_provenance.json");
+    const stageProvenance = stageProvenanceRaw ? V2StageAuthoringProvenanceSchema.parse(stageProvenanceRaw) : null;
+    const canSynthesizeForStage = (stage: "micro_world_map" | "drama_plan" | "setpiece_plan"): boolean =>
+      generationProfile === "pilot" ||
+      !stageProvenance ||
+      stageProvenance.stages?.[stage]?.source === "deterministic_fallback";
 
-    const microWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(deckSpec, diseaseDossier, truthModel));
-    const dramaPlan = DramaPlanSchema.parse(generateDramaPlan(deckSpec, truthModel));
-    const setpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(deckSpec, microWorldMap, diseaseDossier));
+    const existingMicroWorld = await readJsonArtifactIfPresent<unknown>(runId, "micro_world_map.json");
+    if (!existingMicroWorld && !canSynthesizeForStage("micro_world_map")) {
+      throw new Error("Missing required authored artifact micro_world_map.json for phase-4 packaging in quality mode.");
+    }
+    const microWorldMap = MicroWorldMapSchema.parse(existingMicroWorld ?? generateMicroWorldMap(deckSpec, diseaseDossier, truthModel));
+    if (!existingMicroWorld) await writeIntermediateJson(step, "micro_world_map.json", microWorldMap);
+
+    const existingDrama = await readJsonArtifactIfPresent<unknown>(runId, "drama_plan.json");
+    if (!existingDrama && !canSynthesizeForStage("drama_plan")) {
+      throw new Error("Missing required authored artifact drama_plan.json for phase-4 packaging in quality mode.");
+    }
+    const dramaPlan = DramaPlanSchema.parse(existingDrama ?? generateDramaPlan(deckSpec, truthModel));
+    if (!existingDrama) await writeIntermediateJson(step, "drama_plan.json", dramaPlan);
+
+    const existingSetpiece = await readJsonArtifactIfPresent<unknown>(runId, "setpiece_plan.json");
+    if (!existingSetpiece && !canSynthesizeForStage("setpiece_plan")) {
+      throw new Error("Missing required authored artifact setpiece_plan.json for phase-4 packaging in quality mode.");
+    }
+    const setpiecePlan = SetpiecePlanSchema.parse(existingSetpiece ?? generateSetpiecePlan(deckSpec, microWorldMap, diseaseDossier));
+    if (!existingSetpiece) await writeIntermediateJson(step, "setpiece_plan.json", setpiecePlan);
     const templateRegistry = V2TemplateRegistrySchema.parse(buildTemplateRegistry(deckSpec));
     const packagingSummary = {
       schema_version: "1.0.0",
@@ -319,9 +352,6 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
       }
     };
 
-    await writeIntermediateJson(step, "micro_world_map.json", microWorldMap);
-    await writeIntermediateJson(step, "drama_plan.json", dramaPlan);
-    await writeIntermediateJson(step, "setpiece_plan.json", setpiecePlan);
     await writeIntermediateJson(step, V2_PHASE4_FINAL_ARTIFACTS.templateRegistry, templateRegistry);
     await writeIntermediateJson(step, "v2_phase4_packaging_summary.json", packagingSummary);
     await writeIntermediateJson(step, "v2_phase4_packaging_manifest.json", {
@@ -643,7 +673,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
           differentialCast: workingDifferential,
           clueGraph: workingClueGraph,
           truthModel,
-          topic
+          topic,
+          mode: "scaffold_enrichment"
         })
       );
       await writeIntermediateJson("C", "clue_graph.json", workingClueGraph);
@@ -765,7 +796,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
             differentialCast: patch.differentialCast,
             clueGraph: patch.clueGraph,
             truthModel,
-            topic
+            topic,
+            mode: "repair_only"
           })
         );
         workingClueGraph = ClueGraphSchema.parse(patch.clueGraph);

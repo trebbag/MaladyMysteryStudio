@@ -384,11 +384,20 @@ describe("v2 real pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "story_blueprint.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "act_outline.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "slide_block_plan.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "slide_block_checkpoint_index.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_assembly_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_spec_assembled.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_authoring_context_manifest.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
     const filesBeforeGate3 = await fs.readdir(runIntermediateDirAbs(run.runId));
     expect(filesBeforeGate3.some((name) => /^slide_block_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
+    const contextManifestRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "deck_authoring_context_manifest.json"), "utf8");
+    const contextManifest = JSON.parse(contextManifestRaw) as {
+      attempts: Array<{ context_mode: "full" | "compact"; result: "success" | "error" | "skipped" }>;
+    };
+    expect(contextManifest.attempts.length).toBeGreaterThan(0);
+    expect(contextManifest.attempts.some((attempt) => attempt.context_mode === "full")).toBe(true);
+    expect(contextManifest.attempts.some((attempt) => attempt.result === "success")).toBe(true);
 
     await appendHumanReview(run.runId, {
       schema_version: "1.0.0",
@@ -433,6 +442,77 @@ describe("v2 real pipeline", () => {
 
     const status = runs.getRun(run.runId);
     expect(status?.steps.C.status).toBe("done");
+  });
+
+  it("fails phase-4 packaging in quality mode when authored micro/drama/setpiece artifacts are missing", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Interstitial nephritis", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
+      generationProfile: "quality",
+      adherenceMode: "warn"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_3_STORYBOARD",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await fs.unlink(path.join(runIntermediateDirAbs(run.runId), "micro_world_map.json"));
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toThrow(/Missing required authored artifact micro_world_map\.json/i);
   });
 
   it("writes story-beats alignment warnings when beats exist without chapter outline in warn mode", async () => {

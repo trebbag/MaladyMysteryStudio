@@ -145,6 +145,14 @@ export function lintDeckSpecPhase1(
   const errors: V2DeckSpecLintError[] = [];
   const mainSlides = deck.slides;
   const measuredDeckLengthMain = mainSlides.length;
+  const strictQualityNarrative = deckLengthConfig.enforceQualityLints && deckLengthConfig.generationProfile === "quality";
+  const pushNarrativeSignal = (code: string, message: string, slideId?: string) => {
+    if (strictQualityNarrative) {
+      pushError(errors, code, message, slideId);
+      return;
+    }
+    pushWarning(errors, code, message, slideId);
+  };
 
   const declaredLength = Number(deck.deck_meta.deck_length_main);
   if (!Number.isFinite(declaredLength)) {
@@ -337,7 +345,7 @@ export function lintDeckSpecPhase1(
       .map((slide) => `${slide.title}\n${slide.hook}\n${slide.story_panel.goal}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}\n${slide.story_panel.decision}\n${slide.speaker_notes.narrative_notes ?? ""}`)
       .join("\n");
     if (!FALSE_THEORY_COLLAPSE_RE.test(joinedDeckText)) {
-      pushWarning(errors, "FALSE_THEORY_COLLAPSE_SIGNAL_WEAK", "No strong false-theory collapse signal was detected in deck narrative text.");
+      pushNarrativeSignal("FALSE_THEORY_COLLAPSE_SIGNAL_WEAK", "No strong false-theory collapse signal was detected in deck narrative text.");
     }
 
     const finalWindowStart = Math.max(0, mainSlides.length - Math.max(4, Math.ceil(mainSlides.length * 0.15)));
@@ -346,11 +354,11 @@ export function lintDeckSpecPhase1(
       .map((slide) => `${slide.title}\n${slide.hook}\n${slide.speaker_notes.narrative_notes ?? ""}`)
       .join("\n");
     if (!ENDING_CALLBACK_RE.test(finalWindowText)) {
-      pushWarning(errors, "ENDING_CALLBACK_SIGNAL_WEAK", "Final-act slides do not show a strong opener-callback signal.");
+      pushNarrativeSignal("ENDING_CALLBACK_SIGNAL_WEAK", "Final-act slides do not show a strong opener-callback signal.");
     }
 
     if (!(CONFLICT_RE.test(joinedDeckText) && REPAIR_RE.test(joinedDeckText))) {
-      pushWarning(errors, "DETECTIVE_DEPUTY_ARC_SIGNAL_WEAK", "Deck narrative lacks clear conflict + repair signals for the detective/deputy arc.");
+      pushNarrativeSignal("DETECTIVE_DEPUTY_ARC_SIGNAL_WEAK", "Deck narrative lacks clear conflict + repair signals for the detective/deputy arc.");
     }
 
     const midpointWindowStart = Math.max(0, Math.floor(mainSlides.length * 0.35));
@@ -360,7 +368,7 @@ export function lintDeckSpecPhase1(
       .map((slide) => `${slide.title}\n${slide.hook}\n${slide.story_panel.turn}`)
       .join("\n");
     if (!MIDPOINT_COLLAPSE_RE.test(midpointText)) {
-      pushWarning(errors, "MIDPOINT_COLLAPSE_SIGNAL_WEAK", "Midpoint section does not show a clear collapse/recontextualization signal.");
+      pushNarrativeSignal("MIDPOINT_COLLAPSE_SIGNAL_WEAK", "Midpoint section does not show a clear collapse/recontextualization signal.");
     }
 
     const act23Slides = mainSlides.filter((slide) => slide.act_id === "ACT2" || slide.act_id === "ACT3");
@@ -368,7 +376,7 @@ export function lintDeckSpecPhase1(
       .map((slide) => `${slide.title}\n${slide.hook}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}`)
       .join("\n");
     if (act23Slides.length > 0 && !EMOTIONAL_COST_RE.test(act23Text)) {
-      pushWarning(errors, "EMOTIONAL_COST_SIGNAL_WEAK", "Acts II/III do not show clear emotional/consequence language.");
+      pushNarrativeSignal("EMOTIONAL_COST_SIGNAL_WEAK", "Acts II/III do not show clear emotional/consequence language.");
     }
 
     const channelCoverage = Object.entries(PRESSURE_CHANNELS).map(([channel, re]) => ({
@@ -384,8 +392,7 @@ export function lintDeckSpecPhase1(
     }));
     const strongChannels = channelCoverage.filter((item) => item.actCoverage >= 2).length;
     if (strongChannels < 2) {
-      pushWarning(
-        errors,
+      pushNarrativeSignal(
         "ACT_ESCALATION_CHANNELS_WEAK",
         `Only ${strongChannels} pressure channels escalate across at least two acts; target is >= 2.`
       );
@@ -414,7 +421,13 @@ export function lintDeckSpecPhase1(
     });
     if (theoryUpdates.length > 0) {
       const weakRatio = weakTheoryConsequence.length / theoryUpdates.length;
-      if (weakRatio > 0.4) {
+      if (weakRatio > 0.55 && strictQualityNarrative) {
+        pushError(
+          errors,
+          "THEORY_UPDATE_LOW_CONSEQUENCE",
+          `${weakTheoryConsequence.length}/${theoryUpdates.length} theory-update slides lack clear dramatic consequence.`
+        );
+      } else if (weakRatio > 0.4) {
         pushWarning(
           errors,
           "THEORY_UPDATE_LOW_CONSEQUENCE",
@@ -432,8 +445,7 @@ export function lintDeckSpecPhase1(
       EMOTIONAL_COST_RE.test(`${slide.hook}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}\n${slide.story_panel.consequence ?? ""}`)
     );
     if (act23ClueSlides.length > 0 && emotionalCostClueSlides.length === 0) {
-      pushWarning(
-        errors,
+      pushNarrativeSignal(
         "EMOTIONAL_COST_CLUE_MISSING",
         "Acts II/III clue-driven slides lack an emotionally costly clue moment."
       );
