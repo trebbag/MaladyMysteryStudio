@@ -11,6 +11,12 @@ export type V2AgentKey =
   | "truthModel"
   | "differentialCast"
   | "clueArchitect"
+  | "microWorldMap"
+  | "dramaPlan"
+  | "setpiecePlan"
+  | "storyBlueprint"
+  | "actOutline"
+  | "slideBlockAuthor"
   | "plotDirectorDeckSpec"
   | "readerSim"
   | "medFactcheck";

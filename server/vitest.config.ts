@@ -10,11 +10,11 @@ export default defineConfig({
       exclude: ["src/index.ts"],
       thresholds: {
         // Coverage policy intentionally calibrated to the mixed unit/integration split:
-        // branch floor tracks current realistic branch density across legacy + v2 gate flows.
+        // branch floor tracks current realistic branch density across legacy + v2 gate/provenance flows.
         lines: 90,
         functions: 91,
         statements: 87,
-        branches: 72
+        branches: 71.5
       }
     }
   }

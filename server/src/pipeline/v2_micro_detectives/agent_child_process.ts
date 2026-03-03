@@ -3,13 +3,19 @@ import type { RunManager, StepName } from "../../run_manager.js";
 import { makeKbCompilerAgent } from "../agents.js";
 import { loadV2Assets } from "./assets.js";
 import {
+  makeV2ActOutlineAgent,
   makeV2ClueArchitectAgent,
   makeV2DifferentialCastAgent,
   makeV2DiseaseResearchAgent,
+  makeV2DramaPlanAgent,
   makeV2EpisodePitchAgent,
   makeV2MedFactcheckAgent,
+  makeV2MicroWorldMapAgent,
   makeV2PlotDirectorDeckSpecAgent,
   makeV2ReaderSimAgent,
+  makeV2SetpiecePlanAgent,
+  makeV2SlideBlockAuthorAgent,
+  makeV2StoryBlueprintAgent,
   makeV2TruthModelAgent
 } from "./agents.js";
 import { createStructuredRunners, runStructuredAgentOutput } from "./agent_runner.js";
@@ -64,6 +70,12 @@ export async function runChildRequest(req: AgentChildRequest): Promise<unknown> 
     if (req.agentKey === "truthModel") return makeV2TruthModelAgent(assets);
     if (req.agentKey === "differentialCast") return makeV2DifferentialCastAgent(assets);
     if (req.agentKey === "clueArchitect") return makeV2ClueArchitectAgent(assets);
+    if (req.agentKey === "microWorldMap") return makeV2MicroWorldMapAgent(assets);
+    if (req.agentKey === "dramaPlan") return makeV2DramaPlanAgent(assets);
+    if (req.agentKey === "setpiecePlan") return makeV2SetpiecePlanAgent(assets);
+    if (req.agentKey === "storyBlueprint") return makeV2StoryBlueprintAgent(assets);
+    if (req.agentKey === "actOutline") return makeV2ActOutlineAgent(assets);
+    if (req.agentKey === "slideBlockAuthor") return makeV2SlideBlockAuthorAgent(assets);
     if (req.agentKey === "plotDirectorDeckSpec") return makeV2PlotDirectorDeckSpecAgent(assets);
     if (req.agentKey === "readerSim") return makeV2ReaderSimAgent(assets);
     if (req.agentKey === "medFactcheck") return makeV2MedFactcheckAgent(assets);

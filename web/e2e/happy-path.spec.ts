@@ -183,11 +183,16 @@ test("v2 workflow run pauses at gates and resumes to final deck spec artifacts",
 
   const workflowSelect = page.locator(".settingsRow > div").filter({ hasText: "Workflow" }).locator("select");
   await workflowSelect.selectOption("v2_micro_detectives");
+  const profileSelect = page.locator(".settingsRow > div").filter({ hasText: "Generation profile" }).locator("select");
+  await profileSelect.selectOption("pilot");
+  const adherenceSelect = page.locator(".settingsRow > div").filter({ hasText: "Adherence mode" }).locator("select");
+  await adherenceSelect.selectOption("warn");
 
-  const deckLengthSelect = page.locator(".settingsRow > div").filter({ hasText: "Deck length (main)" }).locator("select");
+  await page.getByRole("checkbox", { name: /Enable soft target/i }).check();
+  const deckLengthSelect = page.getByLabel("Deck length soft target");
   await deckLengthSelect.selectOption("30");
   const audienceSelect = page.locator(".settingsRow > div").filter({ hasText: "Audience" }).locator("select");
-  await audienceSelect.selectOption("RESIDENT");
+  await audienceSelect.selectOption("COLLEGE_LEVEL");
 
   await page.getByRole("button", { name: "Run Episode" }).click();
   await expect(page).toHaveURL(/\/runs\/[A-Za-z0-9_-]+$/);
@@ -261,6 +266,25 @@ test("v2 workflow run pauses at gates and resumes to final deck spec artifacts",
       },
       { timeout: 20_000 }
     )
+    .toBe("paused");
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_4_FINAL/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
     .toBe("done");
 
   const runRes = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
@@ -306,7 +330,7 @@ test("v2 workflow run pauses at gates and resumes to final deck spec artifacts",
     )
     .toBe(true);
 
-  await expect(page.getByText("Storyboard review required")).toBeVisible();
+  await expect(page.getByText("Run metadata").first()).toBeVisible();
 });
 
 test("v2 Gate 3 semantic block recovers with regenerate then resume to done", async ({ request }) => {
@@ -317,7 +341,7 @@ test("v2 Gate 3 semantic block recovers with regenerate then resume to done", as
       settings: {
         workflow: "v2_micro_detectives",
         deckLengthMain: 30,
-        audienceLevel: "RESIDENT",
+        audienceLevel: "COLLEGE_LEVEL",
         adherenceMode: "warn",
         minStoryForwardRatio: 0,
         minHybridSlideQuality: 0,
@@ -445,6 +469,25 @@ test("v2 Gate 3 semantic block recovers with regenerate then resume to done", as
       },
       { timeout: 20_000 }
     )
+    .toBe("paused");
+
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_4_FINAL/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
     .toBe("done");
 });
 
@@ -456,7 +499,7 @@ test("v2 fake fallback path records fallback_usage and still packages final outp
       settings: {
         workflow: "v2_micro_detectives",
         deckLengthMain: 30,
-        audienceLevel: "RESIDENT",
+        audienceLevel: "COLLEGE_LEVEL",
         adherenceMode: "warn"
       }
     }
@@ -514,6 +557,24 @@ test("v2 fake fallback path records fallback_usage and still packages final outp
     )
     .toBe("paused");
   gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_3_STORYBOARD/submit`, {
+    data: { status: "approve", requested_changes: [] }
+  });
+  expect(gateRes.ok()).toBeTruthy();
+  resumeRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/resume`);
+  expect(resumeRes.ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/runs/${encodeURIComponent(runId)}`);
+        expect(res.ok()).toBeTruthy();
+        const body = (await res.json()) as RunState;
+        return body.status;
+      },
+      { timeout: 20_000 }
+    )
+    .toBe("paused");
+  gateRes = await request.post(`/api/runs/${encodeURIComponent(runId)}/gates/GATE_4_FINAL/submit`, {
     data: { status: "approve", requested_changes: [] }
   });
   expect(gateRes.ok()).toBeTruthy();

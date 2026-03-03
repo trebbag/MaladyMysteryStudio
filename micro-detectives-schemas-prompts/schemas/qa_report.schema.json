@@ -59,7 +59,13 @@
               "TwistQuality",
               "SlideClarity",
               "PacingTurnRate",
-              "MicroMacroCoherence"
+              "MicroMacroCoherence",
+              "ActEscalation",
+              "FalseTheoryArc",
+              "CallbackClosure",
+              "DetectiveDeputyArc",
+              "SceneVariety",
+              "GenericLanguageRate"
             ]
           },
           "score_0_to_5": {

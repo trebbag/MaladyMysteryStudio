@@ -22,8 +22,11 @@
     "pilot:v2:trend": "node scripts/build_v2_pilot_trend_report.mjs",
     "pilot:v2:calibrate:semantic": "node scripts/calibrate_v2_semantic_thresholds.mjs",
     "pilot:v2:calibrate:fallback": "node scripts/calibrate_v2_fallback_slo.mjs",
+    "pilot:v2:calibrate:runs": "node scripts/calibrate_v2_quality_from_outputs.mjs",
     "pilot:v2:tune": "node scripts/v2_prompt_tuning_cycle.mjs",
     "pilot:checklist": "node scripts/run_prepilot_checklist.mjs",
+    "v2:schemas:generate": "node scripts/generate_v2_schemas.mjs",
+    "v2:schemas:check": "node scripts/generate_v2_schemas.mjs --check",
     "v2:assets:lock": "node scripts/build_v2_asset_lock.mjs",
     "v2:assets:lock:check": "node scripts/build_v2_asset_lock.mjs --check",
     "v2:assets:sync:check": "node scripts/check_v2_asset_sync.mjs"

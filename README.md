@@ -78,7 +78,9 @@ npm run test:e2e:soak
 - Longest/most variable steps are usually `B` (web research), `G-H-I` (story/visual generation), and `O-P` (packaging + master-doc synthesis + adherence checks).
 - It is normal for a single step to appear `running` for multiple polling cycles.
 - During step `M/N`, QA can loop once (QA -> Patch -> QA), so elapsed time can spike late in a run.
-- If you need pilot continuity over strict gating, set run setting `adherenceMode` to `warn` (the run completes while still recording adherence findings).
+- For `workflow: "v2_micro_detectives"`, default behavior is **quality authoring** (`generationProfile: "quality"` + strict enforcement) with **unconstrained slide count**.
+- V2 deck length is soft/optional: enable `deckLengthConstraintEnabled` only when you want an approximate target via `deckLengthMain`; no hard max cap is applied.
+- If you need pilot continuity over strict gating, use `generationProfile: "pilot"` and/or set `adherenceMode` to `warn` (the run can continue while still recording adherence findings).
 
 ## Outputs
 
@@ -104,7 +106,7 @@ Each run writes to:
 ## API (backend)
 
 - `GET /api/health`
-- `POST /api/runs { topic: string, settings?: { durationMinutes?: number, targetSlides?: number (min 100, max 500), level?: "pcp"|"student", adherenceMode?: "strict"|"warn" } }`
+- `POST /api/runs { topic: string, settings?: { workflow?: "legacy"|"v2_micro_detectives", generationProfile?: "quality"|"pilot", adherenceMode?: "strict"|"warn", durationMinutes?: number, level?: "pcp"|"student", targetSlides?: number (legacy only, min 100, max 500), deckLengthConstraintEnabled?: boolean (v2 only), deckLengthMain?: number (v2 soft target), audienceLevel?: "PHYSICIAN_LEVEL"|"COLLEGE_LEVEL" } }`
 - `GET /api/runs`
 - `GET /api/runs/retention` (retention policy + run stats + disk analytics)
   - Includes `analytics` with:
@@ -244,9 +246,17 @@ Calibrate semantic gate thresholds from the latest real-key report:
 npm run pilot:v2:calibrate:semantic
 ```
 
+Calibrate thresholds from already-completed real runs under `output/` (no new model calls):
+
+```bash
+npm run pilot:v2:calibrate:runs -- --output-root output --min-runs 5
+```
+
 Output:
 
 - `.ci/pilot/v2-semantic-calibration-latest.json`
+- `.ci/pilot/v2-threshold-calibration-from-runs.json`
+- `.ci/pilot/v2-threshold-calibration-from-runs.md`
 
 Step C DeckSpec generation modes:
 

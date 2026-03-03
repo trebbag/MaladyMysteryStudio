@@ -53,6 +53,7 @@ import { RunManager } from "../src/run_manager.js";
 import { generateV2DeckSpec } from "../src/pipeline/v2_micro_detectives/generator.js";
 import { generateDiseaseDossier, generateEpisodePitch, generateMedFactcheckReport, generateTruthModel } from "../src/pipeline/v2_micro_detectives/phase2_generator.js";
 import { generateClueGraph, generateDifferentialCast, generateReaderSimReport } from "../src/pipeline/v2_micro_detectives/phase3_generator.js";
+import { generateDramaPlan, generateMicroWorldMap, generateSetpiecePlan } from "../src/pipeline/v2_micro_detectives/phase4_generator.js";
 import { runMicroDetectivesPipeline } from "../src/pipeline/v2_micro_detectives/pipeline.js";
 import { appendHumanReview } from "../src/pipeline/v2_micro_detectives/reviews.js";
 import { runFinalDirAbs, runIntermediateDirAbs } from "../src/pipeline/utils.js";
@@ -105,6 +106,70 @@ function parseAudience(prompt: string): "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL" {
   return "PHYSICIAN_LEVEL";
 }
 
+type BlockPlan = {
+  blockId: string;
+  actId: "ACT1" | "ACT2" | "ACT3" | "ACT4";
+  start: number;
+  end: number;
+};
+
+function parseBlockPlan(prompt: string): BlockPlan {
+  const match = prompt.match(/BLOCK PLAN \(json\):\n([\s\S]*?)\n\nSTORY BLUEPRINT/);
+  if (!match?.[1]) {
+    return { blockId: "ACT1_B01", actId: "ACT1", start: 1, end: 12 };
+  }
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>;
+    const actIdRaw = String(parsed.actId ?? "ACT1");
+    const actId = ["ACT1", "ACT2", "ACT3", "ACT4"].includes(actIdRaw) ? (actIdRaw as BlockPlan["actId"]) : "ACT1";
+    const start = Number(parsed.start ?? 1);
+    const end = Number(parsed.end ?? start);
+    return {
+      blockId: String(parsed.blockId ?? `${actId}_B01`),
+      actId,
+      start: Number.isFinite(start) ? Math.max(1, Math.round(start)) : 1,
+      end: Number.isFinite(end) ? Math.max(1, Math.round(end)) : 12
+    };
+  } catch {
+    return { blockId: "ACT1_B01", actId: "ACT1", start: 1, end: 12 };
+  }
+}
+
+function makeSlideBlockForTest(plan: BlockPlan, mode: "note_only" | "clue", marker: "DEGRADE" | "REGEN") {
+  const overrides = [];
+  for (let n = plan.start; n <= plan.end; n += 1) {
+    const slideId = `S${String(n).padStart(2, "0")}`;
+    overrides.push({
+      slide_id: slideId,
+      title: `[${marker}] ${slideId}`,
+      hook: marker === "REGEN" ? "Recovered structural beat with consequence." : "Flat informational beat.",
+      story_panel: {
+        goal: marker === "REGEN" ? "Drive the investigation forward." : "State a detail.",
+        opposition: marker === "REGEN" ? "Competing clue pressure blocks certainty." : "Mild uncertainty.",
+        turn: marker === "REGEN" ? "A contradiction reframes the working theory." : "Minor update.",
+        decision: marker === "REGEN" ? "Commit to the next proof action." : "Continue collecting data."
+      },
+      delivery_mode: mode,
+      major_concept_id: `MC-${String(n).padStart(3, "0")}`,
+      speaker_notes_patch:
+        marker === "REGEN"
+          ? "Regenerated block patch: strengthen story consequence and clue linkage."
+          : "Intentional degradation for structural-regeneration integration test."
+    });
+  }
+  return {
+    schema_version: "1.0.0",
+    block_id: plan.blockId,
+    act_id: plan.actId,
+    slide_range: { start: plan.start, end: plan.end },
+    prior_block_summary: marker === "REGEN" ? "Regenerated from quality fix list." : "Initial degraded authoring block.",
+    unresolved_threads_in: ["thread:test"],
+    slide_overrides: overrides,
+    unresolved_threads_out: marker === "REGEN" ? ["thread:resolved"] : ["thread:test"],
+    block_summary_out: marker === "REGEN" ? "Block regenerated with stronger narrative turns." : "Degraded block to force QA structural fixes."
+  };
+}
+
 beforeEach(async () => {
   tmpOut = await fs.mkdtemp(path.join(os.tmpdir(), "mms-v2-real-"));
   process.env.MMS_OUTPUT_DIR = tmpOut;
@@ -137,6 +202,9 @@ beforeEach(async () => {
     const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
     const differential = generateDifferentialCast(deck, dossier, truth);
     const clueGraph = generateClueGraph(deck, dossier, differential);
+    const microWorld = generateMicroWorldMap(deck, dossier, truth);
+    const dramaPlan = generateDramaPlan(deck, truth);
+    const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
 
     const name = agent?.name ?? "";
     if (name === "KB Compiler") {
@@ -151,6 +219,9 @@ beforeEach(async () => {
     if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
     if (name === "V2 Differential Cast Director") return { finalOutput: differential };
     if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+    if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+    if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+    if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
     if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
     if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
     if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -306,13 +377,39 @@ describe("v2 real pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "med_factcheck_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "v2_stage_authoring_provenance.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "story_beats_alignment_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "citation_traceability.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "agent_call_durations.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "story_blueprint.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "act_outline.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "slide_block_plan.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_assembly_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_spec_assembled.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
+    const filesBeforeGate3 = await fs.readdir(runIntermediateDirAbs(run.runId));
+    expect(filesBeforeGate3.some((name) => /^slide_block_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
 
     await appendHumanReview(run.runId, {
       schema_version: "1.0.0",
       gate_id: "GATE_3_STORYBOARD",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_4_FINAL",
       status: "approve",
       notes: "",
       requested_changes: [],
@@ -336,6 +433,103 @@ describe("v2 real pipeline", () => {
 
     const status = runs.getRun(run.runId);
     expect(status?.steps.C.status).toBe("done");
+  });
+
+  it("writes story-beats alignment warnings when beats exist without chapter outline in warn mode", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Story beats warn branch", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL",
+      generationProfile: "quality",
+      adherenceMode: "warn"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    const beatsPath = path.join(runIntermediateDirAbs(run.runId), "story_beats.json");
+    await fs.mkdir(path.dirname(beatsPath), { recursive: true });
+    await fs.writeFile(
+      beatsPath,
+      JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          topic: run.topic,
+          intro: {
+            user_notes: "",
+            beat_md: "Quirky office opening before the case call.",
+            generation_count: 1
+          },
+          outro: {
+            user_notes: "",
+            beat_md: "Back at the office for a full-circle callback ending.",
+            generation_count: 1
+          },
+          topic_area_beats: {},
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    const alignmentRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "story_beats_alignment_report.json"), "utf8");
+    const alignment = JSON.parse(alignmentRaw) as {
+      lint_status: string;
+      warnings: string[];
+      chapter_outline_present: boolean;
+      coverage?: { block_aligned_beats?: number; block_aligned_ratio?: number };
+      block_coverage?: Array<{ block_id: string }>;
+      beat_slide_map?: Array<{ beat_id: string }>;
+    };
+    expect(alignment.lint_status).toBe("warn");
+    expect(alignment.chapter_outline_present).toBe(false);
+    expect(alignment.warnings.some((warning) => warning.toLowerCase().includes("chapter outline missing"))).toBe(true);
+    expect(Number(alignment.coverage?.block_aligned_beats ?? -1)).toBeGreaterThanOrEqual(0);
+    expect(Number(alignment.coverage?.block_aligned_ratio ?? -1)).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(alignment.block_coverage)).toBe(true);
+    expect(Array.isArray(alignment.beat_slide_map)).toBe(true);
   });
 
   it("fails step C in strict mode when semantic acceptance thresholds are not met", async () => {
@@ -420,6 +614,9 @@ describe("v2 real pipeline", () => {
         };
         const differential = generateDifferentialCast(degradedDeck, dossier, truth);
         const clueGraph = generateClueGraph(degradedDeck, dossier, differential);
+        const microWorld = generateMicroWorldMap(degradedDeck, dossier, truth);
+        const dramaPlan = generateDramaPlan(degradedDeck, truth);
+        const setpiecePlan = generateSetpiecePlan(degradedDeck, microWorld, dossier);
 
         const name = agent?.name ?? "";
         if (name === "KB Compiler") {
@@ -430,6 +627,9 @@ describe("v2 real pipeline", () => {
         if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
         if (name === "V2 Differential Cast Director") return { finalOutput: differential };
         if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+        if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+        if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+        if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: degradedDeck };
         if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(degradedDeck, truth, clueGraph) };
         if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(degradedDeck, dossier) };
@@ -442,7 +642,7 @@ describe("v2 real pipeline", () => {
           runs,
           { signal: new AbortController().signal, startFrom: "C" }
         )
-      ).rejects.toThrow(/without acceptance/i);
+      ).rejects.toThrow(/without acceptance|Quality finalization blocked/i);
     } finally {
       if (prevHybridThreshold === undefined) delete process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY;
       else process.env.MMS_V2_MIN_HYBRID_SLIDE_QUALITY = prevHybridThreshold;
@@ -450,7 +650,9 @@ describe("v2 real pipeline", () => {
       else process.env.MMS_V2_MIN_CITATION_GROUNDING_COVERAGE = prevCitationThreshold;
     }
 
-    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
+    const semFinalPath = path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json");
+    const semLoopPath = path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report_loop1.json");
+    await expect(Promise.any([fs.stat(semFinalPath), fs.stat(semLoopPath)])).resolves.toBeTruthy();
     const status = runs.getRun(run.runId);
     expect(status?.steps.C.status).toBe("error");
   });
@@ -581,9 +783,17 @@ describe("v2 real pipeline", () => {
         const truth = generateTruthModel(base, dossier, pitch);
         const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
         const differential = generateDifferentialCast(deck, dossier, truth);
+        const clueGraph = generateClueGraph(deck, dossier, differential);
+        const microWorld = generateMicroWorldMap(deck, dossier, truth);
+        const dramaPlan = generateDramaPlan(deck, truth);
+        const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
         if (name === "V2 Differential Cast Director") return { finalOutput: differential };
+        if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+        if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+        if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+        if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
-        if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, generateClueGraph(deck, dossier, differential)) };
+        if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
         if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
       }
       if (name === "V2 Clue Architect") {
@@ -629,6 +839,7 @@ describe("v2 real pipeline", () => {
       deckLengthMain: 30,
       deckLengthConstraintEnabled: true,
       audienceLevel: "COLLEGE_LEVEL",
+      generationProfile: "pilot",
       adherenceMode: "warn"
     });
 
@@ -683,10 +894,16 @@ describe("v2 real pipeline", () => {
       const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
       const differential = generateDifferentialCast(deck, dossier, truth);
       const clueGraph = generateClueGraph(deck, dossier, differential);
+      const microWorld = generateMicroWorldMap(deck, dossier, truth);
+      const dramaPlan = generateDramaPlan(deck, truth);
+      const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
 
       const name = agent?.name ?? "";
       if (name === "V2 Differential Cast Director") return { finalOutput: differential };
       if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+      if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+      if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+      if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
       if (name === "V2 Plot Director DeckSpec") throw new Error("Request was aborted.");
       if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
       if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -725,6 +942,7 @@ describe("v2 real pipeline", () => {
       deckLengthMain: 30,
       deckLengthConstraintEnabled: true,
       audienceLevel: "COLLEGE_LEVEL",
+      generationProfile: "pilot",
       adherenceMode: "warn"
     });
 
@@ -762,7 +980,13 @@ describe("v2 real pipeline", () => {
     });
 
     const prevWatchdog = process.env.MMS_V2_STEP_C_WATCHDOG_MS;
+    const prevPlanningMode = process.env.MMS_V2_STEP_C_PLANNING_MODE;
+    const prevDeckSpecMode = process.env.MMS_V2_DECKSPEC_MODE;
+    const prevRefineMode = process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE;
     process.env.MMS_V2_STEP_C_WATCHDOG_MS = "120000";
+    process.env.MMS_V2_STEP_C_PLANNING_MODE = "agent_first";
+    process.env.MMS_V2_DECKSPEC_MODE = "agent_full";
+    process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE = "on";
     try {
       await expect(
         runMicroDetectivesPipeline(
@@ -774,14 +998,138 @@ describe("v2 real pipeline", () => {
     } finally {
       if (prevWatchdog === undefined) delete process.env.MMS_V2_STEP_C_WATCHDOG_MS;
       else process.env.MMS_V2_STEP_C_WATCHDOG_MS = prevWatchdog;
+      if (prevPlanningMode === undefined) delete process.env.MMS_V2_STEP_C_PLANNING_MODE;
+      else process.env.MMS_V2_STEP_C_PLANNING_MODE = prevPlanningMode;
+      if (prevDeckSpecMode === undefined) delete process.env.MMS_V2_DECKSPEC_MODE;
+      else process.env.MMS_V2_DECKSPEC_MODE = prevDeckSpecMode;
+      if (prevRefineMode === undefined) delete process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE;
+      else process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE = prevRefineMode;
     }
 
     const fallbackRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "fallback_usage.json"), "utf8");
     const fallback = JSON.parse(fallbackRaw) as { used: boolean; events?: Array<{ reason?: string }> };
-    expect(fallback.used).toBe(false);
-    expect(fallback.events ?? []).toHaveLength(0);
+    expect(fallback.used).toBe(true);
+    expect((fallback.events ?? []).length).toBeGreaterThan(0);
+    expect((fallback.events ?? []).some((event) => String(event.reason ?? "").includes("budget_guard"))).toBe(true);
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "step_c_watchdog_error.json"))).rejects.toThrow();
     const status = runs.getRun(run.runId);
     expect(status?.steps.C.status).toBe("done");
+  });
+
+  it("routes structural QA fixes through slide-block regeneration and records regen artifacts", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun("Structural regen integration", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
+      generationProfile: "quality",
+      adherenceMode: "warn"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
+      const topic = parseTopic(prompt);
+      const deckLengthMain = parseDeckLength(prompt);
+      const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
+      const audienceLevel = parseAudience(prompt);
+      const base = {
+        topic,
+        audienceLevel,
+        deckLengthMain,
+        deckLengthConstraintEnabled,
+        kbContext: "## Medical / Clinical KB\n- deterministic test context"
+      } as const;
+      const dossier = generateDiseaseDossier(base);
+      const pitch = generateEpisodePitch(base, dossier);
+      const truth = generateTruthModel(base, dossier, pitch);
+      const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
+      const differential = generateDifferentialCast(deck, dossier, truth);
+      const clueGraph = generateClueGraph(deck, dossier, differential);
+      const microWorld = generateMicroWorldMap(deck, dossier, truth);
+      const dramaPlan = generateDramaPlan(deck, truth);
+      const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+
+      const name = agent?.name ?? "";
+      if (name === "KB Compiler") {
+        return { finalOutput: { kb_context: "## Medical / Clinical KB\n- deterministic test context" } };
+      }
+      if (name === "V2 Disease Research Desk") return { finalOutput: dossier };
+      if (name === "V2 Episode Pitch Builder") return { finalOutput: pitch };
+      if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
+      if (name === "V2 Differential Cast Director") return { finalOutput: differential };
+      if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+      if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+      if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+      if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
+      if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
+      if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
+      if (name === "V2 Slide Block Author") {
+        const plan = parseBlockPlan(prompt);
+        const isRegen = prompt.includes("QUALITY REGEN FIXES FOR THIS BLOCK");
+        return { finalOutput: makeSlideBlockForTest(plan, isRegen ? "clue" : "note_only", isRegen ? "REGEN" : "DEGRADE") };
+      }
+      return { finalOutput: { kb_context: "## Medical / Clinical KB\n- fallback" } };
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    const intermediateDir = runIntermediateDirAbs(run.runId);
+    const files = await fs.readdir(intermediateDir);
+    expect(files.some((name) => /slide_block_.*_regen_loop1\.json/i.test(name))).toBe(true);
+
+    const qaPatchRaw = await fs.readFile(path.join(intermediateDir, "qa_patch_notes_loop1.json"), "utf8");
+    const qaPatch = JSON.parse(qaPatchRaw) as { structural_regeneration?: { used?: boolean; regenerated_block_count?: number } };
+    expect(qaPatch.structural_regeneration?.used).toBe(true);
+    expect(Number(qaPatch.structural_regeneration?.regenerated_block_count ?? 0)).toBeGreaterThan(0);
+
+    const regenFiles = files.filter((name) => /slide_block_.*_regen_loop1\.json/i.test(name));
+    expect(regenFiles.length).toBeGreaterThan(0);
+    const regenBlocks = await Promise.all(
+      regenFiles.map(async (name) => {
+        const raw = await fs.readFile(path.join(intermediateDir, name), "utf8");
+        return JSON.parse(raw) as Record<string, unknown>;
+      })
+    );
+    expect(regenBlocks.every((block) => typeof block === "object" && block !== null)).toBe(true);
   });
 });

@@ -8,7 +8,8 @@ function parseArgs(argv) {
   const options = {
     baseUrl: "http://localhost:5050",
     deckLengthMain: 30,
-    audienceLevel: "RESIDENT",
+    audienceLevel: "PHYSICIAN_LEVEL",
+    generationProfile: "pilot",
     adherenceMode: "warn",
     phase: "pilot",
     timeoutMinutes: 45,
@@ -21,6 +22,11 @@ function parseArgs(argv) {
       minAvgStoryScore: 3.2,
       minAvgTwistScore: 3.0,
       minAvgClarityScore: 3.4,
+      minAvgActEscalation: 3.0,
+      minAvgFalseTheoryArc: 3.0,
+      minAvgCallbackClosure: 3.0,
+      minAvgDetectiveDeputyArc: 2.8,
+      minAvgGenericLanguageScore: 2.8,
       minAvgStoryForwardRatio: 0.7,
       minAvgPackagingCompleteness: 1,
       minAvgMainRenderPlanCoverage: 0.95,
@@ -110,6 +116,31 @@ function parseArgs(argv) {
     }
     if (arg === "--min-story-forward-ratio") {
       options.sloTargets.minAvgStoryForwardRatio = Number(argv[i + 1] || options.sloTargets.minAvgStoryForwardRatio);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-act-escalation") {
+      options.sloTargets.minAvgActEscalation = Number(argv[i + 1] || options.sloTargets.minAvgActEscalation);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-false-theory-arc") {
+      options.sloTargets.minAvgFalseTheoryArc = Number(argv[i + 1] || options.sloTargets.minAvgFalseTheoryArc);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-callback-closure") {
+      options.sloTargets.minAvgCallbackClosure = Number(argv[i + 1] || options.sloTargets.minAvgCallbackClosure);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-detective-deputy-arc") {
+      options.sloTargets.minAvgDetectiveDeputyArc = Number(argv[i + 1] || options.sloTargets.minAvgDetectiveDeputyArc);
+      i += 1;
+      continue;
+    }
+    if (arg === "--min-generic-language-score") {
+      options.sloTargets.minAvgGenericLanguageScore = Number(argv[i + 1] || options.sloTargets.minAvgGenericLanguageScore);
       i += 1;
       continue;
     }
@@ -377,11 +408,19 @@ function maxAgentMs(agentDurations) {
   return Math.max(...calls.map((call) => Number(call.elapsedMs || 0)));
 }
 
+function graderScore(qaReport, category) {
+  const scores = Array.isArray(qaReport?.grader_scores) ? qaReport.grader_scores : [];
+  const row = scores.find((item) => String(item?.category || "") === category);
+  const score = Number(row?.score_0_to_5);
+  return Number.isFinite(score) ? score : null;
+}
+
 async function runOne(options, topic) {
   const settings = {
     workflow: "v2_micro_detectives",
     deckLengthMain: options.deckLengthMain,
     audienceLevel: options.audienceLevel,
+    generationProfile: options.generationProfile,
     adherenceMode: options.adherenceMode
   };
   const started = await fetchJson(`${options.baseUrl}/api/runs`, {
@@ -472,6 +511,11 @@ async function runOne(options, topic) {
         storyScore: readerSim?.overall_story_dominance_score_0_to_5 ?? null,
         twistScore: readerSim?.overall_twist_quality_score_0_to_5 ?? null,
         clarityScore: readerSim?.overall_clarity_score_0_to_5 ?? null,
+        actEscalationScore: graderScore(qaReport, "ActEscalation"),
+        falseTheoryArcScore: graderScore(qaReport, "FalseTheoryArc"),
+        callbackClosureScore: graderScore(qaReport, "CallbackClosure"),
+        detectiveDeputyArcScore: graderScore(qaReport, "DetectiveDeputyArc"),
+        genericLanguageScore: graderScore(qaReport, "GenericLanguageRate"),
         requiredFixes: Array.isArray(qaReport?.required_fixes) ? qaReport.required_fixes.length : null,
         storyForwardRatio: Number(storyForwardRatio(deckSpec).toFixed(3)),
         introOutroPass: introOutro.pass,
@@ -510,6 +554,11 @@ async function runOne(options, topic) {
     storyScore: null,
     twistScore: null,
     clarityScore: null,
+    actEscalationScore: null,
+    falseTheoryArcScore: null,
+    callbackClosureScore: null,
+    detectiveDeputyArcScore: null,
+    genericLanguageScore: null,
     requiredFixes: null,
     storyForwardRatio: 0,
     introOutroPass: false,
@@ -552,6 +601,11 @@ function summarize(results) {
     avgStoryScore: avg(completed.map((item) => item.storyScore)),
     avgTwistScore: avg(completed.map((item) => item.twistScore)),
     avgClarityScore: avg(completed.map((item) => item.clarityScore)),
+    avgActEscalation: avg(completed.map((item) => item.actEscalationScore)),
+    avgFalseTheoryArc: avg(completed.map((item) => item.falseTheoryArcScore)),
+    avgCallbackClosure: avg(completed.map((item) => item.callbackClosureScore)),
+    avgDetectiveDeputyArc: avg(completed.map((item) => item.detectiveDeputyArcScore)),
+    avgGenericLanguageScore: avg(completed.map((item) => item.genericLanguageScore)),
     avgStoryForwardRatio: avg(completed.map((item) => item.storyForwardRatio)),
     introOutroPassRate: avg(completed.map((item) => (item.introOutroPass ? 1 : 0))),
     avgHybridSlideQuality: avg(completed.map((item) => item.hybridSlideQuality)),
@@ -602,6 +656,11 @@ function evaluateSlo(summary, targets) {
   checkMin("avgStoryScore", summary.avgStoryScore, targets.minAvgStoryScore);
   checkMin("avgTwistScore", summary.avgTwistScore, targets.minAvgTwistScore);
   checkMin("avgClarityScore", summary.avgClarityScore, targets.minAvgClarityScore);
+  checkMin("avgActEscalation", summary.avgActEscalation, targets.minAvgActEscalation);
+  checkMin("avgFalseTheoryArc", summary.avgFalseTheoryArc, targets.minAvgFalseTheoryArc);
+  checkMin("avgCallbackClosure", summary.avgCallbackClosure, targets.minAvgCallbackClosure);
+  checkMin("avgDetectiveDeputyArc", summary.avgDetectiveDeputyArc, targets.minAvgDetectiveDeputyArc);
+  checkMin("avgGenericLanguageScore", summary.avgGenericLanguageScore, targets.minAvgGenericLanguageScore);
   checkMin("avgStoryForwardRatio", summary.avgStoryForwardRatio, targets.minAvgStoryForwardRatio);
   checkMin("introOutroPassRate", summary.introOutroPassRate, targets.minIntroOutroPassRate);
   checkMin("avgHybridSlideQuality", summary.avgHybridSlideQuality, targets.minAvgHybridSlideQuality);
@@ -641,6 +700,11 @@ function toMarkdown(report) {
     `- Avg story score: ${String(report.summary.avgStoryScore)}`,
     `- Avg twist score: ${String(report.summary.avgTwistScore)}`,
     `- Avg clarity score: ${String(report.summary.avgClarityScore)}`,
+    `- Avg act escalation score: ${String(report.summary.avgActEscalation)}`,
+    `- Avg false-theory arc score: ${String(report.summary.avgFalseTheoryArc)}`,
+    `- Avg callback closure score: ${String(report.summary.avgCallbackClosure)}`,
+    `- Avg detective/deputy arc score: ${String(report.summary.avgDetectiveDeputyArc)}`,
+    `- Avg generic-language score: ${String(report.summary.avgGenericLanguageScore)}`,
     `- Avg story-forward ratio: ${String(report.summary.avgStoryForwardRatio)}`,
     `- Intro/outro pass rate: ${String(report.summary.introOutroPassRate)}`,
     `- Avg hybrid-slide quality: ${String(report.summary.avgHybridSlideQuality)}`,
@@ -667,6 +731,11 @@ function toMarkdown(report) {
     `- minAvgStoryScore: ${String(report.slo.targets.minAvgStoryScore)}`,
     `- minAvgTwistScore: ${String(report.slo.targets.minAvgTwistScore)}`,
     `- minAvgClarityScore: ${String(report.slo.targets.minAvgClarityScore)}`,
+    `- minAvgActEscalation: ${String(report.slo.targets.minAvgActEscalation)}`,
+    `- minAvgFalseTheoryArc: ${String(report.slo.targets.minAvgFalseTheoryArc)}`,
+    `- minAvgCallbackClosure: ${String(report.slo.targets.minAvgCallbackClosure)}`,
+    `- minAvgDetectiveDeputyArc: ${String(report.slo.targets.minAvgDetectiveDeputyArc)}`,
+    `- minAvgGenericLanguageScore: ${String(report.slo.targets.minAvgGenericLanguageScore)}`,
     `- minAvgStoryForwardRatio: ${String(report.slo.targets.minAvgStoryForwardRatio)}`,
     `- minIntroOutroPassRate: ${String(report.slo.targets.minIntroOutroPassRate)}`,
     `- minAvgHybridSlideQuality: ${String(report.slo.targets.minAvgHybridSlideQuality)}`,

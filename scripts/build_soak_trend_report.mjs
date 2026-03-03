@@ -165,6 +165,38 @@ function toHtml(history, latest) {
 </html>`;
 }
 
+function toMarkdown(history, latest) {
+  const lines = [];
+  lines.push("# Soak Trend Summary");
+  lines.push("");
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`Latest run: #${latest.runNumber} (${latest.outcome})`);
+  lines.push(`Pass rate: ${latest.passRate.toFixed(2)}%`);
+  lines.push(`Duration: ${formatDuration(latest.durationMs)}`);
+  lines.push("");
+  lines.push("## Latest");
+  lines.push("");
+  lines.push(`- Total: ${latest.total}`);
+  lines.push(`- Passed: ${latest.passed}`);
+  lines.push(`- Failed: ${latest.failed}`);
+  lines.push(`- Flaky: ${latest.flaky}`);
+  lines.push(`- Skipped: ${latest.skipped}`);
+  lines.push("");
+  lines.push("## Trend (Most Recent 10)");
+  lines.push("");
+  lines.push("| Timestamp | Run # | Outcome | Passed/Total | Failed | Flaky | Pass Rate | Duration |");
+  lines.push("|---|---:|---|---:|---:|---:|---:|---:|");
+  for (const row of history.slice(-10).reverse()) {
+    lines.push(
+      `| ${row.at} | ${row.runNumber} | ${row.outcome} | ${row.passed}/${row.total} | ${row.failed} | ${row.flaky} | ${row.passRate.toFixed(
+        2
+      )}% | ${formatDuration(row.durationMs)} |`
+    );
+  }
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const resultsPath = args.results ?? "web/test-results/soak-results.json";
@@ -187,8 +219,22 @@ async function main() {
 
   await ensureDir(outputDir);
   const html = toHtml(clipped, entry);
+  const markdown = toMarkdown(clipped, entry);
   await fs.writeFile(path.join(outputDir, "soak-trend-history.html"), html, "utf8");
   await fs.writeFile(path.join(outputDir, "soak-trend-history.json"), `${JSON.stringify(clipped, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(outputDir, "soak-trend-summary.md"), markdown, "utf8");
+  await fs.writeFile(
+    path.join(outputDir, "soak-latest-summary.json"),
+    `${JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        latest: entry
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
 }
 
 await main();

@@ -82,6 +82,60 @@ describe("RunViewer helpers", () => {
     expect(setpiecesEmpty.quotas).toBeUndefined();
   });
 
+  it("normalizes stage provenance and story-beat alignment reports", () => {
+    const provenance = __runViewerTestables.normalizeV2StageAuthoringProvenance({
+      generation_profile: "pilot",
+      stages: {
+        micro_world_map: { source: "deterministic_fallback", reason: "budget_guard" },
+        drama_plan: { source: "agent" },
+        setpiece_plan: { source: "agent" }
+      }
+    });
+    expect(provenance.generation_profile).toBe("pilot");
+    expect(provenance.stages.micro_world_map.source).toBe("deterministic_fallback");
+    expect(provenance.stages.micro_world_map.reason).toContain("budget_guard");
+
+    const alignment = __runViewerTestables.normalizeV2StoryBeatsAlignmentReport({
+      story_beats_present: true,
+      chapter_outline_present: true,
+      lint_status: "warn",
+      warnings: ["coverage low"],
+      required_markers: {
+        opener_motif: true,
+        midpoint_false_theory_collapse: false,
+        ending_callback: true,
+        detective_deputy_rupture_repair: false
+      },
+      coverage: {
+        total_beats: 10,
+        mapped_beats: 7,
+        mapped_ratio: 0.7,
+        block_aligned_beats: 6,
+        block_aligned_ratio: 0.6
+      },
+      block_coverage: [{ block_id: "ACT1_B01", expected_beats: 3, mapped_beats: 2, mapped_ratio: 0.666 }],
+      beat_slide_map: [
+        {
+          beat_id: "1.1",
+          expected_act_id: "ACT1",
+          matched_slide_id: "S03",
+          matched_act_id: "ACT1",
+          matched_block_id: "ACT1_B01",
+          overlap_ratio: 0.32,
+          overlap_tokens: 5,
+          mapped: true,
+          block_aligned: true
+        }
+      ]
+    });
+    expect(alignment.lint_status).toBe("warn");
+    expect(alignment.coverage.mapped_beats).toBe(7);
+    expect(alignment.coverage.block_aligned_beats).toBe(6);
+    expect(alignment.block_coverage[0]?.block_id).toBe("ACT1_B01");
+    expect(alignment.beat_slide_map[0]?.matched_slide_id).toBe("S03");
+    expect(alignment.required_markers.midpoint_false_theory_collapse).toBe(false);
+  });
+
   it("formats values and badge classes across edge cases", () => {
     expect(__runViewerTestables.iterationNumber("final_slide_spec_patched_iter7.json")).toBe(7);
     expect(__runViewerTestables.iterationNumber("nope.json")).toBe(-1);
@@ -119,5 +173,15 @@ describe("RunViewer helpers", () => {
     expect(__runViewerTestables.constraintBadgeClass("fail")).toContain("badgeErr");
     expect(__runViewerTestables.constraintBadgeClass("pass")).toContain("badgeOk");
     expect(__runViewerTestables.constraintBadgeClass("warn")).toBe("badge");
+
+    expect(__runViewerTestables.liveFeedBadgeClass("connected")).toContain("badgeOk");
+    expect(__runViewerTestables.liveFeedBadgeClass("reconnecting")).toContain("badgeWarn");
+    expect(__runViewerTestables.liveFeedBadgeClass("connecting")).toBe("badge");
+    expect(__runViewerTestables.liveFeedBadgeClass("offline")).toContain("badgeErr");
+
+    expect(__runViewerTestables.liveFeedLabel("connected")).toBe("live");
+    expect(__runViewerTestables.liveFeedLabel("reconnecting")).toBe("reconnecting");
+    expect(__runViewerTestables.liveFeedLabel("connecting")).toBe("connecting");
+    expect(__runViewerTestables.liveFeedLabel("offline")).toBe("offline");
   });
 });

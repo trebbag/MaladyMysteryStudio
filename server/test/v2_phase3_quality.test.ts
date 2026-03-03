@@ -32,7 +32,7 @@ describe("v2 phase-3 quality helpers", () => {
     });
 
     expect(qa.schema_version).toBe("1.0.0");
-    expect(qa.grader_scores.length).toBe(6);
+    expect(qa.grader_scores.length).toBeGreaterThanOrEqual(10);
     expect(qa.citations_used.length).toBeGreaterThan(0);
   });
 
@@ -109,10 +109,10 @@ describe("v2 phase-3 quality helpers", () => {
     });
 
     expect(patched.deckChanges).toBeGreaterThan(0);
-    expect(patched.clueChanges).toBeGreaterThan(0);
-    expect(patched.differentialChanges).toBeGreaterThan(0);
-    expect(patched.clueGraph.clues[0]!.correct_inference).toContain("Patch 1");
-    expect(patched.differentialCast.primary_suspects[0]!.why_tempting).toContain("Patch 1");
+    expect(patched.clueChanges).toBe(0);
+    expect(patched.differentialChanges).toBe(0);
+    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (edit_clue)"))).toBe(true);
+    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (edit_differential)"))).toBe(true);
   });
 
   it("builds lint-driven required fixes across error-code branches and dedupes duplicates", () => {
@@ -277,12 +277,12 @@ describe("v2 phase-3 quality helpers", () => {
       loopIndex: 2
     });
 
-    expect(patched.patchNotes.some((note) => note.includes("added twist receipt note"))).toBe(true);
-    expect(patched.patchNotes.some((note) => note.includes("adjusted clue framing"))).toBe(true);
-    expect(patched.deck.slides[0]!.speaker_notes.medical_reasoning).toContain("Twist receipt");
+    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (add_twist_receipts)"))).toBe(true);
+    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (other)"))).toBe(false);
+    expect(patched.deck.slides[0]!.speaker_notes.medical_reasoning).toContain("Correction note");
     expect(patched.deck.slides[0]!.medical_payload.major_concept_id).toBe("MC-PATCH-S01");
     if (patched.clueGraph.twist_support_matrix[0]) {
-      expect(patched.clueGraph.twist_support_matrix[0]!.supporting_clue_ids.length).toBeGreaterThanOrEqual(3);
+      expect(patched.clueGraph.twist_support_matrix[0]!.supporting_clue_ids.length).toBe(1);
     }
   });
 
@@ -424,5 +424,47 @@ describe("v2 phase-3 quality helpers", () => {
 
     const twistReceiptError = qa.lint_errors.find((err) => err.code === "TWIST_RECEIPTS_INSUFFICIENT");
     expect(twistReceiptError?.slide_id).toBe(focusClue.first_seen_slide_id);
+  });
+
+  it("adds narrative required fixes when false-theory collapse and callback signals are stripped", () => {
+    const base = {
+      topic: "Anemia",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+    const lint = lintDeckSpecPhase1(deck, 30);
+
+    deck.slides = deck.slides.map((slide, idx) => {
+      if (
+        slide.beat_type === "false_theory_collapse" ||
+        slide.beat_type === "false_theory_lock_in" ||
+        slide.beat_type === "showdown" ||
+        slide.beat_type === "proof" ||
+        slide.beat_type === "aftermath"
+      ) {
+        return { ...slide, beat_type: "clue_discovery", title: `Clue Slide ${idx + 1}`, hook: "Incremental update." };
+      }
+      return slide;
+    });
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    expect(qa.required_fixes.some((fix) => fix.fix_id === "NAR-FALSE-THEORY-COLLAPSE")).toBe(true);
+    expect(qa.required_fixes.some((fix) => fix.fix_id === "NAR-ENDING-CALLBACK")).toBe(true);
   });
 });

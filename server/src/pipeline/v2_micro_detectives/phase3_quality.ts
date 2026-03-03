@@ -258,6 +258,273 @@ function isHybridSlide(slide: DeckSlideSpec): boolean {
   );
 }
 
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(5, Number.isFinite(score) ? score : 0));
+}
+
+function normalizeTemplate(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\d+/g, "#")
+    .replace(/[^a-z#\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function repeatedTemplateRate(values: string[]): number {
+  if (values.length === 0) return 0;
+  const buckets = new Map<string, number>();
+  for (const value of values) {
+    const key = normalizeTemplate(value);
+    if (!key) continue;
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  let repeatedCount = 0;
+  for (const count of buckets.values()) {
+    if (count > 1) repeatedCount += count - 1;
+  }
+  return Math.max(0, Math.min(1, repeatedCount / values.length));
+}
+
+const FALSE_THEORY_BEATS = new Set<DeckSlideSpec["beat_type"]>(["false_theory_lock_in", "false_theory_collapse"]);
+const OUTRO_BEATS = new Set<DeckSlideSpec["beat_type"]>(["showdown", "proof", "aftermath"]);
+const CONFLICT_RE = /\b(conflict|clash|disagree|rupture|friction|argue)\b/i;
+const REPAIR_RE = /\b(repair|reconcile|trust|co-own|together again)\b/i;
+const EMOTIONAL_COST_RE = /\b(cost|loss|sacrifice|fear|panic|regret|harm)\b/i;
+
+function collectNarrativeSignals(deckSpec: DeckSpec): {
+  hasFalseTheoryLockIn: boolean;
+  hasFalseTheoryCollapse: boolean;
+  hasMidpointCollapse: boolean;
+  hasEndingCallbackSignal: boolean;
+  hasConflictSignal: boolean;
+  hasRepairSignal: boolean;
+  hasConflictBeatProxy: boolean;
+  hasRepairBeatProxy: boolean;
+  hasEmotionalCostAct2Act3: boolean;
+  escalationChannelCount: number;
+  repeatedTitleRate: number;
+  repeatedHookRate: number;
+  repeatedStoryTemplateRate: number;
+} {
+  const mainSlides = deckSpec.slides;
+  const combinedText = mainSlides
+    .map((slide) => `${slide.title}\n${slide.hook}\n${slide.story_panel.goal}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}\n${slide.story_panel.decision}\n${slide.speaker_notes.narrative_notes ?? ""}`)
+    .join("\n");
+  const midpointStart = Math.max(0, Math.floor(mainSlides.length * 0.35));
+  const midpointEnd = Math.max(midpointStart + 1, Math.ceil(mainSlides.length * 0.7));
+  const midpointWindow = mainSlides.slice(midpointStart, midpointEnd);
+  const finalWindow = mainSlides.slice(Math.max(0, mainSlides.length - Math.max(4, Math.ceil(mainSlides.length * 0.15))));
+
+  const hasFalseTheoryLockIn = mainSlides.some((slide) => slide.beat_type === "false_theory_lock_in");
+  const hasFalseTheoryCollapse = mainSlides.some((slide) => slide.beat_type === "false_theory_collapse");
+  const hasConflictBeatProxy = mainSlides.some((slide) =>
+    slide.beat_type === "setback" ||
+    slide.beat_type === "reversal" ||
+    slide.beat_type === "action_setpiece" ||
+    slide.beat_type === "red_herring"
+  );
+  const hasRepairBeatProxy = mainSlides.some((slide) =>
+    slide.beat_type === "proof" ||
+    slide.beat_type === "showdown" ||
+    slide.beat_type === "aftermath"
+  );
+  const hasMidpointCollapse =
+    midpointWindow.some((slide) => slide.beat_type === "false_theory_collapse" || slide.beat_type === "reversal" || slide.beat_type === "twist") ||
+    midpointWindow.some((slide) => /\b(fracture|collapse|recontextualiz|break)\b/i.test(`${slide.hook}\n${slide.story_panel.turn}`));
+  const hasEndingCallbackSignal =
+    finalWindow.some((slide) => OUTRO_BEATS.has(slide.beat_type)) &&
+    (/\b(callback|full circle|return(ed)? to (the )?office|back at the office)\b/i.test(finalWindow.map((slide) => `${slide.title}\n${slide.hook}\n${slide.speaker_notes.narrative_notes ?? ""}`).join("\n")) ||
+      normalizeTemplate(finalWindow.map((slide) => slide.title).join(" ")).includes(normalizeTemplate(mainSlides[0]?.title ?? "")));
+  const hasConflictSignal = CONFLICT_RE.test(combinedText);
+  const hasRepairSignal = REPAIR_RE.test(combinedText);
+  const hasEmotionalCostAct2Act3 = mainSlides
+    .filter((slide) => slide.act_id === "ACT2" || slide.act_id === "ACT3")
+    .some((slide) => EMOTIONAL_COST_RE.test(`${slide.hook}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}`));
+
+  const pressureChannels = {
+    time: /\b(deadline|timer|window closing|running out of time|urgent)\b/i,
+    risk: /\b(risk|hazard|danger|decompensat|unstable|critical)\b/i,
+    relationship: /\b(conflict|trust|rupture|repair|disagree|tension)\b/i,
+    uncertainty: /\b(uncertain|ambiguous|confound|mimic|false lead|red herring)\b/i
+  } as const;
+  const escalationChannelCount = Object.values(pressureChannels).filter((pattern) => {
+    const actCoverage = new Set(
+      mainSlides
+        .filter((slide) => pattern.test(`${slide.hook}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}`))
+        .map((slide) => slide.act_id)
+    ).size;
+    return actCoverage >= 2;
+  }).length;
+  const escalationBeatActs = new Set(
+    mainSlides
+      .filter((slide) =>
+        slide.beat_type === "setback" ||
+        slide.beat_type === "reversal" ||
+        slide.beat_type === "action_setpiece" ||
+        slide.beat_type === "false_theory_collapse" ||
+        slide.beat_type === "twist" ||
+        slide.beat_type === "showdown"
+      )
+      .map((slide) => slide.act_id)
+  ).size;
+  const combinedEscalationChannels = Math.max(escalationChannelCount, Math.max(0, escalationBeatActs - 1));
+
+  return {
+    hasFalseTheoryLockIn,
+    hasFalseTheoryCollapse,
+    hasMidpointCollapse,
+    hasEndingCallbackSignal,
+    hasConflictSignal,
+    hasRepairSignal,
+    hasConflictBeatProxy,
+    hasRepairBeatProxy,
+    hasEmotionalCostAct2Act3,
+    escalationChannelCount: combinedEscalationChannels,
+    repeatedTitleRate: repeatedTemplateRate(mainSlides.map((slide) => String(slide.title ?? ""))),
+    repeatedHookRate: repeatedTemplateRate(mainSlides.map((slide) => String(slide.hook ?? ""))),
+    repeatedStoryTemplateRate: repeatedTemplateRate(
+      mainSlides.map((slide) => `${slide.story_panel.goal}|${slide.story_panel.opposition}|${slide.story_panel.turn}|${slide.story_panel.decision}`)
+    )
+  };
+}
+
+function buildNarrativeGrade(input: {
+  deckSpec: DeckSpec;
+  clueGraph: ClueGraph;
+  readerSimReport: ReaderSimReport;
+}): {
+  scores: V2QaReport["grader_scores"];
+  requiredFixes: RequiredFix[];
+  criticalPass: boolean;
+} {
+  const { deckSpec, clueGraph, readerSimReport } = input;
+  const signals = collectNarrativeSignals(deckSpec);
+  const mainSlides = deckSpec.slides;
+  const falseTheoryBeats = mainSlides.filter((slide) => FALSE_THEORY_BEATS.has(slide.beat_type)).length;
+
+  const actEscalationScore = clampScore(2.4 + signals.escalationChannelCount * 0.7);
+  const falseTheoryScore = clampScore(
+    (signals.hasFalseTheoryLockIn ? 1.8 : 0.8) +
+      (signals.hasFalseTheoryCollapse ? 1.8 : 0.8) +
+      (falseTheoryBeats >= 2 ? 1.0 : 0.4)
+  );
+  const callbackScore = clampScore(signals.hasEndingCallbackSignal ? 4.0 : 2.1);
+  const conflictPresent = signals.hasConflictSignal || signals.hasConflictBeatProxy;
+  const repairPresent = signals.hasRepairSignal || signals.hasRepairBeatProxy;
+  const frictionScore = clampScore(
+    (conflictPresent ? 2.0 : 1.0) + (repairPresent ? 2.0 : 1.0) + (signals.hasEmotionalCostAct2Act3 ? 0.8 : 0.3)
+  );
+  const sceneVarietyScore = clampScore(5 - (signals.repeatedTitleRate * 2.2 + signals.repeatedHookRate * 1.6 + signals.repeatedStoryTemplateRate * 1.8));
+  const genericLanguageScore = clampScore(5 - (signals.repeatedTitleRate * 2.1 + signals.repeatedHookRate * 2.1 + signals.repeatedStoryTemplateRate * 2.1));
+
+  const scores: V2QaReport["grader_scores"] = [
+    {
+      category: "ActEscalation",
+      score_0_to_5: actEscalationScore,
+      rationale: `Escalation channels across acts=${signals.escalationChannelCount}.`,
+      critical: true
+    },
+    {
+      category: "FalseTheoryArc",
+      score_0_to_5: falseTheoryScore,
+      rationale: `False-theory beats detected=${falseTheoryBeats} (lock-in=${signals.hasFalseTheoryLockIn}, collapse=${signals.hasFalseTheoryCollapse}).`,
+      critical: true
+    },
+    {
+      category: "CallbackClosure",
+      score_0_to_5: callbackScore,
+      rationale: signals.hasEndingCallbackSignal
+        ? "Final section includes a callback/closure signal."
+        : "Final section lacks a strong opener callback signal.",
+      critical: true
+    },
+    {
+      category: "DetectiveDeputyArc",
+      score_0_to_5: frictionScore,
+      rationale: `Conflict signal=${signals.hasConflictSignal || signals.hasConflictBeatProxy}; repair signal=${signals.hasRepairSignal || signals.hasRepairBeatProxy}; emotional consequence in Act II/III=${signals.hasEmotionalCostAct2Act3}.`,
+      critical: true
+    },
+    {
+      category: "SceneVariety",
+      score_0_to_5: sceneVarietyScore,
+      rationale: "Scores template variety across titles/hooks/story turns.",
+      critical: false
+    },
+    {
+      category: "GenericLanguageRate",
+      score_0_to_5: genericLanguageScore,
+      rationale: "Scores repeated template pressure in narrative language.",
+      critical: false
+    }
+  ];
+
+  const requiredFixes: RequiredFix[] = [];
+  if (!signals.hasFalseTheoryCollapse || !signals.hasMidpointCollapse) {
+    requiredFixes.push({
+      fix_id: "NAR-FALSE-THEORY-COLLAPSE",
+      type: "regenerate_section",
+      priority: "must",
+      description: "Add a visible midpoint false-theory collapse with explicit recontextualization of prior clues.",
+      targets: deckSpec.slides
+        .filter((slide) => slide.act_id === "ACT2" || slide.act_id === "ACT3")
+        .slice(0, 8)
+        .map((slide) => slide.slide_id)
+    });
+  }
+  if (!signals.hasEndingCallbackSignal) {
+    requiredFixes.push({
+      fix_id: "NAR-ENDING-CALLBACK",
+      type: "regenerate_section",
+      priority: "must",
+      description: "Add a closing callback that mirrors the opener motif and completes the case return.",
+      targets: deckSpec.slides.slice(Math.max(0, deckSpec.slides.length - 8)).map((slide) => slide.slide_id)
+    });
+  }
+  if (!(signals.hasConflictSignal || signals.hasConflictBeatProxy) || !(signals.hasRepairSignal || signals.hasRepairBeatProxy)) {
+    requiredFixes.push({
+      fix_id: "NAR-RUPTURE-REPAIR",
+      type: "increase_story_turn",
+      priority: "must",
+      description: "Introduce a detective/deputy rupture and an earned repair beat before final proof.",
+      targets: deckSpec.slides
+        .filter((slide) => slide.act_id === "ACT2" || slide.act_id === "ACT3" || slide.act_id === "ACT4")
+        .slice(0, 10)
+        .map((slide) => slide.slide_id)
+    });
+  }
+  if (signals.repeatedTitleRate > 0.22 || signals.repeatedHookRate > 0.22 || signals.repeatedStoryTemplateRate > 0.18) {
+    requiredFixes.push({
+      fix_id: "NAR-GENERIC-LANGUAGE",
+      type: "regenerate_section",
+      priority: "should",
+      description: "Reduce repeated title/hook/story templates and increase scene-specific language.",
+      targets: deckSpec.slides.slice(0, 12).map((slide) => slide.slide_id)
+    });
+  }
+  if (clueGraph.twist_support_matrix.length === 0) {
+    requiredFixes.push({
+      fix_id: "NAR-TWIST-MATRIX-EMPTY",
+      type: "add_twist_receipts",
+      priority: "must",
+      description: "Add twist support matrix receipts so narrative reveals remain fair-play.",
+      targets: ["twist_support_matrix"]
+    });
+  }
+  if (readerSimReport.overall_story_dominance_score_0_to_5 < 3) {
+    requiredFixes.push({
+      fix_id: "NAR-READER-STORY-DOMINANCE",
+      type: "increase_story_turn",
+      priority: "must",
+      description: "Reader simulation reported weak story dominance; increase consequence-driven turns.",
+      targets: deckSpec.slides.slice(0, 10).map((slide) => slide.slide_id)
+    });
+  }
+
+  const criticalPass = scores.filter((score) => score.critical).every((score) => score.score_0_to_5 >= 2.8);
+  return { scores, requiredFixes, criticalPass };
+}
+
 function safeRatio(numerator: number, denominator: number): number {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
   return numerator / denominator;
@@ -366,11 +633,13 @@ export function buildCombinedQaReport(input: {
   const { lintReport, readerSimReport, medFactcheckReport, clueGraph, deckSpec } = input;
   const lintFixes = buildLintFixes(lintReport, deckSpec);
   const mysteryLint = deterministicMysteryLint({ deckSpec, clueGraph });
+  const narrativeGrade = buildNarrativeGrade({ deckSpec, clueGraph, readerSimReport });
   const combinedLintErrors = [...toQaLintErrors(lintReport.errors), ...mysteryLint.errors];
   const lintPass = lintReport.pass && mysteryLint.errors.length === 0;
   const requiredFixes = dedupeFixes([
     ...lintFixes,
     ...mysteryLint.fixes,
+    ...narrativeGrade.requiredFixes,
     ...medFactcheckReport.required_fixes,
     ...readerSimReport.required_fixes
   ]);
@@ -412,10 +681,11 @@ export function buildCombinedQaReport(input: {
       score_0_to_5: microMacroScore(medFactcheckReport, readerSimReport),
       rationale: "Composite of medical correctness and cross-scale narrative coherence.",
       critical: false
-    }
+    },
+    ...narrativeGrade.scores
   ];
 
-  const criticalScoresOk = graderScores.filter((g) => g.critical).every((g) => g.score_0_to_5 >= 3);
+  const criticalScoresOk = graderScores.filter((g) => g.critical).every((g) => g.score_0_to_5 >= 3) && narrativeGrade.criticalPass;
   const accept = lintPass && medFactcheckReport.pass && criticalScoresOk && !hasMustFix;
 
   const fallbackCitation = baseCitation(deckSpec);
@@ -522,6 +792,17 @@ type TargetedPatchResult = {
   differentialChanges: number;
 };
 
+function markSlidePatched(slide: DeckSlideSpec): void {
+  slide.authoring_provenance = "patched_scaffold";
+}
+
+const LOCAL_PATCH_ONLY_FIX_TYPES = new Set<RequiredFix["type"]>([
+  "reduce_text_density",
+  "medical_correction",
+  "edit_slide",
+  "other"
+]);
+
 export function applyTargetedQaPatches(input: {
   deckSpec: DeckSpec;
   clueGraph: ClueGraph;
@@ -539,11 +820,17 @@ export function applyTargetedQaPatches(input: {
   let differentialChanges = 0;
 
   for (const fix of qaReport.required_fixes) {
+    if (!LOCAL_PATCH_ONLY_FIX_TYPES.has(fix.type)) {
+      patchNotes.push(
+        `${fix.fix_id}: deferred for structural regeneration (${fix.type})`
+      );
+      continue;
+    }
     const targets = normalizeTargetSlideIds(fix, deck);
     const targetClueIds = normalizeTargetClueIds(fix, clueGraph);
     const targetDxIds = normalizeTargetDxIds(fix, differentialCast);
 
-    if ((fix.type === "edit_clue" || fix.type === "regenerate_section" || fix.type === "other") && targetClueIds.length > 0) {
+    if ((fix.type === "other") && targetClueIds.length > 0) {
       for (const targetClueId of targetClueIds) {
         const clue = clueGraph.clues.find((item) => item.clue_id === targetClueId);
         if (clue) {
@@ -564,7 +851,7 @@ export function applyTargetedQaPatches(input: {
       }
     }
 
-    if ((fix.type === "edit_differential" || fix.type === "regenerate_section" || fix.type === "medical_correction") && targetDxIds.length > 0) {
+    if ((fix.type === "medical_correction") && targetDxIds.length > 0) {
       for (const dxId of targetDxIds) {
         const suspect = differentialCast.primary_suspects.find((item) => item.dx_id === dxId);
         if (!suspect) continue;
@@ -584,62 +871,33 @@ export function applyTargetedQaPatches(input: {
         if (slide.on_slide_text.subtitle) slide.on_slide_text.subtitle = shortenWords(slide.on_slide_text.subtitle, 10);
         if (slide.on_slide_text.callouts) slide.on_slide_text.callouts = slide.on_slide_text.callouts.slice(0, 2).map((c) => shortenWords(c, 8));
         if (slide.on_slide_text.labels) slide.on_slide_text.labels = slide.on_slide_text.labels.slice(0, 2).map((c) => shortenWords(c, 4));
+        markSlidePatched(slide);
         patchNotes.push(`${slideId}: reduced text density`);
         deckChanges += 1;
         continue;
       }
 
-      if (fix.type === "increase_story_turn") {
-        slide.story_panel.goal = slide.story_panel.goal || "Advance the case with a concrete investigative objective.";
-        slide.story_panel.opposition = slide.story_panel.opposition || "A plausible competing explanation blocks certainty.";
-        slide.story_panel.turn = slide.story_panel.turn || "New evidence changes what the team believes.";
-        slide.story_panel.decision = slide.story_panel.decision || "Commit to the next evidence-generating action.";
-        if (!["clue", "dialogue", "action"].includes(slide.medical_payload.delivery_mode)) {
-          slide.medical_payload.delivery_mode = "clue";
-        }
-        patchNotes.push(`${slideId}: strengthened story turn`);
-        deckChanges += 1;
-        continue;
-      }
-
-      if (fix.type === "add_twist_receipts") {
-        const receiptLine = `Twist receipt (loop ${loopIndex}): this beat links back to earlier clue evidence.`;
-        const current = slide.speaker_notes.medical_reasoning;
-        if (!current.includes("Twist receipt")) {
-          slide.speaker_notes.medical_reasoning = `${current} ${receiptLine}`.trim();
-        }
-        patchNotes.push(`${slideId}: added twist receipt note`);
-        deckChanges += 1;
-        continue;
-      }
-
-      if (fix.type === "medical_correction" || fix.type === "edit_slide" || fix.type === "regenerate_section" || fix.type === "edit_differential") {
+      if (fix.type === "medical_correction" || fix.type === "edit_slide") {
         slide.speaker_notes.medical_reasoning = `${slide.speaker_notes.medical_reasoning} Correction note: ${fix.description}`.trim();
         if (slide.medical_payload.major_concept_id.trim().length === 0) {
           slide.medical_payload.major_concept_id = `MC-PATCH-${slide.slide_id}`;
         }
+        markSlidePatched(slide);
         patchNotes.push(`${slideId}: applied medical correction patch`);
         deckChanges += 1;
         continue;
       }
 
-      if (fix.type === "edit_clue" || fix.type === "other") {
+      if (fix.type === "other") {
         slide.hook = `${slide.hook} [Patched clue framing]`.trim();
+        markSlidePatched(slide);
         patchNotes.push(`${slideId}: adjusted clue framing`);
         deckChanges += 1;
       }
     }
   }
 
-  if (qaReport.required_fixes.some((fix) => fix.type === "add_twist_receipts") && clueGraph.twist_support_matrix.length > 0) {
-    for (const support of clueGraph.twist_support_matrix) {
-      if (support.supporting_clue_ids.length < 3) {
-        const filler = clueGraph.clues.map((clue) => clue.clue_id).slice(0, 3);
-        support.supporting_clue_ids = Array.from(new Set([...support.supporting_clue_ids, ...filler]));
-        clueChanges += 1;
-      }
-    }
-  }
+  // Twist/clue/differential structural fixes are intentionally left to block/act regeneration.
 
   return { deck, clueGraph, differentialCast, patchNotes, deckChanges, clueChanges, differentialChanges };
 }

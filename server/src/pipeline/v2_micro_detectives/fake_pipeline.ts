@@ -6,6 +6,13 @@ import type { RunManager, RunSettings, StepName } from "../../run_manager.js";
 import { resolveCanonicalProfilePaths } from "../canon.js";
 import { nowIso, resolveArtifactPathAbs, runFinalDirAbs, runIntermediateDirAbs, writeJsonFile, writeTextFile } from "../utils.js";
 import { loadV2Assets } from "./assets.js";
+import {
+  assembleDeckFromSlideBlocks,
+  buildActOutlineFallback,
+  buildSlideBlockFallback,
+  buildStoryBlueprintFallback,
+  planSlideBlocksFromOutline
+} from "./authoring_stages.js";
 import { buildCitationTraceabilityReport } from "./citation_traceability.js";
 import { generateV2DeckSpec } from "./generator.js";
 import { lintDeckSpecPhase1 } from "./lints.js";
@@ -70,6 +77,8 @@ const V2_PHASE4_FINAL_ARTIFACTS = {
   packagingSummary: "V2_PACKAGING_SUMMARY.json"
 } as const;
 
+type GenerationProfile = "quality" | "pilot";
+
 function parseDelayMs(): number {
   const raw = Number(process.env.MMS_FAKE_STEP_DELAY_MS ?? 80);
   if (!Number.isFinite(raw) || raw < 0) return 80;
@@ -124,6 +133,10 @@ function resolveDeckLengthPolicy(settings?: RunSettings): {
     };
   }
   return { constraintEnabled: false };
+}
+
+function resolveGenerationProfile(settings?: RunSettings): GenerationProfile {
+  return settings?.generationProfile === "pilot" ? "pilot" : "quality";
 }
 
 function stepCAgentTimeoutMs(): number {
@@ -238,7 +251,8 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   const { runId, topic, settings } = input;
   const { signal } = options;
   const delayMs = parseDelayMs();
-  const adherenceMode = settings?.adherenceMode ?? "strict";
+  const generationProfile = resolveGenerationProfile(settings);
+  const adherenceMode = settings?.adherenceMode ?? (generationProfile === "pilot" ? "warn" : "strict");
   const startFrom = options.startFrom ?? "KB0";
   const deckLengthPolicy = resolveDeckLengthPolicy(settings);
   const audienceLevel = settings?.audienceLevel ?? "PHYSICIAN_LEVEL";
@@ -248,6 +262,7 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   if (!isV2Step(startFrom)) {
     throw new Error(`Invalid startFrom for v2: ${startFrom}. Supported: ${V2_STEPS.join(", ")}`);
   }
+  runs.log(runId, `V2 fake pipeline start (startFrom=${startFrom}; profile=${generationProfile}; adherence=${adherenceMode})`);
 
   const shouldRun = (step: StepName): boolean => stepIndex(step) >= stepIndex(startFrom);
 
@@ -585,6 +600,42 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
       let workingDifferential = DifferentialCastSchema.parse(generateDifferentialCast(workingDeck, diseaseDossier, truthModel));
       await writeIntermediateJson("C", "differential_cast.json", workingDifferential);
       let workingClueGraph = ClueGraphSchema.parse(generateClueGraph(workingDeck, diseaseDossier, workingDifferential));
+      const storyBlueprint = buildStoryBlueprintFallback({
+        topic,
+        clueObligations: workingClueGraph.clues.slice(0, 8).map((clue) => clue.clue_id)
+      });
+      await writeIntermediateJson("C", "story_blueprint.json", storyBlueprint);
+
+      const actOutline = buildActOutlineFallback({
+        deck: workingDeck,
+        storyBlueprint
+      });
+      await writeIntermediateJson("C", "act_outline.json", actOutline);
+
+      const blockPlans = planSlideBlocksFromOutline(actOutline);
+      await writeIntermediateJson("C", "slide_block_plan.json", {
+        schema_version: "1.0.0",
+        block_count: blockPlans.length,
+        blocks: blockPlans
+      });
+      const stagedBlocks = blockPlans.map((plan) =>
+        buildSlideBlockFallback({
+          deck: workingDeck,
+          plan,
+          priorSummary: "Fake pipeline staged authoring block."
+        })
+      );
+      for (const block of stagedBlocks) {
+        await writeIntermediateJson("C", `slide_block_${block.block_id}.json`, block);
+      }
+      const assembled = assembleDeckFromSlideBlocks({
+        scaffoldDeck: workingDeck,
+        blocks: stagedBlocks
+      });
+      await writeIntermediateJson("C", "deck_assembly_report.json", assembled.report);
+      workingDeck = DeckSpecSchema.parse(assembled.deck);
+      await writeIntermediateJson("C", "deck_spec_assembled.json", workingDeck);
+
       workingDeck = DeckSpecSchema.parse(
         polishDeckSpecForFallback({
           deckSpec: workingDeck,
@@ -603,7 +654,9 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
       let finalLint = V2DeckSpecLintReportSchema.parse(
         lintDeckSpecPhase1(workingDeck, {
           deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
-          targetDeckLengthMain: deckLengthPolicy.softTarget
+          targetDeckLengthMain: deckLengthPolicy.softTarget,
+          generationProfile,
+          enforceQualityLints: false
         })
       );
       let finalReader: ReturnType<typeof ReaderSimReportSchema.parse>;
@@ -633,7 +686,9 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
         finalLint = V2DeckSpecLintReportSchema.parse(
           lintDeckSpecPhase1(workingDeck, {
             deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
-            targetDeckLengthMain: deckLengthPolicy.softTarget
+            targetDeckLengthMain: deckLengthPolicy.softTarget,
+            generationProfile,
+            enforceQualityLints: false
           })
         );
         await writeIntermediateJson("C", `deck_spec_loop${attempt}.json`, workingDeck);
@@ -813,6 +868,13 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
   await runStep("C", async () => {
     await runPhase4Packaging("C");
   });
+
+  await requireGateApproval(
+    "C",
+    "GATE_4_FINAL",
+    "Gate 4: review final packaging artifacts before run completion.",
+    "Submit /api/runs/:runId/gates/GATE_4_FINAL/submit with status=approve, then call /api/runs/:runId/resume."
+  );
 
   runs.log(runId, "V2 micro-detectives phase 4 complete.");
 }

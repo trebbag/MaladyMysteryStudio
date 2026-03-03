@@ -504,6 +504,9 @@ describe("RunViewer", () => {
 
     await user.click(screen.getByRole("button", { name: "Templates" }));
     expect(await screen.findByText(/No v2_template_registry\.json artifact yet/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Packaging" }));
+    expect(await screen.findByText(/No V2 packaging summary artifact yet/i)).toBeInTheDocument();
   });
 
   it("loads packaging inspector from fallback summary artifact name when final summary is absent", async () => {
@@ -578,6 +581,98 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/Final package files/i)).toBeInTheDocument();
     expect(fetchArtifact).toHaveBeenCalledWith("v2pack-fallback", "v2_phase4_packaging_summary.json");
     expect(fetchArtifact).not.toHaveBeenCalledWith("v2pack-fallback", "V2_PACKAGING_SUMMARY.json");
+  });
+
+  it("renders drama/setpiece/template fallback placeholders in v2 inspectors", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "v2-inspector-branches",
+      topic: "v2 branch coverage",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/v2-inspector-branches",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "deck_spec.json", size: 40, mtimeMs: 20, folder: "final" },
+      { name: "drama_plan.json", size: 20, mtimeMs: 19, folder: "intermediate" },
+      { name: "setpiece_plan.json", size: 20, mtimeMs: 19, folder: "intermediate" },
+      { name: "v2_template_registry.json", size: 20, mtimeMs: 18, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Coverage deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "r", citations: [{ citation_id: "C1", claim: "x" }] },
+                on_slide_text: { headline: "h" }
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "setpiece_plan.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            setpieces: [{ setpiece_id: "SP-001" }],
+            quotas: { action: false }
+          })
+        };
+      }
+      if (name === "drama_plan.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            character_arcs: [
+              {
+                character_id: "CYTO"
+              }
+            ],
+            relationship_arcs: [{}]
+          })
+        };
+      }
+      if (name === "v2_template_registry.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            templates: [{ template_id: "T99", renderer_instructions: ["render clean"], allowed_beat_types: ["transition"] }]
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2-inspector-branches"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("V2 artifact inspectors")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Drama Plan" }));
+    expect(await screen.findByText(/Pair 1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^core need$/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^core fear$/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Setpieces" }));
+    expect(await screen.findByText(/SP-001/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^no$/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Templates" }));
+    expect(await screen.findByText(/T99/i)).toBeInTheDocument();
   });
 
   it("does not render v2-only review banners or inspectors for legacy runs even when v2 artifacts exist", async () => {
@@ -807,6 +902,74 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/96%/)).toBeInTheDocument();
   });
 
+  it("renders v2 narrative grader panel from qa_report artifact", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "v2-qa-panel",
+      topic: "v2 qa panel",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/v2-qa-panel",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "COLLEGE_LEVEL", adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValue([
+      { name: "deck_spec.json", size: 40, mtimeMs: 10, folder: "intermediate" },
+      { name: "qa_report.json", size: 40, mtimeMs: 11, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "QA panel deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "r", citations: [{ citation_id: "C1", claim: "x" }] },
+                on_slide_text: { headline: "h" }
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "qa_report.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            accept: false,
+            summary: "Narrative quality below threshold.",
+            required_fixes: [{ id: "fix_1" }, { id: "fix_2" }],
+            grader_scores: [
+              { category: "ActEscalation", score_0_to_5: 3.6, rationale: "Escalation soft in Act II", critical: false },
+              { category: "CallbackClosure", score_0_to_5: 2.1, rationale: "Weak payoff callback", critical: true },
+              { category: "UnknownCategory", score_0_to_5: 5, rationale: "ignored", critical: false }
+            ]
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2-qa-panel"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("V2 narrative grader")).toBeInTheDocument();
+    expect(await screen.findByText(/qa reject/i)).toBeInTheDocument();
+    expect(await screen.findByText(/required fixes: 2/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Narrative quality below threshold\./i)).toBeInTheDocument();
+    expect(await screen.findByText(/ActEscalation/i)).toBeInTheDocument();
+    expect(await screen.findByText(/CallbackClosure \(critical\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/UnknownCategory/i)).not.toBeInTheDocument();
+  });
+
   it("renders gate history entries when available", async () => {
     vi.mocked(getRun).mockResolvedValue({
       runId: "v2history",
@@ -843,6 +1006,30 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/Gate history/i)).toBeInTheDocument();
     expect(await screen.findByText(/GATE_1_PITCH/)).toBeInTheDocument();
     expect(await screen.findByText(/looks good/)).toBeInTheDocument();
+  });
+
+  it("shows gate history load errors when the gate history API fails", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      runId: "v2history-error",
+      topic: "v2 history error topic",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      outputFolder: "output/v2history-error",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL", adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(getGateHistory).mockRejectedValueOnce(new Error("history-oops"));
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2history-error"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Gate history")).toBeInTheDocument();
+    expect(await screen.findByText(/history-oops/i)).toBeInTheDocument();
   });
 
   it("shows paused-run recovery guidance for request_changes and regenerate decisions", async () => {
@@ -1806,17 +1993,70 @@ describe("RunViewer", () => {
     expect(rerunFrom).toHaveBeenLastCalledWith("abc123", "J");
   });
 
+  it("resets rerun start step when workflow step order shrinks on refresh", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getRun)
+      .mockResolvedValueOnce({
+        runId: "abc123",
+        topic: "legacy topic",
+        status: "done",
+        startedAt: "2026-02-09T00:00:00.000Z",
+        outputFolder: "output/abc123",
+        steps: makeSteps("done")
+      } as never)
+      .mockResolvedValueOnce({
+        runId: "abc123",
+        topic: "v2 topic",
+        status: "done",
+        startedAt: "2026-02-09T00:00:00.000Z",
+        outputFolder: "output/abc123",
+        settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" },
+        steps: makeSteps("done")
+      } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/runs/abc123"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const rerunSelect = await screen.findByDisplayValue("KB0");
+    await user.selectOptions(rerunSelect, "J");
+    expect(await screen.findByDisplayValue("J")).toBeInTheDocument();
+
+    const es = FakeEventSource.last;
+    if (!es) throw new Error("missing EventSource");
+    es.emit("step_finished", JSON.stringify({ step: "B", at: new Date().toISOString(), ok: true }));
+
+    await waitFor(async () => {
+      expect(await screen.findByDisplayValue("KB0")).toBeInTheDocument();
+    });
+  });
+
   it("closes the existing EventSource when the route runId changes", async () => {
     const user = userEvent.setup();
-    vi.mocked(getRun).mockResolvedValue({
-      runId: "abc123",
-      topic: "topic",
-      status: "done",
-      startedAt: "2026-02-09T00:00:00.000Z",
-      outputFolder: "output/abc123",
-      traceId: "trace_test",
-      steps: makeSteps("done")
-    });
+    vi.mocked(getRun)
+      .mockResolvedValueOnce({
+        runId: "abc123",
+        topic: "legacy topic",
+        status: "done",
+        startedAt: "2026-02-09T00:00:00.000Z",
+        outputFolder: "output/abc123",
+        traceId: "trace_test",
+        steps: makeSteps("done")
+      } as never)
+      .mockResolvedValueOnce({
+        runId: "def456",
+        topic: "v2 topic",
+        status: "done",
+        startedAt: "2026-02-09T00:00:00.000Z",
+        outputFolder: "output/def456",
+        traceId: "trace_test_2",
+        settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" },
+        steps: makeSteps("done")
+      } as never);
 
     render(
       <MemoryRouter initialEntries={["/runs/abc123"]}>
@@ -1835,12 +2075,14 @@ describe("RunViewer", () => {
     );
 
     expect(await screen.findByText("Run metadata")).toBeInTheDocument();
+    await user.selectOptions(await screen.findByDisplayValue("KB0"), "J");
     const firstEs = FakeEventSource.last;
     if (!firstEs) throw new Error("missing first EventSource");
 
     await user.click(screen.getByRole("button", { name: "go-run-2" }));
     expect(await screen.findByText("Run metadata")).toBeInTheDocument();
     expect(firstEs.closed).toBe(true);
+    expect(await screen.findByDisplayValue("KB0")).toBeInTheDocument();
   });
 
   it("sorts artifacts with run.json and trace.json at the top", async () => {
@@ -1932,6 +2174,203 @@ describe("RunViewer", () => {
 
     expect(await screen.findByText("Step SLO warnings")).toBeInTheDocument();
     expect(await screen.findByText(/J 10m 0s > 1m 30s/i)).toBeInTheDocument();
+  });
+
+  it("renders v2 stage provenance and story-beat alignment panels when artifacts exist", async () => {
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "v2signals",
+      topic: "v2 signals",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/v2signals",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "deck_spec.json", size: 100, mtimeMs: 20, folder: "final" },
+      { name: "v2_stage_authoring_provenance.json", size: 80, mtimeMs: 19, folder: "intermediate" },
+      { name: "story_beats_alignment_report.json", size: 90, mtimeMs: 18, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Signals deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                act_id: "ACT1",
+                beat_type: "clue_discovery",
+                title: "Signal one",
+                template_id: "T04_CLUE_DISCOVERY",
+                on_slide_text: { headline: "S01 clue" },
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "reason" },
+                visual_description: "visual"
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "v2_stage_authoring_provenance.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            generation_profile: "quality",
+            stages: {
+              micro_world_map: { source: "deterministic_fallback", reason: "budget_guard" },
+              drama_plan: { source: "agent" },
+              setpiece_plan: { source: "agent" }
+            }
+          })
+        };
+      }
+      if (name === "story_beats_alignment_report.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            story_beats_present: true,
+            chapter_outline_present: true,
+            lint_status: "warn",
+            warnings: ["Story-beat mapping coverage is low (60%)."],
+            required_markers: {
+              opener_motif: true,
+              midpoint_false_theory_collapse: false,
+              ending_callback: true,
+              detective_deputy_rupture_repair: false
+            },
+            coverage: {
+              total_beats: 10,
+              mapped_beats: 6,
+              mapped_ratio: 0.6,
+              block_aligned_beats: 5,
+              block_aligned_ratio: 0.5
+            },
+            block_coverage: [{ block_id: "ACT1_B01", expected_beats: 3, mapped_beats: 2, mapped_ratio: 0.666 }],
+            beat_slide_map: [
+              {
+                beat_id: "1.1",
+                expected_act_id: "ACT1",
+                matched_slide_id: "S01",
+                matched_act_id: "ACT1",
+                matched_block_id: "ACT1_B01",
+                overlap_ratio: 0.31,
+                overlap_tokens: 4,
+                mapped: true,
+                block_aligned: true
+              }
+            ]
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/v2signals"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("V2 stage provenance")).toBeInTheDocument();
+    expect((await screen.findAllByText(/micro world map/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/deterministic_fallback/i)).toBeInTheDocument();
+    expect(await screen.findByText("Story beats alignment")).toBeInTheDocument();
+    expect(await screen.findByText(/Story-beat mapping coverage is low/i)).toBeInTheDocument();
+    expect(await screen.findByText(/ACT1_B01/i)).toBeInTheDocument();
+    expect(await screen.findByText(/S01 · ACT1 · aligned/i)).toBeInTheDocument();
+  });
+
+  it("renders v2 packaging inspector details and canonical source fallback values", async () => {
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "v2pack",
+      topic: "v2 packaging",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/v2pack",
+      settings: { workflow: "v2_micro_detectives", audienceLevel: "PHYSICIAN_LEVEL" },
+      canonicalSources: {
+        foundAny: true,
+        templateRoot: "/canon"
+      },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "deck_spec.json", size: 100, mtimeMs: 20, folder: "final" },
+      { name: "V2_PACKAGING_SUMMARY.json", size: 100, mtimeMs: 19, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "deck_spec.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            deck_meta: { episode_title: "Pack deck", deck_length_main: "30" },
+            slides: [
+              {
+                slide_id: "S01",
+                act_id: "ACT1",
+                beat_type: "clue_discovery",
+                title: "Signal one",
+                template_id: "T04_CLUE_DISCOVERY",
+                on_slide_text: { headline: "S01 clue" },
+                story_panel: { goal: "g", opposition: "o", turn: "t", decision: "d" },
+                medical_payload: { major_concept_id: "MC-01", delivery_mode: "clue", dossier_citations: [{ citation_id: "C1", claim: "x" }] },
+                speaker_notes: { medical_reasoning: "reason" },
+                visual_description: "visual"
+              }
+            ],
+            appendix_slides: []
+          })
+        };
+      }
+      if (name === "V2_PACKAGING_SUMMARY.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            schema_version: "1.0.0",
+            workflow: "v2_micro_detectives",
+            generated_at: "2026-02-09T00:09:59.000Z",
+            deck: { episode_title: "Pack episode", main_slide_count: 30, appendix_slide_count: 6 },
+            package: {
+              template_count: 11,
+              files: {
+                main: "V2_MAIN_DECK_RENDER_PLAN.md",
+                appendix: "V2_APPENDIX_RENDER_PLAN.md"
+              }
+            }
+          })
+        };
+      }
+      return { contentType: "text/plain", text: "ok" };
+    });
+
+    const view = render(
+      <MemoryRouter initialEntries={["/runs/v2pack"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Run metadata")).toBeInTheDocument();
+    const packagingButtons = await screen.findAllByRole("button", { name: /Packaging/i });
+    const packagingTab = packagingButtons.find((btn) => String(btn.className).includes("summaryTabButton"));
+    if (!packagingTab) throw new Error("missing Packaging summary tab");
+    await userEvent.click(packagingTab);
+    expect(await screen.findByText(/Pack episode/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/V2_MAIN_DECK_RENDER_PLAN\.md/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/V2_APPENDIX_RENDER_PLAN\.md/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Canonical sources loaded/i)).toBeInTheDocument();
+    expect(await screen.findByText(/character bible/i)).toBeInTheDocument();
+    const canonicalValues = Array.from(view.container.querySelectorAll(".canonicalValue")).map((el) => (el.textContent || "").trim());
+    expect(canonicalValues).toContain("-");
   });
 
   it("renders constraint diagnostics drilldown when adherence artifact is present", async () => {

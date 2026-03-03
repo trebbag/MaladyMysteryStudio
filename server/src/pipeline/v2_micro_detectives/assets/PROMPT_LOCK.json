@@ -1,22 +1,25 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-03-02T15:54:17.470Z",
+  "generated_at": "2026-03-02T23:57:16.683Z",
   "generated_by": "scripts/build_v2_asset_lock.mjs",
   "using_source_overlay": true,
   "assets": {
     "prompts": {
-      "00_global_system_prompt.md": "ac80fc6c943175bfaf3f6e46d5417b718032e1ec2d316fccd2d24e21099ba93a",
+      "00_global_system_prompt.md": "992433a02117d82b1f62bfd2572db3fadf16899533edc237ecb7f5362b519603",
+      "agent_act_outline.md": "d1a8202921b40a96f156569c9f06f230574bf0d3e28a0ebabe3632fa44fb8681",
       "agent_case_engineer_truth_model.md": "9adb51c2200b8f8e3010d19a9b4ddbaffc4b785d812ed18d7c08e41a64641939",
-      "agent_clue_architect.md": "80ade01d0dde58e1438e82beae18fff64f0f95c6769379e420f3e88b337b56db",
+      "agent_clue_architect.md": "1324bc8b40b049a1954062cb0693e68beef0b343d69f9b13e7c8012b532d5209",
       "agent_differential_cast_director.md": "9c03e82a99da5d269d59d295ddeebe357ce6dceb5342f9f65fd71be6d4bd6954",
       "agent_disease_research_desk.md": "dcb98587193ae1e0294ec5d1130e9298aba5c8b4e71d7d1bd09d170e71e195ee",
-      "agent_drama_architect.md": "2f630ccd62c4336c6c52c93a806cdb936c5ba7699a1b8184d54a6436511dd93d",
+      "agent_drama_architect.md": "8d14c307e317a033f64e0a1010267eb85f24122283118a91dc8db832206d6753",
       "agent_episode_pitch.md": "b04a1b688db6133b855232fe063a3320e8a37478dad97324e733e74e3fd4a986",
-      "agent_micro_world_mapper.md": "affe8a657ca3831575adc070725fc7361c1f0b81d18d140de2aab2858798c50e",
-      "agent_plot_director_deckspec.md": "2ec13536245a97164673226d08225c0b2351fd238573200fd029d0fc5ff4f9e1",
+      "agent_micro_world_mapper.md": "bca678e6587bf4e31e084682d4f845ed384f8c294c50ecfb40e230d6b8d4e90c",
+      "agent_plot_director_deckspec.md": "ef8abd311c7d7eed36e14e5954f7d73fe2803fda3fcb6b9b0ef3915f2601bdde",
       "agent_qa_med_factcheck.md": "58210ff7326e5c9da07878ca7e6685c33afd668bc73d89ea8e3f22e8cdfb9a6e",
       "agent_qa_reader_sim.md": "b1b95ec26df3b281a219ee2bac84f5e997b49845a6652204570fe8146371d691",
-      "agent_setpiece_choreographer.md": "6495d96aa8eb4ca437aeea6f1ed82b3a9443ee1439ca516924abc7484a2b23b2"
+      "agent_slide_block_author.md": "06229fa54981f1a54cdb840fc2c09f5d4ed295f95e629c360445af7aea21c0c0",
+      "agent_story_blueprint.md": "0d48ee4f38eeb162893dcb0aa7265915193098de5c3fbe61d6ee88fd51ec2912",
+      "agent_setpiece_choreographer.md": "d64d14f00ffb7b4bc6095053daf20c657129f697efabd1295ccfb30010963910"
     },
     "schemas": {
       "clue_graph.schema.json": "9bfef9b2ce5eb527815b1a0b120a7e7e33caf6ce020b3665931667c203188627",
@@ -28,7 +31,7 @@
       "human_review.schema.json": "70fc101a3ca770743a0f355f05c304e18e2c6e8376ee3dd91160f33f22ae20ba",
       "med_factcheck_report.schema.json": "b0cc7c9391d385f2d9f0f5f40f94b145685f0a3ab51d431afcf94a08125b9ab9",
       "micro_world_map.schema.json": "8dd84b2a010de524cf261803c0193445fa06a0bded472669ce98fe991da48c6f",
-      "qa_report.schema.json": "be8321f1c6806f4b2d944a4af36f81bb0aebf4a1d51d54f108a49a0838fcc24c",
+      "qa_report.schema.json": "d0e372d88543777c7386d939f9f99ac03a16f110fe12c4c3feb2588713dfd6b0",
       "reader_sim_report.schema.json": "88d0c4c29ed0bc920f162346b4dcbceb02f53e44536a5a20ec1ef2a99170315c",
       "setpiece_plan.schema.json": "d47f24d4af9ef745df7c79fc937b340d7caf436724a5ead50627ddb9043d8c80",
       "truth_model.schema.json": "193a89566bed9b9fb2b08a89816d1970e054008ea0f5b32e593f7fc10cfa10e2"

@@ -24,8 +24,12 @@ This runbook is the operator checklist for piloting `workflow=v2_micro_detective
 1. Start app (`npm run start`) and open `http://localhost:5050`.
 2. Create a run from Home:
    - `workflow`: `v2_micro_detectives`
-   - `deckLengthMain`: `30 | 45 | 60`
-   - `audienceLevel`: appropriate for pilot cohort
+   - `generationProfile`: `quality` (default) for authoring depth, or `pilot` for resilience-first execution
+   - `adherenceMode`: `strict` for hard gates, `warn` for continuity
+   - `audienceLevel`: `PHYSICIAN_LEVEL` or `COLLEGE_LEVEL`
+   - Deck length controls are optional:
+     - default: unconstrained (no soft target)
+     - optional: enable soft target and set `deckLengthMain` (advisory only)
 3. Monitor Run Detail:
    - Verify SSE events continue flowing.
    - Verify the expanded agent timeline is visible (v2 stages `KB0`, `A1..A2`, `B1`, `C1..C10`).
@@ -57,15 +61,17 @@ This runbook is the operator checklist for piloting `workflow=v2_micro_detective
 
 1. Run status is `done`.
 2. No missing required final artifacts in `output/<runId>/final/`.
-3. Deck main length equals configured `deckLengthMain`.
-4. Story-forward ratio meets target (`>= 0.70`).
-5. Intro/outro contract is present (intro beats in opening window, outro beats in closing window).
-6. Hybrid-slide quality metric is acceptable (story + medical payload retained).
-7. Citation grounding coverage is acceptable (payload + speaker-note citations present).
-8. Med fact-check pass or documented remediation.
-9. QA report accept or documented rationale for retry/patch.
-10. If `deck_spec_timeout_plan.json` exists, estimate/timeout values are internally consistent with run metadata (`v2DeckSpecEstimate`).
-11. For runs with high estimate warnings, operator decision is recorded (abort or continue).
+3. If a deck soft target is enabled, final main length is reasonably close to `deckLengthMain` (advisory, not strict).
+4. If no soft target is enabled, deck length is unconstrained and evaluated on quality/cost fit for the pilot.
+5. Story-forward ratio meets target (`>= 0.70`).
+6. Intro/outro contract is present (intro beats in opening window, outro beats in closing window).
+7. Hybrid-slide quality metric is acceptable (story + medical payload retained).
+8. Citation grounding coverage is acceptable (payload + speaker-note citations present).
+9. Med fact-check pass or documented remediation.
+10. QA report accept or documented rationale for retry/patch.
+11. Narrative grader shows required markers (false-theory collapse, opener/ending callback, detective/deputy rupture+repair) at acceptable scores.
+12. If `deck_spec_timeout_plan.json` exists, estimate/timeout values are internally consistent with run metadata (`v2DeckSpecEstimate`).
+13. For runs with high estimate warnings, operator decision is recorded (abort or continue).
 
 ## 6) Batch Validation (Real-Key)
 
@@ -83,13 +89,17 @@ Use the harness for batch quality scoring and reports:
 After collecting pilot batch results, calibrate semantic defaults from observed quality metrics:
 
 1. `npm run pilot:v2:calibrate:semantic`
-2. Output:
+2. Optional (no new model spend): calibrate directly from persisted real-run artifacts:
+   - `npm run pilot:v2:calibrate:runs -- --output-root output --min-runs 5`
+3. Output:
    - `.ci/pilot/v2-semantic-calibration-latest.json`
-3. Apply recommended defaults from the output in env vars:
+   - `.ci/pilot/v2-threshold-calibration-from-runs.json`
+   - `.ci/pilot/v2-threshold-calibration-from-runs.md`
+4. Apply recommended defaults from the output in env vars:
    - `MMS_V2_MIN_STORY_FORWARD_RATIO`
    - `MMS_V2_MIN_HYBRID_SLIDE_QUALITY`
    - `MMS_V2_MIN_CITATION_GROUNDING_COVERAGE`
-4. Re-run a quality batch to verify new thresholds before promotion.
+5. Re-run a quality batch to verify new thresholds before promotion.
 
 ## 8) Common Failure Triage
 

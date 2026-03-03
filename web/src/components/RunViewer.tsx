@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createTwoFilesPatch } from "diff";
 import {
   cancelRun,
@@ -202,14 +202,14 @@ type V2PackagingSummaryPreview = {
   schema_version?: string;
   workflow?: string;
   generated_at?: string;
-  deck?: {
-    episode_title?: string;
-    main_slide_count?: number;
-    appendix_slide_count?: number;
+  deck: {
+    episode_title: string;
+    main_slide_count: number;
+    appendix_slide_count: number;
   };
-  package?: {
-    template_count?: number;
-    files?: Record<string, string>;
+  package: {
+    template_count: number;
+    files: Record<string, string>;
   };
 };
 
@@ -230,6 +230,68 @@ type V2SemanticAcceptanceReport = {
   };
 };
 
+type V2QaGraderScorePreview = {
+  category: string;
+  score_0_to_5: number;
+  rationale: string;
+  critical: boolean;
+};
+
+type V2QaReportPreview = {
+  accept: boolean;
+  summary: string;
+  required_fix_count: number;
+  narrative_scores: V2QaGraderScorePreview[];
+};
+
+type V2StageAuthoringSource = "agent" | "deterministic_fallback";
+
+type V2StageAuthoringProvenancePreview = {
+  generation_profile: "quality" | "pilot";
+  stages: {
+    micro_world_map: { source: V2StageAuthoringSource; reason?: string };
+    drama_plan: { source: V2StageAuthoringSource; reason?: string };
+    setpiece_plan: { source: V2StageAuthoringSource; reason?: string };
+  };
+};
+
+type V2StoryBeatsAlignmentPreview = {
+  story_beats_present: boolean;
+  chapter_outline_present: boolean;
+  lint_status: "pass" | "warn" | "fail";
+  warnings: string[];
+  required_markers: {
+    opener_motif: boolean;
+    midpoint_false_theory_collapse: boolean;
+    ending_callback: boolean;
+    detective_deputy_rupture_repair: boolean;
+  };
+  coverage: {
+    total_beats: number;
+    mapped_beats: number;
+    mapped_ratio: number;
+    block_aligned_beats: number;
+    block_aligned_ratio: number;
+  };
+  block_coverage: Array<{
+    block_id: string;
+    expected_beats: number;
+    mapped_beats: number;
+    mapped_ratio: number;
+  }>;
+  beat_slide_map: Array<{
+    beat_id: string;
+    expected_act_id?: "ACT1" | "ACT2" | "ACT3" | "ACT4";
+    matched_slide_id?: string;
+    matched_act_id?: "ACT1" | "ACT2" | "ACT3" | "ACT4";
+    matched_block_id?: string;
+    overlap_ratio: number;
+    overlap_tokens: number;
+    mapped: boolean;
+    block_aligned: boolean;
+  }>;
+};
+
 type V2InspectorTab = "world" | "drama" | "setpieces" | "templates" | "packaging";
 
 type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
@@ -243,6 +305,14 @@ const DEFAULT_STUCK_THRESHOLD_SECONDS = 90;
 const STUCK_THRESHOLD_MIN_SECONDS = 10;
 const STUCK_THRESHOLD_MAX_SECONDS = 1200;
 const WATCHDOG_STORAGE_KEY = "mms_watchdog_threshold_seconds";
+const V2_NARRATIVE_GRADER_CATEGORIES = new Set([
+  "ActEscalation",
+  "FalseTheoryArc",
+  "CallbackClosure",
+  "DetectiveDeputyArc",
+  "SceneVariety",
+  "GenericLanguageRate"
+]);
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -490,12 +560,13 @@ function normalizeV2PackagingSummary(value: unknown): V2PackagingSummaryPreview 
   const deck = asRecord(root.deck);
   const pkg = asRecord(root.package);
   const files = asRecord(pkg.files);
+  const rawEpisodeTitle = typeof deck.episode_title === "string" ? deck.episode_title.trim() : "";
   return {
     schema_version: typeof root.schema_version === "string" ? root.schema_version : undefined,
     workflow: typeof root.workflow === "string" ? root.workflow : undefined,
     generated_at: typeof root.generated_at === "string" ? root.generated_at : undefined,
     deck: {
-      episode_title: typeof deck.episode_title === "string" ? deck.episode_title : undefined,
+      episode_title: rawEpisodeTitle.length > 0 ? rawEpisodeTitle : "-",
       main_slide_count: Number.isFinite(Number(deck.main_slide_count)) ? Math.max(0, Math.round(Number(deck.main_slide_count))) : 0,
       appendix_slide_count:
         Number.isFinite(Number(deck.appendix_slide_count)) ? Math.max(0, Math.round(Number(deck.appendix_slide_count))) : 0
@@ -532,6 +603,118 @@ function normalizeV2SemanticAcceptanceReport(value: unknown): V2SemanticAcceptan
       hybrid_slide_quality: toRatio(metrics.hybrid_slide_quality),
       citation_grounding_coverage: toRatio(metrics.citation_grounding_coverage)
     }
+  };
+}
+
+function toScore0to5(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(5, parsed));
+}
+
+function normalizeV2QaReport(value: unknown): V2QaReportPreview {
+  const root = asRecord(value);
+  const graderScores = Array.isArray(root.grader_scores)
+    ? root.grader_scores
+        .map((row) => {
+          const rec = asRecord(row);
+          return {
+            category: typeof rec.category === "string" ? rec.category : "",
+            score_0_to_5: toScore0to5(rec.score_0_to_5),
+            rationale: typeof rec.rationale === "string" ? rec.rationale : "",
+            critical: Boolean(rec.critical)
+          };
+        })
+        .filter((row) => row.category.length > 0)
+    : [];
+  return {
+    accept: Boolean(root.accept),
+    summary: typeof root.summary === "string" ? root.summary : "",
+    required_fix_count: Array.isArray(root.required_fixes) ? root.required_fixes.length : 0,
+    narrative_scores: graderScores.filter((row) => V2_NARRATIVE_GRADER_CATEGORIES.has(row.category))
+  };
+}
+
+function toStageAuthoringSource(value: unknown): V2StageAuthoringSource {
+  return value === "deterministic_fallback" ? "deterministic_fallback" : "agent";
+}
+
+function normalizeV2StageAuthoringProvenance(value: unknown): V2StageAuthoringProvenancePreview {
+  const root = asRecord(value);
+  const stages = asRecord(root.stages);
+  const asStage = (raw: unknown): { source: V2StageAuthoringSource; reason?: string } => {
+    const rec = asRecord(raw);
+    return {
+      source: toStageAuthoringSource(rec.source),
+      reason: typeof rec.reason === "string" ? rec.reason : undefined
+    };
+  };
+  return {
+    generation_profile: root.generation_profile === "pilot" ? "pilot" : "quality",
+    stages: {
+      micro_world_map: asStage(stages.micro_world_map),
+      drama_plan: asStage(stages.drama_plan),
+      setpiece_plan: asStage(stages.setpiece_plan)
+    }
+  };
+}
+
+function normalizeV2StoryBeatsAlignmentReport(value: unknown): V2StoryBeatsAlignmentPreview {
+  const root = asRecord(value);
+  const markers = asRecord(root.required_markers);
+  const coverage = asRecord(root.coverage);
+  const blockCoverageRaw = Array.isArray(root.block_coverage) ? root.block_coverage : [];
+  const beatSlideMapRaw = Array.isArray(root.beat_slide_map) ? root.beat_slide_map : [];
+  return {
+    story_beats_present: Boolean(root.story_beats_present),
+    chapter_outline_present: Boolean(root.chapter_outline_present),
+    lint_status: root.lint_status === "fail" ? "fail" : root.lint_status === "warn" ? "warn" : "pass",
+    warnings: asStringArray(root.warnings),
+    required_markers: {
+      opener_motif: Boolean(markers.opener_motif),
+      midpoint_false_theory_collapse: Boolean(markers.midpoint_false_theory_collapse),
+      ending_callback: Boolean(markers.ending_callback),
+      detective_deputy_rupture_repair: Boolean(markers.detective_deputy_rupture_repair)
+    },
+    coverage: {
+      total_beats: Number.isFinite(Number(coverage.total_beats)) ? Math.max(0, Math.round(Number(coverage.total_beats))) : 0,
+      mapped_beats: Number.isFinite(Number(coverage.mapped_beats)) ? Math.max(0, Math.round(Number(coverage.mapped_beats))) : 0,
+      mapped_ratio: toRatio(coverage.mapped_ratio),
+      block_aligned_beats:
+        Number.isFinite(Number(coverage.block_aligned_beats)) ? Math.max(0, Math.round(Number(coverage.block_aligned_beats))) : 0,
+      block_aligned_ratio: toRatio(coverage.block_aligned_ratio)
+    },
+    block_coverage: blockCoverageRaw.map((item) => {
+      const row = asRecord(item);
+      return {
+        block_id: typeof row.block_id === "string" ? row.block_id : "",
+        expected_beats: Number.isFinite(Number(row.expected_beats)) ? Math.max(0, Math.round(Number(row.expected_beats))) : 0,
+        mapped_beats: Number.isFinite(Number(row.mapped_beats)) ? Math.max(0, Math.round(Number(row.mapped_beats))) : 0,
+        mapped_ratio: toRatio(row.mapped_ratio)
+      };
+    }).filter((row) => row.block_id.length > 0),
+    beat_slide_map: beatSlideMapRaw.map((item) => {
+      const row = asRecord(item);
+      const expectedAct: "ACT1" | "ACT2" | "ACT3" | "ACT4" | undefined =
+        row.expected_act_id === "ACT1" || row.expected_act_id === "ACT2" || row.expected_act_id === "ACT3" || row.expected_act_id === "ACT4"
+          ? row.expected_act_id
+          : undefined;
+      const matchedAct: "ACT1" | "ACT2" | "ACT3" | "ACT4" | undefined =
+        row.matched_act_id === "ACT1" || row.matched_act_id === "ACT2" || row.matched_act_id === "ACT3" || row.matched_act_id === "ACT4"
+          ? row.matched_act_id
+          : undefined;
+      return {
+        beat_id: typeof row.beat_id === "string" ? row.beat_id : "",
+        expected_act_id: expectedAct,
+        matched_slide_id: typeof row.matched_slide_id === "string" ? row.matched_slide_id : undefined,
+        matched_act_id: matchedAct,
+        matched_block_id: typeof row.matched_block_id === "string" ? row.matched_block_id : undefined,
+        overlap_ratio: toRatio(row.overlap_ratio),
+        overlap_tokens: Number.isFinite(Number(row.overlap_tokens)) ? Math.max(0, Math.round(Number(row.overlap_tokens))) : 0,
+        mapped: Boolean(row.mapped),
+        block_aligned: Boolean(row.block_aligned)
+      };
+    }).filter((row) => row.beat_id.length > 0)
   };
 }
 
@@ -624,6 +807,9 @@ export const __runViewerTestables = {
   normalizeV2DramaPlan,
   normalizeV2SetpiecePlan,
   normalizeV2SemanticAcceptanceReport,
+  normalizeV2QaReport,
+  normalizeV2StageAuthoringProvenance,
+  normalizeV2StoryBeatsAlignmentReport,
   extractKeyOrFallback,
   formatTime,
   parseIsoMs,
@@ -674,6 +860,9 @@ export default function RunViewer() {
   const [v2SetpiecePlanPreview, setV2SetpiecePlanPreview] = useState<V2SetpiecePlanPreview | null>(null);
   const [v2PackagingSummaryPreview, setV2PackagingSummaryPreview] = useState<V2PackagingSummaryPreview | null>(null);
   const [v2SemanticReportPreview, setV2SemanticReportPreview] = useState<V2SemanticAcceptanceReport | null>(null);
+  const [v2QaReportPreview, setV2QaReportPreview] = useState<V2QaReportPreview | null>(null);
+  const [v2StageProvenancePreview, setV2StageProvenancePreview] = useState<V2StageAuthoringProvenancePreview | null>(null);
+  const [v2StoryBeatsAlignmentPreview, setV2StoryBeatsAlignmentPreview] = useState<V2StoryBeatsAlignmentPreview | null>(null);
   const [v2InspectorTab, setV2InspectorTab] = useState<V2InspectorTab>("world");
   const [v2DrilldownBusy, setV2DrilldownBusy] = useState(false);
   const [v2DrilldownErr, setV2DrilldownErr] = useState<string | null>(null);
@@ -939,6 +1128,9 @@ export default function RunViewer() {
       (a) => a.name === "V2_PACKAGING_SUMMARY.json" || a.name === "v2_phase4_packaging_summary.json"
     );
     const hasSemanticReport = artifacts.some((a) => a.name === "semantic_acceptance_report.json");
+    const hasQaReport = artifacts.some((a) => a.name === "qa_report.json");
+    const hasStageProvenance = artifacts.some((a) => a.name === "v2_stage_authoring_provenance.json");
+    const hasStoryBeatsAlignment = artifacts.some((a) => a.name === "story_beats_alignment_report.json");
 
     if (!safeRunId || workflow !== "v2_micro_detectives" || !hasDeckSpec) {
       setV2DeckSpecPreview(null);
@@ -949,6 +1141,9 @@ export default function RunViewer() {
       setV2SetpiecePlanPreview(null);
       setV2PackagingSummaryPreview(null);
       setV2SemanticReportPreview(null);
+      setV2QaReportPreview(null);
+      setV2StageProvenancePreview(null);
+      setV2StoryBeatsAlignmentPreview(null);
       setV2DrilldownErr(null);
       setV2DrilldownBusy(false);
       return;
@@ -960,7 +1155,7 @@ export default function RunViewer() {
 
     void (async () => {
       try {
-        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw] = await Promise.all([
+        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw, qaRaw, stageProvenanceRaw, storyBeatsAlignmentRaw] = await Promise.all([
           fetchArtifact(safeRunId, "deck_spec.json"),
           hasTemplateRegistry ? fetchArtifact(safeRunId, "v2_template_registry.json") : Promise.resolve(null),
           hasClueGraph ? fetchArtifact(safeRunId, "clue_graph.json") : Promise.resolve(null),
@@ -975,7 +1170,10 @@ export default function RunViewer() {
                   : "v2_phase4_packaging_summary.json"
               )
             : Promise.resolve(null),
-          hasSemanticReport ? fetchArtifact(safeRunId, "semantic_acceptance_report.json") : Promise.resolve(null)
+          hasSemanticReport ? fetchArtifact(safeRunId, "semantic_acceptance_report.json") : Promise.resolve(null),
+          hasQaReport ? fetchArtifact(safeRunId, "qa_report.json") : Promise.resolve(null),
+          hasStageProvenance ? fetchArtifact(safeRunId, "v2_stage_authoring_provenance.json") : Promise.resolve(null),
+          hasStoryBeatsAlignment ? fetchArtifact(safeRunId, "story_beats_alignment_report.json") : Promise.resolve(null)
         ]);
         if (cancelled) return;
 
@@ -987,6 +1185,13 @@ export default function RunViewer() {
         const setpieceParsed = setpieceRaw ? normalizeV2SetpiecePlan(parseJsonOrThrow(setpieceRaw.text)) : null;
         const packagingParsed = packagingRaw ? normalizeV2PackagingSummary(parseJsonOrThrow(packagingRaw.text)) : null;
         const semanticParsed = semanticRaw ? normalizeV2SemanticAcceptanceReport(parseJsonOrThrow(semanticRaw.text)) : null;
+        const qaParsed = qaRaw ? normalizeV2QaReport(parseJsonOrThrow(qaRaw.text)) : null;
+        const stageProvenanceParsed = stageProvenanceRaw
+          ? normalizeV2StageAuthoringProvenance(parseJsonOrThrow(stageProvenanceRaw.text))
+          : null;
+        const storyBeatsAlignmentParsed = storyBeatsAlignmentRaw
+          ? normalizeV2StoryBeatsAlignmentReport(parseJsonOrThrow(storyBeatsAlignmentRaw.text))
+          : null;
 
         setV2DeckSpecPreview(deckParsed);
         setV2TemplateRegistryPreview(templateParsed);
@@ -996,6 +1201,9 @@ export default function RunViewer() {
         setV2SetpiecePlanPreview(setpieceParsed);
         setV2PackagingSummaryPreview(packagingParsed);
         setV2SemanticReportPreview(semanticParsed);
+        setV2QaReportPreview(qaParsed);
+        setV2StageProvenancePreview(stageProvenanceParsed);
+        setV2StoryBeatsAlignmentPreview(storyBeatsAlignmentParsed);
         setV2DrilldownErr(null);
       } catch (e) {
         if (cancelled) return;
@@ -1007,6 +1215,9 @@ export default function RunViewer() {
         setV2SetpiecePlanPreview(null);
         setV2PackagingSummaryPreview(null);
         setV2SemanticReportPreview(null);
+        setV2QaReportPreview(null);
+        setV2StageProvenancePreview(null);
+        setV2StoryBeatsAlignmentPreview(null);
         setV2DrilldownErr(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setV2DrilldownBusy(false);
@@ -1718,6 +1929,202 @@ export default function RunViewer() {
                         <ul className="diagnosticList">
                           {v2SemanticReportPreview.failures.map((failure, idx) => (
                             <li key={`semantic-failure-${idx}`}>{failure}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 narrative grader</div>
+              </div>
+              <div className="panelBody">
+                {!v2QaReportPreview && <div className="subtle">No qa_report.json artifact yet.</div>}
+                {v2QaReportPreview && (
+                  <div className="summaryCardList">
+                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span className={v2QaReportPreview.accept ? "badge badgeOk" : "badge badgeErr"}>
+                        {v2QaReportPreview.accept ? "qa accept" : "qa reject"}
+                      </span>
+                      <span className="badge">required fixes: {v2QaReportPreview.required_fix_count}</span>
+                    </div>
+                    <div className="summaryText">{v2QaReportPreview.summary || "No QA summary text."}</div>
+                    <details className="diagnosticDetails" open>
+                      <summary>Narrative scores ({v2QaReportPreview.narrative_scores.length})</summary>
+                      {v2QaReportPreview.narrative_scores.length === 0 ? (
+                        <div className="subtle">No narrative-grade categories present in qa_report.json.</div>
+                      ) : (
+                        <div className="diagnosticKv">
+                          {v2QaReportPreview.narrative_scores.map((score) => (
+                            <Fragment key={score.category}>
+                              <div>
+                                {score.category}
+                                {score.critical ? " (critical)" : ""}
+                              </div>
+                              <div className="mono">{score.score_0_to_5.toFixed(2)} / 5</div>
+                            </Fragment>
+                          ))}
+                        </div>
+                      )}
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 stage provenance</div>
+              </div>
+              <div className="panelBody">
+                {!v2StageProvenancePreview && <div className="subtle">No v2_stage_authoring_provenance.json artifact yet.</div>}
+                {v2StageProvenancePreview && (
+                  <div className="summaryCardList">
+                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span className="badge">profile: {v2StageProvenancePreview.generation_profile}</span>
+                      <span
+                        className={
+                          [
+                            v2StageProvenancePreview.stages.micro_world_map.source,
+                            v2StageProvenancePreview.stages.drama_plan.source,
+                            v2StageProvenancePreview.stages.setpiece_plan.source
+                          ].every((source) => source === "agent")
+                            ? "badge badgeOk"
+                            : "badge badgeWarn"
+                        }
+                      >
+                        {[
+                          v2StageProvenancePreview.stages.micro_world_map.source,
+                          v2StageProvenancePreview.stages.drama_plan.source,
+                          v2StageProvenancePreview.stages.setpiece_plan.source
+                        ].filter((source) => source !== "agent").length === 0
+                          ? "agent-authored"
+                          : "fallback detected"}
+                      </span>
+                    </div>
+                    <div className="diagnosticKv">
+                      <div>micro world map</div>
+                      <div className="mono">{v2StageProvenancePreview.stages.micro_world_map.source}</div>
+                      <div>drama plan</div>
+                      <div className="mono">{v2StageProvenancePreview.stages.drama_plan.source}</div>
+                      <div>setpiece plan</div>
+                      <div className="mono">{v2StageProvenancePreview.stages.setpiece_plan.source}</div>
+                    </div>
+                    <details className="diagnosticDetails">
+                      <summary>Fallback reasons</summary>
+                      <ul className="diagnosticList">
+                        <li>micro_world_map: {v2StageProvenancePreview.stages.micro_world_map.reason ?? "none"}</li>
+                        <li>drama_plan: {v2StageProvenancePreview.stages.drama_plan.reason ?? "none"}</li>
+                        <li>setpiece_plan: {v2StageProvenancePreview.stages.setpiece_plan.reason ?? "none"}</li>
+                      </ul>
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>Story beats alignment</div>
+              </div>
+              <div className="panelBody">
+                {!v2StoryBeatsAlignmentPreview && <div className="subtle">No story_beats_alignment_report.json artifact yet.</div>}
+                {v2StoryBeatsAlignmentPreview && (
+                  <div className="summaryCardList">
+                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        className={
+                          v2StoryBeatsAlignmentPreview.lint_status === "fail"
+                            ? "badge badgeErr"
+                            : v2StoryBeatsAlignmentPreview.lint_status === "warn"
+                              ? "badge badgeWarn"
+                              : "badge badgeOk"
+                        }
+                      >
+                        {v2StoryBeatsAlignmentPreview.lint_status}
+                      </span>
+                      <span className="badge">
+                        beats: {v2StoryBeatsAlignmentPreview.story_beats_present ? "present" : "absent"} · outline:{" "}
+                        {v2StoryBeatsAlignmentPreview.chapter_outline_present ? "present" : "absent"}
+                      </span>
+                    </div>
+                    <div className="diagnosticKv">
+                      <div>mapped beats</div>
+                      <div className="mono">
+                        {v2StoryBeatsAlignmentPreview.coverage.mapped_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
+                        {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.mapped_ratio)})
+                      </div>
+                      <div>block alignment</div>
+                      <div className="mono">
+                        {v2StoryBeatsAlignmentPreview.coverage.block_aligned_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
+                        {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.block_aligned_ratio)})
+                      </div>
+                      <div>opener motif</div>
+                      <div className="mono">{v2StoryBeatsAlignmentPreview.required_markers.opener_motif ? "yes" : "no"}</div>
+                      <div>midpoint collapse</div>
+                      <div className="mono">
+                        {v2StoryBeatsAlignmentPreview.required_markers.midpoint_false_theory_collapse ? "yes" : "no"}
+                      </div>
+                      <div>ending callback</div>
+                      <div className="mono">{v2StoryBeatsAlignmentPreview.required_markers.ending_callback ? "yes" : "no"}</div>
+                      <div>rupture + repair</div>
+                      <div className="mono">
+                        {v2StoryBeatsAlignmentPreview.required_markers.detective_deputy_rupture_repair ? "yes" : "no"}
+                      </div>
+                    </div>
+                    <details className="diagnosticDetails">
+                      <summary>Block coverage ({v2StoryBeatsAlignmentPreview.block_coverage.length})</summary>
+                      {v2StoryBeatsAlignmentPreview.block_coverage.length === 0 ? (
+                        <div className="subtle">No block coverage map available.</div>
+                      ) : (
+                        <div className="diagnosticKv">
+                          {v2StoryBeatsAlignmentPreview.block_coverage.map((row) => (
+                            <Fragment key={`block-coverage-${row.block_id}`}>
+                              <div>{row.block_id}</div>
+                              <div className="mono">
+                                {row.mapped_beats}/{row.expected_beats} ({formatRatioAsPercent(row.mapped_ratio)})
+                              </div>
+                            </Fragment>
+                          ))}
+                        </div>
+                      )}
+                    </details>
+                    <details className="diagnosticDetails">
+                      <summary>Beat-to-slide map ({v2StoryBeatsAlignmentPreview.beat_slide_map.length})</summary>
+                      {v2StoryBeatsAlignmentPreview.beat_slide_map.length === 0 ? (
+                        <div className="subtle">No beat-to-slide mappings found.</div>
+                      ) : (
+                        <div className="diagnosticKv">
+                          {v2StoryBeatsAlignmentPreview.beat_slide_map.slice(0, 14).map((row) => (
+                            <Fragment key={`beat-slide-map-${row.beat_id}`}>
+                              <div>{row.beat_id}</div>
+                              <div className="mono">
+                                {row.matched_slide_id ?? "unmapped"} · {row.matched_act_id ?? "n/a"} ·{" "}
+                                {row.block_aligned ? "aligned" : "off-block"} · {formatRatioAsPercent(row.overlap_ratio)}
+                              </div>
+                            </Fragment>
+                          ))}
+                        </div>
+                      )}
+                    </details>
+                    <details className="diagnosticDetails" open={v2StoryBeatsAlignmentPreview.warnings.length > 0}>
+                      <summary>Warnings ({v2StoryBeatsAlignmentPreview.warnings.length})</summary>
+                      {v2StoryBeatsAlignmentPreview.warnings.length === 0 ? (
+                        <div className="subtle">none</div>
+                      ) : (
+                        <ul className="diagnosticList">
+                          {v2StoryBeatsAlignmentPreview.warnings.map((warning, idx) => (
+                            <li key={`story-beats-warning-${idx}`}>{warning}</li>
                           ))}
                         </ul>
                       )}
@@ -2460,19 +2867,19 @@ export default function RunViewer() {
                               <summary>Deck package summary</summary>
                               <div className="diagnosticKv">
                                 <div>episode</div>
-                                <div>{v2PackagingSummaryPreview.deck?.episode_title ?? "-"}</div>
+                                <div>{v2PackagingSummaryPreview.deck.episode_title}</div>
                                 <div>main slides</div>
-                                <div className="mono">{v2PackagingSummaryPreview.deck?.main_slide_count ?? 0}</div>
+                                <div className="mono">{v2PackagingSummaryPreview.deck.main_slide_count}</div>
                                 <div>appendix slides</div>
-                                <div className="mono">{v2PackagingSummaryPreview.deck?.appendix_slide_count ?? 0}</div>
+                                <div className="mono">{v2PackagingSummaryPreview.deck.appendix_slide_count}</div>
                                 <div>template count</div>
-                                <div className="mono">{v2PackagingSummaryPreview.package?.template_count ?? 0}</div>
+                                <div className="mono">{v2PackagingSummaryPreview.package.template_count}</div>
                               </div>
                             </details>
                             <details className="diagnosticDetails" open>
                               <summary>Final package files</summary>
                               <ul className="diagnosticList">
-                                {Object.entries(v2PackagingSummaryPreview.package?.files ?? {}).map(([label, file]) => (
+                                {Object.entries(v2PackagingSummaryPreview.package.files).map(([label, file]) => (
                                   <li key={label}>
                                     <span className="mono">{label}</span>: <span className="mono">{file}</span>
                                   </li>

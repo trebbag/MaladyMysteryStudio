@@ -94,56 +94,14 @@ function storyDeliveryModeByPosition(index: number, storyForwardCutoff: number):
   return index % 2 === 0 ? "exhibit" : "note_only";
 }
 
-function topicToken(topic: string): string {
-  return slug(topic || "case")
-    .replace(/-/g, "_")
-    .slice(0, 24);
-}
-
 function beatStoryTemplate(beat: DeckSlideSpec["beat_type"], topic: string): DeckSlideSpec["story_panel"] {
-  const focus = topic || "the case";
-  if (beat === "cold_open") {
-    return {
-      goal: `Spot the first anomaly in ${focus}.`,
-      opposition: "Background noise makes the pattern easy to dismiss.",
-      turn: "A visual clue confirms this is an active case.",
-      decision: "Open a formal investigation immediately.",
-      consequence: "The team commits before the signal fades."
-    };
-  }
-  if (beat === "red_herring") {
-    return {
-      goal: "Test the leading suspect against fresh evidence.",
-      opposition: "A convincing mimic matches part of the pattern.",
-      turn: "One discriminator breaks the false match.",
-      decision: "Keep the suspect but lower its probability.",
-      consequence: "The clock advances while certainty drops."
-    };
-  }
-  if (beat === "twist") {
-    return {
-      goal: "Reconcile conflicting clues into one mechanism.",
-      opposition: "Earlier assumptions resist revision.",
-      turn: "A previously minor clue reframes the whole case.",
-      decision: "Pivot to the corrected causal pathway.",
-      consequence: "All downstream actions must be re-prioritized."
-    };
-  }
-  if (beat === "showdown" || beat === "proof") {
-    return {
-      goal: "Prove the final diagnosis with decisive evidence.",
-      opposition: "Residual uncertainty threatens commitment.",
-      turn: "Converging findings eliminate remaining alternatives.",
-      decision: "Lock diagnosis and execute targeted plan.",
-      consequence: "Outcome trajectory improves with timely action."
-    };
-  }
+  const beatLabel = beat.replace(/_/g, " ");
   return {
-    goal: `Advance ${focus} using the newest clue.`,
-    opposition: "Competing explanations still fit part of the data.",
-    turn: "Current evidence shifts differential weighting.",
-    decision: "Run the next highest-yield diagnostic action.",
-    consequence: "Case pressure escalates as options narrow."
+    goal: `[SCAFFOLD] Define a concrete ${beatLabel} goal for "${topic}".`,
+    opposition: `[SCAFFOLD] Add credible opposition for ${beatLabel}.`,
+    turn: `[SCAFFOLD] Specify the exact turning event for ${beatLabel}.`,
+    decision: `[SCAFFOLD] Choose the next action after this turn.`,
+    consequence: `[SCAFFOLD] State immediate consequence for this decision.`
   };
 }
 
@@ -158,15 +116,15 @@ function buildMainSlide(
   const beatType = beatTypeForIndex(slideNumber - 1);
   const templateId = templateForBeat(beatType);
   const isNoNewConcept = deliveryMode === "note_only" || deliveryMode === "none";
-  const majorConcept = `mc_${topicToken(topic).toLowerCase()}_${String(slideNumber).padStart(2, "0")}`;
-  const hook = slideNumber === total ? "Case closed. What did we miss?" : `What does ${id} imply for the next move?`;
+  const majorConcept = `MC-PATCH-${id}`;
+  const hook = `[SCAFFOLD] Replace with authored hook for ${id}.`;
   const storyPanel = beatStoryTemplate(beatType, topic);
-  const beatLabel = beatType.replace(/_/g, " ");
+  const beatLabel = beatType.replace(/_/g, " ").toUpperCase();
   const citation = {
     citation_id: "CIT-KB-001",
     chunk_id: "kb_context.md",
-    locator: `slide_${id.toLowerCase()}`,
-    claim: `Fallback grounding for ${topic} on ${id}.`
+    locator: `scaffold_${id.toLowerCase()}`,
+    claim: `[SCAFFOLD] Placeholder grounding for ${topic} at ${id}.`
   };
 
   return {
@@ -174,34 +132,37 @@ function buildMainSlide(
     act_id: actId,
     beat_type: beatType,
     template_id: templateId,
-    title: `${beatLabel} — ${topic}`,
+    title: `[SCAFFOLD] ${id} ${beatLabel}`,
     on_slide_text: {
-      headline: `${id}: ${beatLabel}`,
-      subtitle: `Case focus: ${topic}`,
-      callouts: ["Observe", "Discriminate", "Commit"],
-      labels: [`Act ${actId.replace("ACT", "")}`, id]
+      headline: `[SCAFFOLD] ${id} placeholder`,
+      subtitle: "Replace headline/subtitle with authored narrative-medical text.",
+      callouts: ["[SCAFFOLD] callout 1", "[SCAFFOLD] callout 2"],
+      labels: ["[SCAFFOLD]", id]
     },
-    visual_description: `Cinematic micro-scene for ${topic} at ${id}; evidence overlays visible and legible.`,
+    visual_description: `[SCAFFOLD] Define scene, framing, and medical visual payload for ${id}.`,
     exhibit_ids: [`EX-${String(slideNumber).padStart(2, "0")}`],
     story_panel: storyPanel,
     medical_payload: {
       major_concept_id: majorConcept,
-      supporting_details: isNoNewConcept ? ["Consolidate prior clue", "Bridge to next decision"] : ["Key finding linked to mechanism", "One practical implication"],
+      supporting_details: isNoNewConcept
+        ? ["[SCAFFOLD] Consolidation-only bridge."]
+        : ["[SCAFFOLD] One major concept only.", "[SCAFFOLD] Link concept to action."],
       delivery_mode: deliveryMode,
-      linked_learning_objectives: isNoNewConcept ? [] : [`LO-${String(Math.max(1, Math.ceil(slideNumber / 3))).padStart(2, "0")}`],
+      linked_learning_objectives: isNoNewConcept ? [] : [`LO-SCAFFOLD-${String(Math.max(1, Math.ceil(slideNumber / 3))).padStart(2, "0")}`],
       dossier_citations: [citation]
     },
     pressure_channels_advanced: ["physical", "institutional"],
     hook,
+    authoring_provenance: "deterministic_scaffold",
     appendix_links: [`A-${String(Math.max(1, Math.ceil(slideNumber / 10))).padStart(2, "0")}`],
     speaker_notes: {
-      narrative_notes: "Keep momentum on the evolving case while preserving fair-play clues.",
-      medical_reasoning: `Clinical reasoning checkpoint for ${topic}: discriminate alternatives using current evidence only.`,
-      what_this_slide_teaches: ["How this clue updates pre-test probability"],
+      narrative_notes: "[SCAFFOLD] Replace with authored story action + continuity notes.",
+      medical_reasoning: "[SCAFFOLD] Replace with grounded medical reasoning tied to citations.",
+      what_this_slide_teaches: ["[SCAFFOLD] Teaching point placeholder."],
       differential_update: {
         top_dx_ids: ["DX_PRIMARY", "DX_ALTERNATE"],
         eliminated_dx_ids: slideNumber % 4 === 0 ? ["DX_MIMIC"] : [],
-        why: "Observed pattern aligns with the primary diagnosis better than competing options."
+        why: "[SCAFFOLD] Replace with authored differential rationale."
       },
       citations: [citation]
     }
@@ -215,43 +176,44 @@ function buildAppendixSlide(topic: string, idx: number): DeckSlideSpec {
     act_id: "APPENDIX",
     beat_type: "appendix",
     template_id: "T90_APPENDIX_DEEP_DIVE",
-    title: `${topic} Appendix ${idx + 1}`,
-    on_slide_text: { headline: `${topic} appendix evidence` },
-    visual_description: "Dense reference visual for deeper review.",
+    title: `[SCAFFOLD] ${topic} Appendix ${idx + 1}`,
+    on_slide_text: { headline: "[SCAFFOLD] Appendix placeholder content" },
+    visual_description: "[SCAFFOLD] Replace with appendix-specific reference visual details.",
     exhibit_ids: [`EX-A-${String(idx + 1).padStart(2, "0")}`],
     story_panel: {
-      goal: "Document supporting evidence.",
-      opposition: "Complex details can obscure the key principle.",
-      turn: "The appendix consolidates the pattern.",
-      decision: "Reference this slide for deep-dive Q&A."
+      goal: "[SCAFFOLD] Appendix goal placeholder.",
+      opposition: "[SCAFFOLD] Appendix opposition placeholder.",
+      turn: "[SCAFFOLD] Appendix turn placeholder.",
+      decision: "[SCAFFOLD] Appendix decision placeholder."
     },
     medical_payload: {
-      major_concept_id: `mc_${topicToken(topic).toLowerCase()}_appendix_${String(idx + 1).padStart(2, "0")}`,
+      major_concept_id: `MC-PATCH-${id}`,
       delivery_mode: "note_only",
       dossier_citations: [
         {
           citation_id: "CIT-KB-001",
           chunk_id: "kb_context.md",
-          locator: `appendix_${id.toLowerCase()}`,
-          claim: "Appendix fallback reference grounding."
+          locator: `scaffold_appendix_${id.toLowerCase()}`,
+          claim: "[SCAFFOLD] Appendix placeholder reference."
         }
       ]
     },
-    hook: "Return to the main narrative.",
+    hook: "[SCAFFOLD] Appendix hook placeholder.",
+    authoring_provenance: "deterministic_scaffold",
     appendix_links: [],
     speaker_notes: {
-      medical_reasoning: "Expanded reference material and nuance for advanced learners.",
+      medical_reasoning: "[SCAFFOLD] Replace with authored appendix reasoning.",
       differential_update: {
-        top_dx_ids: [`DX_${topicToken(topic)}`],
+        top_dx_ids: ["DX_PRIMARY"],
         eliminated_dx_ids: [],
-        why: "Appendix supports final differential confidence."
+        why: "[SCAFFOLD] Appendix differential rationale placeholder."
       },
       citations: [
         {
           citation_id: "CIT-KB-001",
           chunk_id: "kb_context.md",
-          locator: `appendix_${id.toLowerCase()}`,
-          claim: "Appendix backing source."
+          locator: `scaffold_appendix_${id.toLowerCase()}`,
+          claim: "[SCAFFOLD] Appendix placeholder source."
         }
       ]
     }
@@ -290,7 +252,7 @@ function deriveMainDeckLength(input: GenerateV2DeckSpecInput): number {
   return Math.max(30, 54 + complexityBump + seedBump);
 }
 
-export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
+export function generateV2DeckScaffold(input: GenerateV2DeckSpecInput): DeckSpec {
   const deckLengthMain = deriveMainDeckLength(input);
   const audienceLevel = normalizeAudience(input.audienceLevel);
   const topicSlug = slug(input.topic || "episode");
@@ -317,14 +279,20 @@ export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
     deck_meta: {
       schema_version: "1.0.0",
       episode_slug: topicSlug,
-      episode_title: `${input.topic} — Micro-Detectives Case File`,
+      episode_title: `[SCAFFOLD] ${input.topic} — Micro-Detectives Case File`,
       deck_length_main: String(deckLengthMain),
       tone: "thriller",
       audience_level: audienceLevel,
       story_dominance_target_ratio: 0.7,
       max_words_on_slide: 24,
       one_major_med_concept_per_slide: true,
-      appendix_unlimited: true
+      appendix_unlimited: true,
+      authoring_provenance_counts: {
+        agent_authored: 0,
+        deterministic_scaffold: deckLengthMain,
+        patched_scaffold: 0
+      },
+      authoring_scaffold_ratio: deckLengthMain > 0 ? 1 : 0
     },
     characters: {
       detective: {
@@ -357,4 +325,10 @@ export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
     slides,
     appendix_slides: [buildAppendixSlide(input.topic, 0)]
   };
+}
+
+// Backward-compatible export. In v2 quality mode this output is an emergency scaffold,
+// not a final authoring target.
+export function generateV2DeckSpec(input: GenerateV2DeckSpecInput): DeckSpec {
+  return generateV2DeckScaffold(input);
 }

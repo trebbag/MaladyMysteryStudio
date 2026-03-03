@@ -261,7 +261,8 @@ describe("ChatStart", () => {
       deckLengthConstraintEnabled: true,
       deckLengthMain: 60,
       audienceLevel: "COLLEGE_LEVEL",
-      adherenceMode: "warn"
+      generationProfile: "quality",
+      adherenceMode: "strict"
     });
   });
 

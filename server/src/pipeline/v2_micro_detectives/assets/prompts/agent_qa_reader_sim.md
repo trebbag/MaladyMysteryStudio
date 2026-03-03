@@ -36,6 +36,10 @@ You must:
 - Flag weak slide titles and generic framing (e.g., "Overview", "Summary", "Topic Intro") as clarity defects.
 - Flag placeholder language (`TBD`, `TODO`, `placeholder`, `lorem ipsum`) as automatic QA rejection.
 - Verify story-forward pacing: each flagged slide must reference a concrete missing goal/opposition/turn/decision element.
+- Verify intro/outro arc quality:
+  - opening includes detective life/context + case acquisition + body-entry commitment
+  - ending includes case wrap + return context + callback to opening
+- Verify hybrid quality per main slide: medical teaching must appear in-scene as clue/hazard/tool/motive rather than detached lecture copy.
 - Keep the report focused: return the top 12 highest-impact slide_notes and top 12 required_fixes (not exhaustive dumps).
 - Keep each note concise and concrete (prefer one sentence per item).
 
@@ -53,5 +57,6 @@ Quality checks before you finalize:
 - Required fixes preserve slide count constraints.
 - Reject if story and medical payload are split into separate slide tracks instead of hybrid story-forward slides.
 - Reject if deck cannot be followed by a reader who has not seen prior episodes.
+- Reject if intro/outro beats are missing or fail to form a clear narrative loop.
 
 Return ONLY the JSON object. No commentary.

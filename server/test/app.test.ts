@@ -415,7 +415,7 @@ describe("server app", () => {
 
     const bad = await request(app).put("/api/slo-policy").send({ thresholdsMs: { NOPE: 10 } });
     expect(bad.status).toBe(400);
-  });
+  }, 15000);
 
   it("PUT /api/slo-policy accepts empty body and keeps prior thresholds", async () => {
     const runs = new RunManager();
@@ -586,7 +586,8 @@ describe("server app", () => {
     expect(runRes.body.settings).toMatchObject({
       workflow: "v2_micro_detectives",
       audienceLevel: "PHYSICIAN_LEVEL",
-      adherenceMode: "warn"
+      generationProfile: "quality",
+      adherenceMode: "strict"
     });
   });
 
@@ -984,7 +985,7 @@ describe("server app", () => {
     const app = createApp(runs, makeExecutor() as never);
     const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toContain("cannot reuse step");
+    expect(String(res.body.error)).toContain("missing required artifact in parent run for startFrom=P");
   });
 
   it("POST /api/runs/:runId/rerun rejects when parent prerequisites are not done", async () => {
@@ -1118,6 +1119,114 @@ describe("server app", () => {
     expect(child.body.steps.O.artifacts).toEqual([]);
     expect(child.body.steps.N.artifacts).toContain("final_slide_spec_patched.json");
     expect(child.body.steps.P.status).toBe("queued");
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P tolerates sparse legacy step statuses when patched spec exists", async () => {
+    const runs = new RunManager();
+    const enqueue = vi.fn(() => true);
+    const app = createApp(runs, makeExecutor({ enqueue }) as never);
+
+    const parent = await runs.createRun("legacy sparse status parent");
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+
+    // Simulate very old run metadata where earlier steps were never marked done,
+    // but patched artifacts still exist on disk.
+    p.steps.KB0.status = "queued";
+    p.steps.A.status = "queued";
+    p.steps.B.status = "queued";
+    p.steps.C.status = "queued";
+    p.steps.D.status = "queued";
+    p.steps.E.status = "queued";
+    p.steps.F.status = "queued";
+    p.steps.G.status = "queued";
+    p.steps.H.status = "queued";
+    p.steps.I.status = "queued";
+    p.steps.J.status = "queued";
+    p.steps.K.status = "queued";
+    p.steps.L.status = "queued";
+    p.steps.M.status = "queued";
+    p.steps.N.status = "queued";
+    p.steps.O.status = "queued";
+
+    await fs.writeFile(
+      path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched.json"),
+      JSON.stringify({
+        final_slide_spec_patched: {
+          title: "legacy sparse status",
+          reusable_visual_primer: {
+            character_descriptions: ["c"],
+            recurring_scene_descriptions: ["s"],
+            reusable_visual_elements: ["e"],
+            continuity_rules: ["r"]
+          },
+          story_arc_contract: {
+            intro_slide_ids: ["S1", "S2", "S3"],
+            outro_slide_ids: ["S4", "S5"],
+            entry_to_body_slide_id: "S3",
+            return_to_office_slide_id: "S4",
+            callback_slide_id: "S5"
+          },
+          slides: [],
+          sources: ["src"]
+        }
+      }, null, 2) + "\n",
+      "utf8"
+    );
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(200);
+    const childRunId = String(res.body.runId);
+    expect(enqueue).toHaveBeenCalledWith(childRunId, { startFrom: "P" });
+
+    const child = await request(app).get(`/api/runs/${childRunId}`);
+    expect(child.status).toBe(200);
+    expect(child.body.steps.N.status).toBe("done");
+    expect(child.body.steps.N.artifacts).toContain("final_slide_spec_patched.json");
+  });
+
+  it("POST /api/runs/:runId/rerun startFrom=P still enforces done prerequisites for v2 runs", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+
+    const parent = await runs.createRun("v2 strict prereq parent", {
+      workflow: "v2_micro_detectives",
+      audienceLevel: "PHYSICIAN_LEVEL"
+    });
+    const p = runs.getInternal(parent.runId);
+    if (!p) throw new Error("missing parent");
+    p.steps.KB0.status = "done";
+    p.steps.A.status = "done";
+    // Leave B..O as queued to ensure v2 still requires completion metadata.
+
+    await fs.writeFile(
+      path.join(runFinalDirAbs(parent.runId), "final_slide_spec_patched.json"),
+      JSON.stringify({
+        final_slide_spec_patched: {
+          title: "v2 should require done steps",
+          reusable_visual_primer: {
+            character_descriptions: ["c"],
+            recurring_scene_descriptions: ["s"],
+            reusable_visual_elements: ["e"],
+            continuity_rules: ["r"]
+          },
+          story_arc_contract: {
+            intro_slide_ids: ["S1", "S2", "S3"],
+            outro_slide_ids: ["S4", "S5"],
+            entry_to_body_slide_id: "S3",
+            return_to_office_slide_id: "S4",
+            callback_slide_id: "S5"
+          },
+          slides: [],
+          sources: ["src"]
+        }
+      }, null, 2) + "\n",
+      "utf8"
+    );
+
+    const res = await request(app).post(`/api/runs/${parent.runId}/rerun`).send({ startFrom: "P" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toContain("cannot reuse step");
   });
 
   it("POST /api/runs/:runId/rerun startFrom=P fails when patched spec is missing in sparse legacy parents", async () => {

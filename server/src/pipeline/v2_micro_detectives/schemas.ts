@@ -1,4 +1,10 @@
 import { z } from "zod";
+export {
+  V2CanonicalSchemaFiles,
+  V2CanonicalSchemaHashes,
+  V2CanonicalSchemas,
+  type V2CanonicalSchemaFile
+} from "./generated_schemas.js";
 
 export const V2_WORKFLOW = "v2_micro_detectives" as const;
 export const V2_DECK_LENGTHS = [30, 45, 60] as const;
@@ -36,6 +42,7 @@ const StoryPanelSchema = z
   .strict();
 
 export const DeliveryModeSchema = z.enum(["clue", "exhibit", "dialogue", "action", "note_only", "none"]);
+export const AuthoringProvenanceSchema = z.enum(["agent_authored", "deterministic_scaffold", "patched_scaffold"]);
 
 const MedicalPayloadSchema = z
   .object({
@@ -110,6 +117,7 @@ const SlideSpecSchema = z
     medical_payload: MedicalPayloadSchema,
     pressure_channels_advanced: z.array(z.enum(["physical", "institutional", "relational", "moral"])).optional(),
     hook: z.string().min(1),
+    authoring_provenance: AuthoringProvenanceSchema.default("agent_authored"),
     appendix_links: z.array(z.string().min(1)).optional(),
     speaker_notes: SpeakerNotesSchema
   })
@@ -126,7 +134,16 @@ const DeckMetaSchema = z
     story_dominance_target_ratio: z.number().min(0).max(1),
     max_words_on_slide: z.number().int().min(1),
     one_major_med_concept_per_slide: z.boolean(),
-    appendix_unlimited: z.boolean()
+    appendix_unlimited: z.boolean(),
+    authoring_provenance_counts: z
+      .object({
+        agent_authored: z.number().int().min(0),
+        deterministic_scaffold: z.number().int().min(0),
+        patched_scaffold: z.number().int().min(0)
+      })
+      .strict()
+      .optional(),
+    authoring_scaffold_ratio: z.number().min(0).max(1).optional()
   })
   .strict();
 
@@ -183,6 +200,104 @@ export const DeckSpecSchema = z
   })
   .strict();
 
+export const StoryBlueprintSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    episode_logline: z.string().min(1),
+    core_mystery_arc: z
+      .object({
+        inciting_case: z.string().min(1),
+        false_theory_lock_in: z.string().min(1),
+        midpoint_fracture: z.string().min(1),
+        twist_reveal: z.string().min(1),
+        final_proof: z.string().min(1)
+      })
+      .strict(),
+    detective_deputy_arc: z
+      .object({
+        baseline_dynamic: z.string().min(1),
+        rupture_beat: z.string().min(1),
+        repair_beat: z.string().min(1)
+      })
+      .strict(),
+    opener_motif: z.string().min(1),
+    ending_callback: z.string().min(1),
+    clue_obligations: z.array(z.string().min(1)).min(4),
+    unresolved_threads: z.array(z.string().min(1)).min(2)
+  })
+  .strict();
+
+export const ActOutlineSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    acts: z
+      .array(
+        z
+          .object({
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            act_goal: z.string().min(1),
+            story_pressure: z.array(z.string().min(1)).min(2),
+            emotional_turn: z.string().min(1),
+            clue_obligations: z.array(z.string().min(1)).min(1),
+            setpiece_requirement: z.string().min(1),
+            unresolved_threads_in: z.array(z.string().min(1)).optional(),
+            unresolved_threads_out: z.array(z.string().min(1)).optional(),
+            target_slide_span: z
+              .object({
+                start: z.number().int().min(1),
+                end: z.number().int().min(1)
+              })
+              .strict()
+          })
+          .strict()
+      )
+      .min(4)
+  })
+  .strict();
+
+export const SlideBlockOverrideSchema = z
+  .object({
+    slide_id: z.string().min(1),
+    title: z.string().min(1).optional(),
+    hook: z.string().min(1).optional(),
+    visual_description: z.string().min(1).optional(),
+    story_panel: StoryPanelSchema.optional(),
+    delivery_mode: DeliveryModeSchema.optional(),
+    major_concept_id: z.string().min(1).optional(),
+    speaker_notes_patch: z.string().min(1).optional(),
+    unresolved_threads_out: z.array(z.string().min(1)).optional()
+  })
+  .strict();
+
+export const SlideBlockSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    block_id: z.string().min(1),
+    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+    slide_range: z
+      .object({
+        start: z.number().int().min(1),
+        end: z.number().int().min(1)
+      })
+      .strict(),
+    prior_block_summary: z.string().min(1).optional(),
+    unresolved_threads_in: z.array(z.string().min(1)).optional(),
+    slide_overrides: z.array(SlideBlockOverrideSchema).min(1),
+    unresolved_threads_out: z.array(z.string().min(1)).optional(),
+    block_summary_out: z.string().min(1)
+  })
+  .strict();
+
+export const DeckAssemblyReportSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    block_count: z.number().int().min(1),
+    main_slide_count: z.number().int().min(1),
+    unresolved_threads_remaining: z.array(z.string().min(1)),
+    warnings: z.array(z.string().min(1))
+  })
+  .strict();
+
 export const V2LintErrorSchema = z
   .object({
     code: z.string().min(1),
@@ -195,12 +310,15 @@ export const V2LintErrorSchema = z
 export const V2DeckSpecLintReportSchema = z
   .object({
     workflow: z.literal(V2_WORKFLOW),
+    generationProfile: z.enum(["quality", "pilot"]).optional(),
     deckLengthConstraintEnabled: z.boolean().default(false),
     expectedDeckLengthMain: V2DeckLengthMainSchema.optional(),
     softTargetToleranceSlides: z.number().int().min(0).optional(),
     measuredDeckLengthMain: z.number().int().min(0),
     storyForwardRatio: z.number().min(0).max(1),
     storyForwardTargetRatio: z.number().min(0).max(1),
+    scaffoldDerivedMainSlides: z.number().int().min(0).optional(),
+    scaffoldLimitMainSlides: z.number().int().min(0).optional(),
     pass: z.boolean(),
     errorCount: z.number().int().min(0),
     warningCount: z.number().int().min(0),
@@ -812,7 +930,20 @@ export const V2QaReportSchema = z
     grader_scores: z.array(
       z
         .object({
-          category: z.enum(["MedicalAccuracy", "StoryDominance", "TwistQuality", "SlideClarity", "PacingTurnRate", "MicroMacroCoherence"]),
+          category: z.enum([
+            "MedicalAccuracy",
+            "StoryDominance",
+            "TwistQuality",
+            "SlideClarity",
+            "PacingTurnRate",
+            "MicroMacroCoherence",
+            "ActEscalation",
+            "FalseTheoryArc",
+            "CallbackClosure",
+            "DetectiveDeputyArc",
+            "SceneVariety",
+            "GenericLanguageRate"
+          ]),
           score_0_to_5: z.number().min(0).max(5),
           rationale: z.string().min(1),
           critical: z.boolean()
@@ -852,8 +983,106 @@ export const V2SemanticAcceptanceReportSchema = z
   })
   .strict();
 
+export const V2StageAuthoringProvenanceSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    workflow: z.literal(V2_WORKFLOW),
+    generated_at: z.string().min(1),
+    generation_profile: z.enum(["quality", "pilot"]),
+    stages: z
+      .object({
+        micro_world_map: z
+          .object({
+            source: z.enum(["agent", "deterministic_fallback"]),
+            reason: z.string().min(1).optional(),
+            timestamp: z.string().min(1)
+          })
+          .strict(),
+        drama_plan: z
+          .object({
+            source: z.enum(["agent", "deterministic_fallback"]),
+            reason: z.string().min(1).optional(),
+            timestamp: z.string().min(1)
+          })
+          .strict(),
+        setpiece_plan: z
+          .object({
+            source: z.enum(["agent", "deterministic_fallback"]),
+            reason: z.string().min(1).optional(),
+            timestamp: z.string().min(1)
+          })
+          .strict()
+      })
+      .strict()
+  })
+  .strict();
+
+export const StoryBeatsAlignmentReportSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    workflow: z.literal(V2_WORKFLOW),
+    generated_at: z.string().min(1),
+    story_beats_present: z.boolean(),
+    chapter_outline_present: z.boolean(),
+    required_markers: z
+      .object({
+        opener_motif: z.boolean(),
+        midpoint_false_theory_collapse: z.boolean(),
+        ending_callback: z.boolean(),
+        detective_deputy_rupture_repair: z.boolean()
+      })
+      .strict(),
+    coverage: z
+      .object({
+        total_beats: z.number().int().min(0),
+        mapped_beats: z.number().int().min(0),
+        mapped_ratio: z.number().min(0).max(1),
+        block_aligned_beats: z.number().int().min(0).optional(),
+        block_aligned_ratio: z.number().min(0).max(1).optional()
+      })
+      .strict(),
+    block_coverage: z
+      .array(
+        z
+          .object({
+            block_id: z.string().min(1),
+            expected_beats: z.number().int().min(0),
+            mapped_beats: z.number().int().min(0),
+            mapped_ratio: z.number().min(0).max(1)
+          })
+          .strict()
+      )
+      .optional(),
+    beat_slide_map: z
+      .array(
+        z
+          .object({
+            beat_id: z.string().min(1),
+            expected_act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]).optional(),
+            matched_slide_id: z.string().min(1).optional(),
+            matched_act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]).optional(),
+            matched_block_id: z.string().min(1).optional(),
+            overlap_ratio: z.number().min(0).max(1),
+            overlap_tokens: z.number().int().min(0),
+            mapped: z.boolean(),
+            block_aligned: z.boolean()
+          })
+          .strict()
+      )
+      .optional(),
+    mapped_topic_area_ids: z.array(z.string().min(1)),
+    missing_topic_area_ids: z.array(z.string().min(1)),
+    lint_status: z.enum(["pass", "warn", "fail"]),
+    warnings: z.array(z.string().min(1))
+  })
+  .strict();
+
 export type DeckSpec = z.infer<typeof DeckSpecSchema>;
 export type DeckSlideSpec = z.infer<typeof SlideSpecSchema>;
+export type StoryBlueprint = z.infer<typeof StoryBlueprintSchema>;
+export type ActOutline = z.infer<typeof ActOutlineSchema>;
+export type SlideBlock = z.infer<typeof SlideBlockSchema>;
+export type DeckAssemblyReport = z.infer<typeof DeckAssemblyReportSchema>;
 export type V2DeckSpecLintError = z.infer<typeof V2LintErrorSchema>;
 export type V2DeckSpecLintReport = z.infer<typeof V2DeckSpecLintReportSchema>;
 export type V2StoryboardGate = z.infer<typeof V2StoryboardGateSchema>;
@@ -877,3 +1106,5 @@ export type V2TemplateRegistry = z.infer<typeof V2TemplateRegistrySchema>;
 export type ReaderSimReport = z.infer<typeof ReaderSimReportSchema>;
 export type V2QaReport = z.infer<typeof V2QaReportSchema>;
 export type V2SemanticAcceptanceReport = z.infer<typeof V2SemanticAcceptanceReportSchema>;
+export type V2StageAuthoringProvenance = z.infer<typeof V2StageAuthoringProvenanceSchema>;
+export type StoryBeatsAlignmentReport = z.infer<typeof StoryBeatsAlignmentReportSchema>;

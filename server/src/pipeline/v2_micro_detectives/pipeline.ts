@@ -1,24 +1,40 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setDefaultOpenAIKey, withTrace } from "@openai/agents";
+import { z } from "zod";
 import { PipelinePause } from "../../executor.js";
 import type { RunManager, RunSettings, StepName } from "../../run_manager.js";
 import { loadCanonicalProfile } from "../canon.js";
 import { makeKbCompilerAgent } from "../agents.js";
 import { nowIso, resolveArtifactPathAbs, runFinalDirAbs, runIntermediateDirAbs, writeJsonFile, writeTextFile } from "../utils.js";
+import { parseChapterOutlineArtifact, StoryBeatsSchema } from "../workshop.js";
 import { loadV2Assets } from "./assets.js";
 import { createStructuredRunners, runStructuredAgentOutput } from "./agent_runner.js";
 import { runV2AgentInChild, type V2AgentKey } from "./agent_child_runner.js";
 import {
+  makeV2ActOutlineAgent,
   makeV2ClueArchitectAgent,
   makeV2DifferentialCastAgent,
   makeV2DiseaseResearchAgent,
+  makeV2DramaPlanAgent,
   makeV2EpisodePitchAgent,
   makeV2MedFactcheckAgent,
+  makeV2MicroWorldMapAgent,
   makeV2PlotDirectorDeckSpecAgent,
   makeV2ReaderSimAgent,
+  makeV2SetpiecePlanAgent,
+  makeV2SlideBlockAuthorAgent,
+  makeV2StoryBlueprintAgent,
   makeV2TruthModelAgent
 } from "./agents.js";
+import {
+  assembleDeckFromSlideBlocks,
+  buildActOutlineFallback,
+  buildBlockPromptContext,
+  buildSlideBlockFallback,
+  buildStoryBlueprintFallback,
+  planSlideBlocksFromOutline
+} from "./authoring_stages.js";
 import { buildCitationTraceabilityReport } from "./citation_traceability.js";
 import { generateV2DeckSpec } from "./generator.js";
 import { lintDeckSpecPhase1 } from "./lints.js";
@@ -49,28 +65,36 @@ import { normalizeDossierCitationIds, polishDeckSpecForFallback } from "./qualit
 import { gateRequirementArtifactName, latestGateDecision, readHumanReviewStore } from "./reviews.js";
 import {
   ClueGraphSchema,
+  DeckAssemblyReportSchema,
   DeckSpecSchema,
   DifferentialCastSchema,
   DramaPlanSchema,
   DiseaseDossierSchema,
   EpisodePitchSchema,
+  ActOutlineSchema,
   MedFactcheckReportSchema,
   MicroWorldMapSchema,
   ReaderSimReportSchema,
   SetpiecePlanSchema,
+  SlideBlockSchema,
+  StoryBlueprintSchema,
   TruthModelSchema,
   V2DeckSpecLintReportSchema,
   V2GateRequirementSchema,
   V2QaReportSchema,
   V2SemanticAcceptanceReportSchema,
+  V2StageAuthoringProvenanceSchema,
   V2TemplateRegistrySchema,
   V2StoryboardGateSchema,
+  StoryBeatsAlignmentReportSchema,
   type HumanReviewEntry,
   type DiseaseDossier,
   type MedFactcheckReport,
+  type RequiredFix,
   type ReaderSimReport,
   type TruthModel,
-  type V2GateId
+  type V2GateId,
+  type V2StageAuthoringProvenance
 } from "./schemas.js";
 
 type RunInput = {
@@ -83,6 +107,8 @@ type PipelineOptions = {
   signal: AbortSignal;
   startFrom?: StepName;
 };
+
+type GenerationProfile = "quality" | "pilot";
 
 const V2_STEPS: StepName[] = ["KB0", "A", "B", "C"];
 
@@ -150,6 +176,10 @@ function resolveDeckLengthPolicy(settings?: RunSettings): {
     };
   }
   return { constraintEnabled: false };
+}
+
+function resolveGenerationProfile(settings?: RunSettings): GenerationProfile {
+  return settings?.generationProfile === "pilot" ? "pilot" : "quality";
 }
 
 function stepCAgentTimeoutMs(): number {
@@ -232,29 +262,33 @@ function buildAdaptiveStepCTimeoutPlan(input: {
   };
 }
 
-function deckSpecGenerationMode(adherenceMode: "strict" | "warn"): "agent_full" | "deterministic_refine" {
+function deckSpecGenerationMode(generationProfile: GenerationProfile): "agent_full" | "deterministic_refine" {
   const raw = process.env.MMS_V2_DECKSPEC_MODE?.trim().toLowerCase();
   if (raw === "agent_full") return "agent_full";
   if (raw === "deterministic_refine") return "deterministic_refine";
-  // Default strategy: in warn mode, start from deterministic deck and apply lightweight refinement
-  // to avoid long full-deck generations that frequently abort in pilot.
-  return adherenceMode === "warn" ? "deterministic_refine" : "agent_full";
+  if (generationProfile === "pilot") return "deterministic_refine";
+  return "agent_full";
 }
 
-function stepCPlanningMode(adherenceMode: "strict" | "warn"): "agent_first" | "deterministic_first" {
+function stepCPlanningMode(generationProfile: GenerationProfile): "agent_first" | "deterministic_first" {
   const raw = process.env.MMS_V2_STEP_C_PLANNING_MODE?.trim().toLowerCase();
   if (raw === "agent_first" || raw === "agent") return "agent_first";
   if (raw === "deterministic_first" || raw === "deterministic") return "deterministic_first";
-  return adherenceMode === "warn" ? "deterministic_first" : "agent_first";
+  if (generationProfile === "pilot") return "deterministic_first";
+  return "agent_first";
 }
 
-function shouldAttemptPlotDirectorRefinement(adherenceMode: "strict" | "warn", planningMode: "agent_first" | "deterministic_first"): boolean {
+function shouldAttemptPlotDirectorRefinement(
+  generationProfile: GenerationProfile,
+  planningMode: "agent_first" | "deterministic_first"
+): boolean {
   const raw = process.env.MMS_V2_PLOTDIRECTOR_REFINEMENT_MODE?.trim().toLowerCase();
   if (raw === "off" || raw === "false" || raw === "skip") return false;
   if (raw === "on" || raw === "true" || raw === "force") return true;
-  // Default: only attempt refinement in strict/agent-first runs. In warn-mode deterministic
-  // runs, skip to avoid transport-abort churn and retry-only fallback noise in pilot.
-  return adherenceMode === "strict" && planningMode === "agent_first";
+  if (generationProfile === "quality") return true;
+  // Pilot mode uses "auto": only attempt on agent-first plans; remaining-budget guards
+  // later in step C still decide whether the attempt is affordable.
+  return planningMode === "agent_first";
 }
 
 function useChildAgentIsolation(): boolean {
@@ -324,10 +358,461 @@ function abortErrorFromSignal(signal: AbortSignal, fallback = "Cancelled"): Erro
 function deckNeedsSemanticPolish(input: ReturnType<typeof DeckSpecSchema.parse>): boolean {
   const text = JSON.stringify(input);
   if (/"major_concept_id":"NONE"/.test(text)) return true;
-  if (/"citation_id":"CIT-00\d"/.test(text)) return true;
+  if (/"citation_id":"CIT-(?:00\d|KB-001|UNKNOWN|SCAFFOLD)"/.test(text)) return true;
   if (/"dx_id":"DX-\d/.test(text)) return true;
+  if (/"top_dx_ids":\["DX_(?:PRIMARY|ALTERNATE|MIMIC)/.test(text)) return true;
+  if (/\[SCAFFOLD\]/.test(text)) return true;
+  if (/"major_concept_id":"MC-PATCH-/.test(text)) return true;
   if (/— S\d{2,3}"/.test(text)) return true;
   return false;
+}
+
+function scaffoldSlideLimit(mainSlideCount: number): number {
+  return Math.max(1, Math.ceil(mainSlideCount * 0.02));
+}
+
+const STRUCTURAL_REGEN_FIX_TYPES = new Set<RequiredFix["type"]>([
+  "increase_story_turn",
+  "add_twist_receipts",
+  "regenerate_section",
+  "edit_clue",
+  "edit_differential"
+]);
+
+function isStructuralRegenFix(fix: RequiredFix): boolean {
+  if (STRUCTURAL_REGEN_FIX_TYPES.has(fix.type)) return true;
+  const desc = `${fix.fix_id} ${fix.description}`.toLowerCase();
+  return (
+    /\b(false[-\s]?theory|midpoint|collapse|twist)\b/.test(desc) ||
+    /\b(relationship|detective|deputy|rupture|repair|arc)\b/.test(desc) ||
+    /\b(generic language|boilerplate|repetition|template)\b/.test(desc)
+  );
+}
+
+function parseSlideNumber(slideId: string): number | null {
+  const match = String(slideId).match(/^S(\d{2,3})$/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function extractSlideIdsFromFixes(fixes: RequiredFix[]): Set<string> {
+  const ids = new Set<string>();
+  for (const fix of fixes) {
+    for (const target of fix.targets ?? []) {
+      if (/^S\d{2,3}$/.test(target)) ids.add(target);
+      const tokens = target.match(/S\d{2,3}/g) ?? [];
+      for (const token of tokens) ids.add(token);
+      const slideIndex = target.match(/slides\[(\d+)\]/);
+      if (slideIndex) {
+        const idx = Number(slideIndex[1]);
+        if (Number.isFinite(idx) && idx >= 0) ids.add(`S${String(idx + 1).padStart(2, "0")}`);
+      }
+    }
+  }
+  return ids;
+}
+
+function resolveStructuralBlockIndexes(
+  fixes: RequiredFix[],
+  blockPlans: Array<{ start: number; end: number }>
+): number[] {
+  const slideIds = extractSlideIdsFromFixes(fixes);
+  const indexes = new Set<number>();
+  if (slideIds.size === 0) {
+    if (blockPlans.length > 0) indexes.add(0);
+    return [...indexes];
+  }
+  for (const slideId of slideIds) {
+    const slideNumber = parseSlideNumber(slideId);
+    if (slideNumber === null) continue;
+    for (let i = 0; i < blockPlans.length; i += 1) {
+      const plan = blockPlans[i]!;
+      if (slideNumber >= plan.start && slideNumber <= plan.end) {
+        indexes.add(i);
+        break;
+      }
+    }
+  }
+  if (indexes.size === 0 && blockPlans.length > 0) indexes.add(0);
+  return [...indexes].sort((a, b) => a - b);
+}
+
+function shouldAllowStoryStageDeterministicFallback(
+  generationProfile: GenerationProfile,
+  adherenceMode: "strict" | "warn"
+): boolean {
+  if (generationProfile === "pilot") return true;
+  return adherenceMode === "warn";
+}
+
+function buildStageAuthoringProvenance(input: {
+  generationProfile: GenerationProfile;
+  microWorld: { source: "agent" | "deterministic_fallback"; reason?: string };
+  drama: { source: "agent" | "deterministic_fallback"; reason?: string };
+  setpiece: { source: "agent" | "deterministic_fallback"; reason?: string };
+}) {
+  const at = nowIso();
+  return V2StageAuthoringProvenanceSchema.parse({
+    schema_version: "1.0.0",
+    workflow: "v2_micro_detectives",
+    generated_at: at,
+    generation_profile: input.generationProfile,
+    stages: {
+      micro_world_map: { source: input.microWorld.source, reason: input.microWorld.reason, timestamp: at },
+      drama_plan: { source: input.drama.source, reason: input.drama.reason, timestamp: at },
+      setpiece_plan: { source: input.setpiece.source, reason: input.setpiece.reason, timestamp: at }
+    }
+  });
+}
+
+function storyBeatsMarkerCoverage(storyBeats: z.infer<typeof StoryBeatsSchema>) {
+  const allBeatText = [
+    storyBeats.intro.beat_md,
+    storyBeats.outro.beat_md,
+    ...Object.values(storyBeats.topic_area_beats).map((node) => node.beat_md)
+  ]
+    .filter((value) => value.trim().length > 0)
+    .join("\n");
+
+  const markerCoverage = {
+    opener_motif: /\b(cold open|quirky opening|opening motif|case intake)\b/i.test(allBeatText),
+    midpoint_false_theory_collapse: /\b(false[-\s]?theory|midpoint|collapse|recontextualiz)\b/i.test(allBeatText),
+    ending_callback: /\b(callback|full circle|back at the office|return(ed)? to the office)\b/i.test(allBeatText),
+    detective_deputy_rupture_repair: /\b(rupture|conflict|disagree|friction)\b[\s\S]{0,180}\b(repair|reconcile|restore trust|team up)\b/i.test(allBeatText)
+  };
+  return markerCoverage;
+}
+
+const STORY_ALIGNMENT_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "over",
+  "after",
+  "before",
+  "when",
+  "where",
+  "your",
+  "their",
+  "have",
+  "has",
+  "had",
+  "were",
+  "will",
+  "would",
+  "could",
+  "should",
+  "case",
+  "slide",
+  "story"
+]);
+
+function semanticTokens(input: string): string[] {
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !STORY_ALIGNMENT_STOPWORDS.has(token));
+}
+
+function overlapScore(a: string[], b: string[]): { ratio: number; overlap: number } {
+  if (a.length === 0 || b.length === 0) return { ratio: 0, overlap: 0 };
+  const bSet = new Set(b);
+  let overlap = 0;
+  for (const token of a) {
+    if (bSet.has(token)) overlap += 1;
+  }
+  return { ratio: overlap / Math.max(1, a.length), overlap };
+}
+
+function expectedActForBeat(
+  beatId: string,
+  categoryIndex: number | null,
+  categoryCount: number
+): "ACT1" | "ACT2" | "ACT3" | "ACT4" | undefined {
+  if (beatId === "INTRO") return "ACT1";
+  if (beatId === "OUTRO") return "ACT4";
+  if (categoryIndex === null || categoryCount <= 0) return undefined;
+  const normalized = categoryCount <= 1 ? 0 : categoryIndex / Math.max(1, categoryCount - 1);
+  if (normalized <= 0.24) return "ACT1";
+  if (normalized <= 0.49) return "ACT2";
+  if (normalized <= 0.74) return "ACT3";
+  return "ACT4";
+}
+
+function expectedBlockIndex(beatIndex: number, totalBeats: number, blockCount: number): number {
+  if (blockCount <= 1 || totalBeats <= 1) return 0;
+  const progress = beatIndex / Math.max(1, totalBeats - 1);
+  const idx = Math.round(progress * (blockCount - 1));
+  return Math.max(0, Math.min(blockCount - 1, idx));
+}
+
+function buildStoryBeatsAlignmentReport(input: {
+  storyBeats: z.infer<typeof StoryBeatsSchema> | null;
+  chapterOutline: ReturnType<typeof parseChapterOutlineArtifact> | null;
+  deck: ReturnType<typeof DeckSpecSchema.parse>;
+  blockPlans?: Array<{ blockId: string; actId: "ACT1" | "ACT2" | "ACT3" | "ACT4"; start: number; end: number }>;
+  adherenceMode: "strict" | "warn";
+}) {
+  if (!input.storyBeats) {
+    return StoryBeatsAlignmentReportSchema.parse({
+      schema_version: "1.0.0",
+      workflow: "v2_micro_detectives",
+      generated_at: nowIso(),
+      story_beats_present: false,
+      chapter_outline_present: Boolean(input.chapterOutline),
+      required_markers: {
+        opener_motif: false,
+        midpoint_false_theory_collapse: false,
+        ending_callback: false,
+        detective_deputy_rupture_repair: false
+      },
+      coverage: {
+        total_beats: 0,
+        mapped_beats: 0,
+        mapped_ratio: 0,
+        block_aligned_beats: 0,
+        block_aligned_ratio: 0
+      },
+      block_coverage: [],
+      beat_slide_map: [],
+      mapped_topic_area_ids: [],
+      missing_topic_area_ids: [],
+      lint_status: "pass",
+      warnings: []
+    });
+  }
+
+  const categoryByTopicAreaId = new Map<string, { index: number; title: string }>();
+  if (input.chapterOutline) {
+    for (const [categoryIndex, category] of input.chapterOutline.chapter_outline.categories.entries()) {
+      for (const topic of category.topic_areas) {
+        categoryByTopicAreaId.set(topic.id, { index: categoryIndex, title: category.title });
+      }
+    }
+  }
+
+  const topicalBeatNodes = Object.values(input.storyBeats.topic_area_beats).filter((node) => node.beat_md.trim().length > 0);
+  const introBeat = input.storyBeats.intro.beat_md.trim().length > 0 ? [{ id: "INTRO", text: input.storyBeats.intro.beat_md }] : [];
+  const outroBeat = input.storyBeats.outro.beat_md.trim().length > 0 ? [{ id: "OUTRO", text: input.storyBeats.outro.beat_md }] : [];
+  const beatRows = [
+    ...topicalBeatNodes.map((node) => ({
+      id: node.topic_area_id,
+      text: `${node.topic_area_title}\n${node.outline_md}\n${node.user_notes}\n${node.beat_md}`,
+      categoryIndex: categoryByTopicAreaId.get(node.topic_area_id)?.index ?? null
+    })),
+    ...introBeat.map((row) => ({ ...row, categoryIndex: null as number | null })),
+    ...outroBeat.map((row) => ({ ...row, categoryIndex: null as number | null }))
+  ];
+
+  const blockPlans =
+    input.blockPlans && input.blockPlans.length > 0
+      ? input.blockPlans
+      : [
+          {
+            blockId: "AUTO_BLOCK_01",
+            actId: "ACT1" as const,
+            start: 1,
+            end: Math.max(1, input.deck.slides.length)
+          }
+        ];
+  const slideToBlock = new Map<string, { blockId: string; blockIndex: number; actId: "ACT1" | "ACT2" | "ACT3" | "ACT4" }>();
+  for (const [idx, plan] of blockPlans.entries()) {
+    for (let n = Math.max(1, Math.round(plan.start)); n <= Math.max(1, Math.round(plan.end)); n += 1) {
+      slideToBlock.set(`S${String(n).padStart(2, "0")}`, { blockId: plan.blockId, blockIndex: idx, actId: plan.actId });
+      slideToBlock.set(`S${String(n).padStart(3, "0")}`, { blockId: plan.blockId, blockIndex: idx, actId: plan.actId });
+    }
+  }
+
+  const deckRows = input.deck.slides.map((slide) => ({
+    slideId: slide.slide_id,
+    beatType: slide.beat_type,
+    actId: slide.act_id,
+    block: slideToBlock.get(slide.slide_id),
+    tokens: semanticTokens(
+      `${slide.title ?? ""}\n${slide.hook}\n${slide.story_panel.goal}\n${slide.story_panel.opposition}\n${slide.story_panel.turn}\n${slide.story_panel.decision}\n${
+        slide.speaker_notes.narrative_notes ?? ""
+      }\n${slide.speaker_notes.medical_reasoning}`
+    )
+  }));
+
+  const mappedIds: string[] = [];
+  const missingIds: string[] = [];
+  const beatSlideMap: Array<{
+    beat_id: string;
+    expected_act_id?: "ACT1" | "ACT2" | "ACT3" | "ACT4";
+    matched_slide_id?: string;
+    matched_act_id?: "ACT1" | "ACT2" | "ACT3" | "ACT4";
+    matched_block_id?: string;
+    overlap_ratio: number;
+    overlap_tokens: number;
+    mapped: boolean;
+    block_aligned: boolean;
+  }> = [];
+  const blockExpected = new Map<string, number>();
+  const blockMapped = new Map<string, number>();
+  let blockAlignedCount = 0;
+  for (const [beatIdx, beat] of beatRows.entries()) {
+    const beatTokens = semanticTokens(beat.text);
+    const expectedAct = expectedActForBeat(
+      beat.id,
+      beat.categoryIndex,
+      input.chapterOutline ? input.chapterOutline.chapter_outline.categories.length : 0
+    );
+    const expectedBlockIdx = expectedBlockIndex(beatIdx, beatRows.length, blockPlans.length);
+    const expectedBlockId = blockPlans[expectedBlockIdx]?.blockId ?? blockPlans[0]?.blockId;
+    if (expectedBlockId) blockExpected.set(expectedBlockId, (blockExpected.get(expectedBlockId) ?? 0) + 1);
+    if (beatTokens.length === 0) {
+      missingIds.push(beat.id);
+      beatSlideMap.push({
+        beat_id: beat.id,
+        expected_act_id: expectedAct,
+        overlap_ratio: 0,
+        overlap_tokens: 0,
+        mapped: false,
+        block_aligned: false
+      });
+      continue;
+    }
+    let bestRatio = 0;
+    let bestOverlap = 0;
+    let bestBeatType = "";
+    let bestSlideId = "";
+    let bestActId: "ACT1" | "ACT2" | "ACT3" | "ACT4" | undefined;
+    let bestBlockId: string | undefined;
+    let bestBlockIndex = -1;
+    for (const slide of deckRows) {
+      const { ratio: rowRatio, overlap } = overlapScore(beatTokens, slide.tokens);
+      if (rowRatio > bestRatio || (rowRatio === bestRatio && overlap > bestOverlap)) {
+        bestRatio = rowRatio;
+        bestOverlap = overlap;
+        bestBeatType = slide.beatType;
+        bestSlideId = slide.slideId;
+        bestActId = slide.actId === "ACT1" || slide.actId === "ACT2" || slide.actId === "ACT3" || slide.actId === "ACT4" ? slide.actId : undefined;
+        bestBlockId = slide.block?.blockId;
+        bestBlockIndex = slide.block?.blockIndex ?? -1;
+      }
+    }
+    const passesOverlap = bestOverlap >= 2 && bestRatio >= 0.18;
+    const introOutroBeatTypeOk =
+      beat.id !== "INTRO" && beat.id !== "OUTRO"
+        ? true
+        : beat.id === "INTRO"
+          ? ["cold_open", "case_intake", "first_dive"].includes(bestBeatType)
+          : ["showdown", "proof", "aftermath"].includes(bestBeatType);
+    const expectedActSatisfied =
+      !expectedAct ||
+      (bestActId === expectedAct ||
+        (expectedAct === "ACT2" && bestActId === "ACT3") ||
+        (expectedAct === "ACT3" && bestActId === "ACT2"));
+    const blockAligned = bestBlockIndex >= 0 && Math.abs(bestBlockIndex - expectedBlockIdx) <= 1;
+    if (passesOverlap && introOutroBeatTypeOk && expectedActSatisfied) {
+      mappedIds.push(beat.id);
+      if (bestBlockId) blockMapped.set(bestBlockId, (blockMapped.get(bestBlockId) ?? 0) + 1);
+      if (blockAligned) blockAlignedCount += 1;
+    } else {
+      missingIds.push(beat.id);
+    }
+    beatSlideMap.push({
+      beat_id: beat.id,
+      expected_act_id: expectedAct,
+      matched_slide_id: bestSlideId || undefined,
+      matched_act_id: bestActId,
+      matched_block_id: bestBlockId,
+      overlap_ratio: bestRatio,
+      overlap_tokens: bestOverlap,
+      mapped: passesOverlap && introOutroBeatTypeOk && expectedActSatisfied,
+      block_aligned: blockAligned
+    });
+  }
+
+  const totalBeats = beatRows.length;
+  const ratio = totalBeats > 0 ? mappedIds.length / totalBeats : 0;
+  const blockAlignedRatio = totalBeats > 0 ? blockAlignedCount / totalBeats : 0;
+  const blockCoverage = blockPlans.map((plan) => {
+    const expectedBeats = blockExpected.get(plan.blockId) ?? 0;
+    const mappedBeats = blockMapped.get(plan.blockId) ?? 0;
+    return {
+      block_id: plan.blockId,
+      expected_beats: expectedBeats,
+      mapped_beats: mappedBeats,
+      mapped_ratio: expectedBeats > 0 ? mappedBeats / expectedBeats : mappedBeats > 0 ? 1 : 0
+    };
+  });
+  const markers = storyBeatsMarkerCoverage(input.storyBeats);
+  const warnings: string[] = [];
+
+  if (!input.chapterOutline) warnings.push("Chapter outline missing; topic-area beat alignment cannot use outline grounding.");
+  if (totalBeats === 0) warnings.push("No generated beats found (intro/outro/topic beats are empty).");
+  if (ratio < 0.82) warnings.push(`Story-beat mapping coverage is low (${Math.round(ratio * 100)}%).`);
+  if (blockAlignedRatio < 0.72) warnings.push(`Story-beat block alignment is low (${Math.round(blockAlignedRatio * 100)}%).`);
+  if (!markers.opener_motif) warnings.push("Story beats missing clear opener motif signal.");
+  if (!markers.midpoint_false_theory_collapse) warnings.push("Story beats missing midpoint false-theory collapse signal.");
+  if (!markers.ending_callback) warnings.push("Story beats missing ending callback signal.");
+  if (!markers.detective_deputy_rupture_repair) warnings.push("Story beats missing detective/deputy rupture+repair signal.");
+  if (!mappedIds.includes("INTRO") && introBeat.length > 0) warnings.push("Intro beat did not map cleanly to ACT1 opening slides.");
+  if (!mappedIds.includes("OUTRO") && outroBeat.length > 0) warnings.push("Outro beat did not map cleanly to ACT4 closing slides.");
+
+  const lintStatus: "pass" | "warn" | "fail" =
+    warnings.length === 0 ? "pass" : input.adherenceMode === "strict" ? "fail" : "warn";
+
+  return StoryBeatsAlignmentReportSchema.parse({
+    schema_version: "1.0.0",
+    workflow: "v2_micro_detectives",
+    generated_at: nowIso(),
+    story_beats_present: true,
+    chapter_outline_present: Boolean(input.chapterOutline),
+    required_markers: markers,
+    coverage: {
+      total_beats: totalBeats,
+      mapped_beats: mappedIds.length,
+      mapped_ratio: ratio,
+      block_aligned_beats: blockAlignedCount,
+      block_aligned_ratio: blockAlignedRatio
+    },
+    block_coverage: blockCoverage,
+    beat_slide_map: beatSlideMap,
+    mapped_topic_area_ids: mappedIds,
+    missing_topic_area_ids: missingIds,
+    lint_status: lintStatus,
+    warnings
+  });
+}
+
+function stampDeckProvenance(
+  deck: ReturnType<typeof DeckSpecSchema.parse>,
+  options?: { seedFromDeterministic?: boolean }
+): ReturnType<typeof DeckSpecSchema.parse> {
+  const seedFromDeterministic = options?.seedFromDeterministic === true;
+  const slides = deck.slides.map((slide) => ({
+    ...slide,
+    authoring_provenance: seedFromDeterministic
+      ? "deterministic_scaffold"
+      : slide.authoring_provenance ?? "agent_authored"
+  }));
+  const counts = {
+    agent_authored: slides.filter((slide) => slide.authoring_provenance === "agent_authored").length,
+    deterministic_scaffold: slides.filter((slide) => slide.authoring_provenance === "deterministic_scaffold").length,
+    patched_scaffold: slides.filter((slide) => slide.authoring_provenance === "patched_scaffold").length
+  };
+  const scaffoldCount = counts.deterministic_scaffold + counts.patched_scaffold;
+  const scaffoldRatio = slides.length > 0 ? scaffoldCount / slides.length : 0;
+  return DeckSpecSchema.parse({
+    ...deck,
+    deck_meta: {
+      ...deck.deck_meta,
+      authoring_provenance_counts: counts,
+      authoring_scaffold_ratio: scaffoldRatio
+    },
+    slides
+  });
 }
 
 function readerScoreMean(report: ReaderSimReport): number {
@@ -462,13 +947,104 @@ function compactGateFeedback(value: string): string {
   return clampText(normalized, 900);
 }
 
-function asObject(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object") return value as Record<string, unknown>;
-  return {};
+function buildStoryBeatsPromptSection(input: {
+  storyBeats: z.infer<typeof StoryBeatsSchema> | null;
+  chapterOutline: ReturnType<typeof parseChapterOutlineArtifact> | null;
+}): string {
+  if (!input.storyBeats) {
+    return "STORY BEATS: none provided for this run.";
+  }
+  const topical = Object.values(input.storyBeats.topic_area_beats)
+    .filter((node) => node.beat_md.trim().length > 0)
+    .slice(0, 40)
+    .map((node) => ({
+      topic_area_id: node.topic_area_id,
+      topic_area_title: node.topic_area_title,
+      beat_md: clampText(node.beat_md, 700),
+      continuity_hook: clampText(node.continuity_hook ?? "", 240)
+    }));
+  const categoryTitles = input.chapterOutline
+    ? input.chapterOutline.chapter_outline.categories.map((c) => c.title)
+    : [];
+  return [
+    "STORY BEATS (author-guidance; high-priority constraints):",
+    JSON.stringify(
+      {
+        intro: clampText(input.storyBeats.intro.beat_md, 900),
+        outro: clampText(input.storyBeats.outro.beat_md, 900),
+        topical_beats: topical,
+        chapter_outline_categories: categoryTitles
+      },
+      null,
+      2
+    ),
+    "STORY-BEAT RULES:",
+    "- Preserve the story-beat arc unless it conflicts with safety or hard factual constraints.",
+    "- Keep midpoint false-theory collapse and ending callback signals visible.",
+    "- Preserve detective/deputy rupture-and-repair continuity."
+  ].join("\n");
 }
 
-function asArray<T = unknown>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
+function compactMicroWorldDigest(microWorldMap: ReturnType<typeof MicroWorldMapSchema.parse>) {
+  return {
+    primary_organs: microWorldMap.primary_organs.slice(0, 6),
+    zones: microWorldMap.zones.slice(0, 8).map((zone) => ({
+      zone_id: zone.zone_id,
+      name: clampText(zone.name, 90),
+      anatomic_location: clampText(zone.anatomic_location, 120),
+      narrative_motifs: (zone.narrative_motifs ?? []).slice(0, 3).map((item) => clampText(item, 80))
+    })),
+    hazards: microWorldMap.hazards.slice(0, 8).map((hazard) => ({
+      hazard_id: hazard.hazard_id,
+      type: hazard.type,
+      description: clampText(hazard.description, 140),
+      links_to_pathophysiology: clampText(hazard.links_to_pathophysiology, 140)
+    })),
+    routes: microWorldMap.routes.slice(0, 8).map((route) => ({
+      route_id: route.route_id,
+      from_zone_id: route.from_zone_id,
+      to_zone_id: route.to_zone_id,
+      mode: route.mode,
+      story_use: clampText(route.story_use ?? "", 120)
+    }))
+  };
+}
+
+function compactDramaDigest(dramaPlan: ReturnType<typeof DramaPlanSchema.parse>) {
+  return {
+    character_arcs: dramaPlan.character_arcs.slice(0, 6).map((arc) => ({
+      character_id: arc.character_id,
+      core_need: clampText(arc.core_need, 120),
+      core_fear: clampText(arc.core_fear, 120),
+      act_turns: arc.act_turns.slice(0, 4).map((turn) => ({
+        act_id: turn.act_id,
+        pressure: clampText(turn.pressure, 120),
+        choice: clampText(turn.choice, 120),
+        change: clampText(turn.change, 120)
+      }))
+    })),
+    relationship_arcs: dramaPlan.relationship_arcs.slice(0, 6).map((arc) => ({
+      pair: arc.pair,
+      starting_dynamic: clampText(arc.starting_dynamic, 140),
+      climax_resolution: clampText(arc.climax_resolution, 140)
+    })),
+    pressure_ladder: dramaPlan.pressure_ladder
+  };
+}
+
+function compactSetpieceDigest(setpiecePlan: ReturnType<typeof SetpiecePlanSchema.parse>) {
+  return {
+    setpieces: setpiecePlan.setpieces.slice(0, 8).map((setpiece) => ({
+      setpiece_id: setpiece.setpiece_id,
+      act_id: setpiece.act_id,
+      type: setpiece.type,
+      location_zone_id: setpiece.location_zone_id,
+      story_purpose: clampText(setpiece.story_purpose, 140),
+      medical_mechanism_anchor: clampText(setpiece.medical_mechanism_anchor, 140),
+      outcome_turn: clampText(setpiece.outcome_turn, 140)
+    })),
+    quotas: setpiecePlan.quotas
+  };
 }
 
 function fallbackKbContext(topic: string, canonicalMarkdown: string): string {
@@ -517,6 +1093,13 @@ async function readJsonArtifact<T>(runId: string, name: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+async function readJsonArtifactIfPresent<T>(runId: string, name: string): Promise<T | null> {
+  const resolved = await resolveArtifactPathAbs(runId, name);
+  if (!resolved) return null;
+  const raw = await fs.readFile(resolved, "utf8");
+  return JSON.parse(raw) as T;
+}
+
 async function ensureArtifactExists(runId: string, name: string): Promise<void> {
   const resolved = await resolveArtifactPathAbs(runId, name);
   if (!resolved) throw new Error(`Missing required artifact: ${name}`);
@@ -525,7 +1108,8 @@ async function ensureArtifactExists(runId: string, name: string): Promise<void> 
 export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManager, options: PipelineOptions): Promise<void> {
   const { runId, topic, settings } = input;
   const { signal } = options;
-  const adherenceMode = settings?.adherenceMode ?? "warn";
+  const generationProfile = resolveGenerationProfile(settings);
+  const adherenceMode = settings?.adherenceMode ?? "strict";
   const startFrom = options.startFrom ?? "KB0";
 
   if (!isV2Step(startFrom)) {
@@ -602,9 +1186,15 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     const differentialCast = DifferentialCastSchema.parse(await readJsonArtifact(runId, "differential_cast.json"));
     const clueGraph = ClueGraphSchema.parse(await readJsonArtifact(runId, "clue_graph.json"));
 
-    const microWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(deckSpec, diseaseDossier, truthModel));
-    const dramaPlan = DramaPlanSchema.parse(generateDramaPlan(deckSpec, truthModel));
-    const setpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(deckSpec, microWorldMap, diseaseDossier));
+    const microWorldMap = MicroWorldMapSchema.parse(
+      (await readJsonArtifactIfPresent(runId, "micro_world_map.json")) ?? generateMicroWorldMap(deckSpec, diseaseDossier, truthModel)
+    );
+    const dramaPlan = DramaPlanSchema.parse(
+      (await readJsonArtifactIfPresent(runId, "drama_plan.json")) ?? generateDramaPlan(deckSpec, truthModel)
+    );
+    const setpiecePlan = SetpiecePlanSchema.parse(
+      (await readJsonArtifactIfPresent(runId, "setpiece_plan.json")) ?? generateSetpiecePlan(deckSpec, microWorldMap, diseaseDossier)
+    );
     const templateRegistry = V2TemplateRegistrySchema.parse(buildTemplateRegistry(deckSpec));
 
     const mainDeckRenderPlanMd = buildMainDeckRenderPlanMd({
@@ -780,7 +1370,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     throw new PipelinePause(gateId, gateResumeStep(gateId), message);
   }
 
-  runs.log(runId, `V2 micro-detectives pipeline start (startFrom=${startFrom})`);
+  runs.log(runId, `V2 micro-detectives pipeline start (startFrom=${startFrom}; profile=${generationProfile}; adherence=${adherenceMode})`);
 
   await withTrace(`MicroDetectivesV2:${runId}`, async (trace) => {
     await runs.setTraceId(runId, trace.traceId);
@@ -793,6 +1383,12 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     const truthModelAgent = makeV2TruthModelAgent(assets);
     const differentialCastAgent = makeV2DifferentialCastAgent(assets);
     const clueArchitectAgent = makeV2ClueArchitectAgent(assets);
+    const microWorldMapAgent = makeV2MicroWorldMapAgent(assets);
+    const dramaPlanAgent = makeV2DramaPlanAgent(assets);
+    const setpiecePlanAgent = makeV2SetpiecePlanAgent(assets);
+    const storyBlueprintAgent = makeV2StoryBlueprintAgent(assets);
+    const actOutlineAgent = makeV2ActOutlineAgent(assets);
+    const slideBlockAuthorAgent = makeV2SlideBlockAuthorAgent(assets);
     const plotDirectorDeckSpecAgent = makeV2PlotDirectorDeckSpecAgent(assets);
     const readerSimAgent = makeV2ReaderSimAgent(assets);
     const medFactcheckAgent = makeV2MedFactcheckAgent(assets);
@@ -841,6 +1437,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
     const targetSettings = {
       audienceLevel,
+      generationProfile,
       deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
       deckLengthMain: deckLengthPolicy.softTarget ?? null,
       deckLengthDirective: deckLengthPolicy.constraintEnabled
@@ -1081,9 +1678,9 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           const gate2Feedback = compactGateFeedback(gateFeedbackForPrompt(gate2Review));
           const cTimeoutMs = adaptiveTimeouts.agentTimeoutMs;
           const deckSpecTimeoutMs = adaptiveTimeouts.deckSpecTimeoutMs;
-          const planningMode = stepCPlanningMode(adherenceMode);
+          const planningMode = stepCPlanningMode(generationProfile);
           const deterministicPlanning = planningMode === "deterministic_first";
-          const attemptPlotDirectorRefinement = shouldAttemptPlotDirectorRefinement(adherenceMode, planningMode);
+          const attemptPlotDirectorRefinement = shouldAttemptPlotDirectorRefinement(generationProfile, planningMode);
           if (deterministicPlanning) {
             runs.log(runId, "Step C planning mode=deterministic_first (warn-mode reliability path).", "C");
           }
@@ -1112,6 +1709,21 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             runs.log(runId, `Step C budget guard activated for ${stage} (${reason}).`, "C");
             return true;
           };
+          let storyBeats: z.infer<typeof StoryBeatsSchema> | null = null;
+          let chapterOutline: ReturnType<typeof parseChapterOutlineArtifact> | null = null;
+          try {
+            const rawStoryBeats = await readJsonArtifactIfPresent<unknown>(runId, "story_beats.json");
+            if (rawStoryBeats) storyBeats = StoryBeatsSchema.parse(rawStoryBeats);
+          } catch (err) {
+            runs.log(runId, `story_beats.json ignored due to parse error (${err instanceof Error ? err.message : String(err)}).`, "C");
+          }
+          try {
+            const rawChapterOutline = await readJsonArtifactIfPresent<unknown>(runId, "chapter_outline.json");
+            if (rawChapterOutline) chapterOutline = parseChapterOutlineArtifact(rawChapterOutline);
+          } catch (err) {
+            runs.log(runId, `chapter_outline.json ignored due to parse error (${err instanceof Error ? err.message : String(err)}).`, "C");
+          }
+          const storyBeatsPromptSection = buildStoryBeatsPromptSection({ storyBeats, chapterOutline });
           const planningDeckMeta = {
             schema_version: "1.0.0",
             episode_slug: topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
@@ -1246,14 +1858,168 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           }
         await writeIntermediateJson("C", "clue_graph.json", workingClueGraph);
 
-        const microWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
-        const dramaPlan = DramaPlanSchema.parse(generateDramaPlan(fallbackSeedDeck, truthModel));
-        const setPiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(fallbackSeedDeck, microWorldMap, diseaseDossier));
+        const microWorldPrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `CASE REQUEST (json):\n${JSON.stringify(
+            {
+              disease_topic: topic,
+              deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+              ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {}),
+              audience_level: audienceLevel
+            },
+            null,
+            2
+          )}\n\n` +
+          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        const allowStoryStageFallback = shouldAllowStoryStageDeterministicFallback(generationProfile, adherenceMode);
+        let microWorldAuthoring: { source: "agent" | "deterministic_fallback"; reason?: string } = { source: "agent" };
+        let workingMicroWorldMap: ReturnType<typeof MicroWorldMapSchema.parse>;
+        if (deterministicPlanning) {
+          if (!allowStoryStageFallback) {
+            throw new Error("Quality mode disallows deterministic MicroWorld fallback in deterministic planning mode.");
+          }
+          microWorldAuthoring = { source: "deterministic_fallback", reason: "deterministic_planning_mode" };
+          workingMicroWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
+        } else if (
+          generationProfile === "pilot" &&
+          fallbackForLowBudget("microWorldMap.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))
+        ) {
+          microWorldAuthoring = { source: "deterministic_fallback", reason: "budget_guard_preflight" };
+          workingMicroWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
+        } else {
+          try {
+            workingMicroWorldMap = MicroWorldMapSchema.parse(
+              await runIsolatedAgentOutput({
+                step: "C",
+                agentKey: "microWorldMap",
+                agent: microWorldMapAgent,
+                prompt: microWorldPrompt,
+                maxTurns: 8,
+                timeoutMs: cTimeoutMs,
+                signal: cSignal
+              })
+            );
+          } catch (err) {
+            if (shouldAbortOnError(err, cSignal)) throw err;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!allowStoryStageFallback) throw err;
+            microWorldAuthoring = { source: "deterministic_fallback", reason: msg };
+            runs.log(runId, `MicroWorldMap agent fallback activated (${msg}).`, "C");
+            recordFallback("deterministic_fallback", "microWorldMap", msg);
+            workingMicroWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
+          }
+        }
+        await writeIntermediateJson("C", "micro_world_map.json", workingMicroWorldMap);
+
+        const dramaPrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `MICRO WORLD MAP (json):\n${JSON.stringify(workingMicroWorldMap, null, 2)}\n\n` +
+          `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        let dramaAuthoring: { source: "agent" | "deterministic_fallback"; reason?: string } = { source: "agent" };
+        let workingDramaPlan: ReturnType<typeof DramaPlanSchema.parse>;
+        if (deterministicPlanning) {
+          if (!allowStoryStageFallback) {
+            throw new Error("Quality mode disallows deterministic Drama fallback in deterministic planning mode.");
+          }
+          dramaAuthoring = { source: "deterministic_fallback", reason: "deterministic_planning_mode" };
+          workingDramaPlan = DramaPlanSchema.parse(generateDramaPlan(fallbackSeedDeck, truthModel));
+        } else if (
+          generationProfile === "pilot" &&
+          fallbackForLowBudget("dramaPlan.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))
+        ) {
+          dramaAuthoring = { source: "deterministic_fallback", reason: "budget_guard_preflight" };
+          workingDramaPlan = DramaPlanSchema.parse(generateDramaPlan(fallbackSeedDeck, truthModel));
+        } else {
+          try {
+            workingDramaPlan = DramaPlanSchema.parse(
+              await runIsolatedAgentOutput({
+                step: "C",
+                agentKey: "dramaPlan",
+                agent: dramaPlanAgent,
+                prompt: dramaPrompt,
+                maxTurns: 8,
+                timeoutMs: cTimeoutMs,
+                signal: cSignal
+              })
+            );
+          } catch (err) {
+            if (shouldAbortOnError(err, cSignal)) throw err;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!allowStoryStageFallback) throw err;
+            dramaAuthoring = { source: "deterministic_fallback", reason: msg };
+            runs.log(runId, `DramaPlan agent fallback activated (${msg}).`, "C");
+            recordFallback("deterministic_fallback", "dramaPlan", msg);
+            workingDramaPlan = DramaPlanSchema.parse(generateDramaPlan(fallbackSeedDeck, truthModel));
+          }
+        }
+        await writeIntermediateJson("C", "drama_plan.json", workingDramaPlan);
+
+        const setpiecePrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
+          `MICRO WORLD MAP (json):\n${JSON.stringify(workingMicroWorldMap, null, 2)}\n\n` +
+          `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        let setpieceAuthoring: { source: "agent" | "deterministic_fallback"; reason?: string } = { source: "agent" };
+        let workingSetpiecePlan: ReturnType<typeof SetpiecePlanSchema.parse>;
+        if (deterministicPlanning) {
+          if (!allowStoryStageFallback) {
+            throw new Error("Quality mode disallows deterministic Setpiece fallback in deterministic planning mode.");
+          }
+          setpieceAuthoring = { source: "deterministic_fallback", reason: "deterministic_planning_mode" };
+          workingSetpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(fallbackSeedDeck, workingMicroWorldMap, diseaseDossier));
+        } else if (
+          generationProfile === "pilot" &&
+          fallbackForLowBudget("setpiecePlan.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))
+        ) {
+          setpieceAuthoring = { source: "deterministic_fallback", reason: "budget_guard_preflight" };
+          workingSetpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(fallbackSeedDeck, workingMicroWorldMap, diseaseDossier));
+        } else {
+          try {
+            workingSetpiecePlan = SetpiecePlanSchema.parse(
+              await runIsolatedAgentOutput({
+                step: "C",
+                agentKey: "setpiecePlan",
+                agent: setpiecePlanAgent,
+                prompt: setpiecePrompt,
+                maxTurns: 8,
+                timeoutMs: cTimeoutMs,
+                signal: cSignal
+              })
+            );
+          } catch (err) {
+            if (shouldAbortOnError(err, cSignal)) throw err;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!allowStoryStageFallback) throw err;
+            setpieceAuthoring = { source: "deterministic_fallback", reason: msg };
+            runs.log(runId, `SetpiecePlan agent fallback activated (${msg}).`, "C");
+            recordFallback("deterministic_fallback", "setpiecePlan", msg);
+            workingSetpiecePlan = SetpiecePlanSchema.parse(generateSetpiecePlan(fallbackSeedDeck, workingMicroWorldMap, diseaseDossier));
+          }
+        }
+        await writeIntermediateJson("C", "setpiece_plan.json", workingSetpiecePlan);
+        const stageAuthoringProvenance: V2StageAuthoringProvenance = buildStageAuthoringProvenance({
+          generationProfile,
+          microWorld: microWorldAuthoring,
+          drama: dramaAuthoring,
+          setpiece: setpieceAuthoring
+        });
+        await writeIntermediateJson("C", "v2_stage_authoring_provenance.json", stageAuthoringProvenance);
+
         const caseRequest = {
           disease_topic: topic,
           deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
           ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {}),
           audience_level: audienceLevel,
+          generation_profile: generationProfile,
           story_dominance_target_ratio_min: 0.7,
           one_major_med_concept_per_slide: true
         };
@@ -1283,9 +2049,6 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           learning_objectives: (diseaseDossier.learning_objectives ?? []).slice(0, 10).map((objective) => clampText(objective, 160))
         };
 
-        const microWorldObj = asObject(microWorldMap);
-        const dramaObj = asObject(dramaPlan);
-        const setpieceObj = asObject(setPiecePlan);
         const clueDigest = {
           exhibits: workingClueGraph.exhibits.slice(0, 6).map((exhibit) => ({
             exhibit_id: exhibit.exhibit_id,
@@ -1304,7 +2067,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             rooted_truth: clampText(item.rooted_truth, 120),
             payoff_slide_id: item.payoff_slide_id
           })),
-          twist_support_matrix: asArray(workingClueGraph.twist_support_matrix).slice(0, 10)
+          twist_support_matrix: workingClueGraph.twist_support_matrix.slice(0, 10)
         };
 
         const differentialDigest = {
@@ -1316,47 +2079,28 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           rotation_plan: workingDifferential.rotation_plan
         };
 
-        const microWorldDigest = {
-          zones: asArray<Record<string, unknown>>(microWorldObj["zones"]).slice(0, 8).map((zone) => ({
-            zone_id: String(zone["zone_id"] ?? ""),
-            label: clampText(String(zone["label"] ?? ""), 90),
-            story_function: clampText(String(zone["story_function"] ?? ""), 120)
-          })),
-          recurring_constraints: asArray<string>(microWorldObj["recurring_constraints"]).slice(0, 8).map((item) => clampText(item, 120)),
-          style_tokens: asArray<string>(microWorldObj["style_tokens"]).slice(0, 8).map((item) => clampText(item, 90))
-        };
-
-        const dramaDigest = {
-          acts: asArray<Record<string, unknown>>(dramaObj["acts"]).slice(0, 4).map((act) => ({
-            act_id: String(act["act_id"] ?? ""),
-            objective: clampText(String(act["objective"] ?? ""), 120),
-            pressure: clampText(String(act["pressure"] ?? ""), 120)
-          })),
-          pacing_intent: clampText(String(dramaObj["pacing_intent"] ?? ""), 180)
-        };
-
-        const setpieceDigest = {
-          setpieces: asArray<Record<string, unknown>>(setpieceObj["setpieces"]).slice(0, 6).map((setpiece) => ({
-            id: String(setpiece["id"] ?? ""),
-            zone_ref: String(setpiece["zone_ref"] ?? ""),
-            action_core: clampText(String(setpiece["action_core"] ?? ""), 160)
-          }))
-        };
+        const microWorldDigest = compactMicroWorldDigest(workingMicroWorldMap);
+        const dramaDigest = compactDramaDigest(workingDramaPlan);
+        const setpieceDigest = compactSetpieceDigest(workingSetpiecePlan);
 
         const deckSpecPrimaryPrompt =
           `CASE REQUEST (json):\n${JSON.stringify(caseRequest, null, 2)}\n\n` +
-          `TRUTH SUMMARY (json):\n${JSON.stringify(truthSummary, null, 2)}\n\n` +
-          `DOSSIER DIGEST (json):\n${JSON.stringify(dossierDigestPrimary, null, 2)}\n\n` +
-          `MICRO WORLD DIGEST (json):\n${JSON.stringify(microWorldDigest, null, 2)}\n\n` +
-          `TOP DIFFERENTIAL SUSPECTS (json):\n${JSON.stringify(differentialDigest, null, 2)}\n\n` +
-          `CLUE SUMMARY (json):\n${JSON.stringify(clueDigest, null, 2)}\n\n` +
-          `DRAMA DIGEST (json):\n${JSON.stringify(dramaDigest, null, 2)}\n\n` +
-          `SETPIECE DIGEST (json):\n${JSON.stringify(setpieceDigest, null, 2)}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
+          `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `MICRO WORLD MAP (json):\n${JSON.stringify(workingMicroWorldMap, null, 2)}\n\n` +
+          `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
+          `SETPIECE PLAN (json):\n${JSON.stringify(workingSetpiecePlan, null, 2)}\n\n` +
           `GATE 2 FEEDBACK:\n${gate2Feedback}`;
 
         const deckSpecUltraCompactPrompt =
           `CASE REQUEST (json):\n${JSON.stringify(caseRequest, null, 2)}\n\n` +
           `TRUTH SUMMARY (json):\n${JSON.stringify(truthSummary, null, 2)}\n\n` +
+          `DOSSIER DIGEST (json):\n${JSON.stringify(dossierDigestPrimary, null, 2)}\n\n` +
+          `MICRO WORLD DIGEST (json):\n${JSON.stringify(microWorldDigest, null, 2)}\n\n` +
+          `DRAMA DIGEST (json):\n${JSON.stringify(dramaDigest, null, 2)}\n\n` +
+          `SETPIECE DIGEST (json):\n${JSON.stringify(setpieceDigest, null, 2)}\n\n` +
           `TOP DIFFERENTIAL SUSPECTS (json):\n${JSON.stringify(differentialDigest, null, 2)}\n\n` +
           `CLUE SUMMARY (json):\n${JSON.stringify(clueDigest, null, 2)}\n\n` +
           `LEARNING OBJECTIVES (json):\n${JSON.stringify((diseaseDossier.learning_objectives ?? []).slice(0, 10), null, 2)}\n\n` +
@@ -1376,122 +2120,290 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           `TOP LEARNING OBJECTIVES (json):\n${JSON.stringify((diseaseDossier.learning_objectives ?? []).slice(0, 6), null, 2)}\n\n` +
           `GATE 2 FEEDBACK SUMMARY:\n${clampText(gate2Feedback, 400)}`;
 
-        let deckSpecMode = deckSpecGenerationMode(adherenceMode);
-        const deckRefineTimeoutMs = stepCDeckRefineTimeoutMs();
-        let workingDeck: ReturnType<typeof DeckSpecSchema.parse> = fallbackSeedDeck;
-        let deckUsedDeterministicFallback = false;
-        if (
-          deckSpecMode === "agent_full" &&
-          fallbackForLowBudget("plotDirectorDeckSpec.preflight", Math.max(120_000, Math.round(deckSpecTimeoutMs * 0.8)))
-        ) {
-          deckSpecMode = "deterministic_refine";
-        }
-
-        if (deckSpecMode === "deterministic_refine") {
-          runs.log(runId, "DeckSpec mode=deterministic_refine: seeded deterministic deck before lightweight model refinement.", "C");
-          if (!attemptPlotDirectorRefinement) {
-            runs.log(runId, "DeckSpec lightweight refinement skipped by policy.", "C");
-          } else if (fallbackForLowBudget("plotDirectorDeckSpec.refinement.preflight", 90_000)) {
-            runs.log(runId, "DeckSpec lightweight refinement skipped due to remaining step-C budget.", "C");
-          } else {
-            try {
-              const refinedDeck = DeckSpecSchema.parse(
-                await runIsolatedAgentOutput({
-                  step: "C",
-                  agentKey: "plotDirectorDeckSpec",
-                  agent: plotDirectorDeckSpecAgent,
-                  prompt: deckSpecKernelPrompt,
-                  maxTurns: 6,
-                  timeoutMs: Math.max(90_000, Math.min(deckRefineTimeoutMs, 220_000)),
-                  signal: cSignal
-                })
-              );
-              workingDeck = refinedDeck;
-              runs.log(runId, "DeckSpec lightweight refinement succeeded.", "C");
-            } catch (refineErr) {
-              if (shouldAbortOnError(refineErr, cSignal)) throw refineErr;
-              const refineMsg = refineErr instanceof Error ? refineErr.message : String(refineErr);
-              if (adherenceMode === "strict") throw refineErr;
-              runs.log(runId, `DeckSpec lightweight refinement unavailable; using deterministic seed (${refineMsg}).`, "C");
-              recordFallback("agent_retry", "plotDirectorDeckSpec.refinement", refineMsg);
-            }
-          }
-        } else {
+        const storyBlueprintPrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `CASE REQUEST (json):\n${JSON.stringify(caseRequest, null, 2)}\n\n` +
+          `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
+          `SETPIECE PLAN (json):\n${JSON.stringify(workingSetpiecePlan, null, 2)}\n\n` +
+          `${storyBeatsPromptSection}\n\n` +
+          `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        let storyBlueprint = buildStoryBlueprintFallback({
+          topic,
+          clueObligations: workingClueGraph.clues.slice(0, 8).map((clue) => clue.clue_id)
+        });
+        if (!deterministicPlanning && !fallbackForLowBudget("storyBlueprint.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))) {
           try {
-            workingDeck = DeckSpecSchema.parse(
+            storyBlueprint = StoryBlueprintSchema.parse(
               await runIsolatedAgentOutput({
                 step: "C",
-                agentKey: "plotDirectorDeckSpec",
-                agent: plotDirectorDeckSpecAgent,
-                prompt: deckSpecPrimaryPrompt,
-                maxTurns: 10,
-                timeoutMs: deckSpecTimeoutMs,
+                agentKey: "storyBlueprint",
+                agent: storyBlueprintAgent,
+                prompt: storyBlueprintPrompt,
+                maxTurns: 8,
+                timeoutMs: cTimeoutMs,
                 signal: cSignal
               })
             );
           } catch (err) {
             if (shouldAbortOnError(err, cSignal)) throw err;
             const msg = err instanceof Error ? err.message : String(err);
-            runs.log(runId, `DeckSpec primary attempt failed; retrying compact prompts (${msg}).`, "C");
-            recordFallback("agent_retry", "plotDirectorDeckSpec.primary", msg);
-            let recovered = false;
+            runs.log(runId, `StoryBlueprint agent fallback activated (${msg}).`, "C");
+            recordFallback("deterministic_fallback", "storyBlueprint", msg);
+          }
+        }
+        await writeIntermediateJson("C", "story_blueprint.json", storyBlueprint);
+
+        const actOutlinePrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `STORY BLUEPRINT (json):\n${JSON.stringify(storyBlueprint, null, 2)}\n\n` +
+          `DECK SCAFFOLD ACTS (json):\n${JSON.stringify(fallbackSeedDeck.acts, null, 2)}\n\n` +
+          `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
+          `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
+          `${storyBeatsPromptSection}`;
+        let actOutline = buildActOutlineFallback({
+          deck: fallbackSeedDeck,
+          storyBlueprint
+        });
+        if (!deterministicPlanning && !fallbackForLowBudget("actOutline.preflight", Math.max(90_000, Math.round(cTimeoutMs * 0.75)))) {
+          try {
+            actOutline = ActOutlineSchema.parse(
+              await runIsolatedAgentOutput({
+                step: "C",
+                agentKey: "actOutline",
+                agent: actOutlineAgent,
+                prompt: actOutlinePrompt,
+                maxTurns: 8,
+                timeoutMs: cTimeoutMs,
+                signal: cSignal
+              })
+            );
+          } catch (err) {
+            if (shouldAbortOnError(err, cSignal)) throw err;
+            const msg = err instanceof Error ? err.message : String(err);
+            runs.log(runId, `ActOutline agent fallback activated (${msg}).`, "C");
+            recordFallback("deterministic_fallback", "actOutline", msg);
+          }
+        }
+        await writeIntermediateJson("C", "act_outline.json", actOutline);
+
+        const blockPlans = planSlideBlocksFromOutline(actOutline);
+        await writeIntermediateJson(
+          "C",
+          "slide_block_plan.json",
+          {
+            schema_version: "1.0.0",
+            block_count: blockPlans.length,
+            blocks: blockPlans
+          }
+        );
+
+        const authoredBlocks: ReturnType<typeof SlideBlockSchema.parse>[] = [];
+        const agentAuthoredSlideIds = new Set<string>();
+        let priorSummary = "No prior block summary.";
+        let unresolvedThreads = storyBlueprint.unresolved_threads.slice(0, 8);
+        for (const plan of blockPlans) {
+          let block = buildSlideBlockFallback({
+            deck: fallbackSeedDeck,
+            plan,
+            priorSummary
+          });
+          let blockFromAgent = false;
+          if (!deterministicPlanning && !fallbackForLowBudget(`slideBlock.${plan.blockId}.preflight`, Math.max(80_000, Math.round(cTimeoutMs * 0.6)))) {
             try {
-              if (fallbackForLowBudget("plotDirectorDeckSpec.ultra_compact.preflight", 140_000)) throw new Error("budget_guard");
-              workingDeck = DeckSpecSchema.parse(
+              block = SlideBlockSchema.parse(
                 await runIsolatedAgentOutput({
                   step: "C",
-                  agentKey: "plotDirectorDeckSpec",
-                  agent: plotDirectorDeckSpecAgent,
-                  prompt: deckSpecUltraCompactPrompt,
+                  agentKey: "slideBlockAuthor",
+                  agent: slideBlockAuthorAgent,
+                  prompt: buildBlockPromptContext({
+                    topic,
+                    plan,
+                    storyBlueprint,
+                    actOutline,
+                    priorBlockSummary: priorSummary,
+                    unresolvedThreads,
+                    diseaseDossier,
+                    truthModel,
+                    differentialCast: workingDifferential,
+                    clueGraph: workingClueGraph,
+                    microWorldMap: workingMicroWorldMap,
+                    dramaPlan: workingDramaPlan,
+                    setpiecePlan: workingSetpiecePlan
+                  }) + `\n\n${storyBeatsPromptSection}`,
                   maxTurns: 8,
-                  timeoutMs: Math.max(150_000, Math.min(deckSpecTimeoutMs, 280_000)),
+                  timeoutMs: cTimeoutMs,
                   signal: cSignal
                 })
               );
-              recovered = true;
-              runs.log(runId, "DeckSpec ultra-compact retry succeeded.", "C");
-              recordFallback("agent_retry", "plotDirectorDeckSpec.ultra_compact", "succeeded");
-            } catch (compactErr) {
-              if (shouldAbortOnError(compactErr, cSignal)) throw compactErr;
-              const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
-              runs.log(runId, `DeckSpec ultra-compact retry failed; trying kernel prompt (${compactMsg}).`, "C");
-              recordFallback("agent_retry", "plotDirectorDeckSpec.ultra_compact", compactMsg);
+              blockFromAgent = true;
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `SlideBlockAuthor agent fallback activated (${plan.blockId}; ${msg}).`, "C");
+              recordFallback("deterministic_fallback", `slideBlockAuthor.${plan.blockId}`, msg);
+            }
+          }
+          if (blockFromAgent) {
+            for (const override of block.slide_overrides) {
+              agentAuthoredSlideIds.add(override.slide_id);
+            }
+          }
+          authoredBlocks.push(block);
+          priorSummary = block.block_summary_out;
+          unresolvedThreads = (block.unresolved_threads_out ?? unresolvedThreads).slice(0, 12);
+          await writeIntermediateJson("C", `slide_block_${plan.blockId}.json`, block);
+        }
+
+        const assembled = (() => {
+          const out = assembleDeckFromSlideBlocks({
+            scaffoldDeck: fallbackSeedDeck,
+            blocks: authoredBlocks
+          });
+          const deckWithBlockProvenance = DeckSpecSchema.parse({
+            ...out.deck,
+            slides: out.deck.slides.map((slide) =>
+              agentAuthoredSlideIds.has(slide.slide_id)
+                ? { ...slide, authoring_provenance: "agent_authored" as const }
+                : slide
+            )
+          });
+          return {
+            deck: deckWithBlockProvenance,
+            report: DeckAssemblyReportSchema.parse(out.report)
+          };
+        })();
+        await writeIntermediateJson("C", "deck_assembly_report.json", assembled.report);
+        await writeIntermediateJson("C", "deck_spec_assembled.json", assembled.deck);
+
+        let deckSpecMode = deckSpecGenerationMode(generationProfile);
+        const deckRefineTimeoutMs = stepCDeckRefineTimeoutMs();
+        let workingDeck: ReturnType<typeof DeckSpecSchema.parse> = assembled.deck;
+        let deckUsedDeterministicFallback = false;
+        const useMonolithicDeckAuthoring = generationProfile === "pilot" || deterministicPlanning;
+        if (useMonolithicDeckAuthoring) {
+          if (
+            deckSpecMode === "agent_full" &&
+            fallbackForLowBudget("plotDirectorDeckSpec.preflight", Math.max(120_000, Math.round(deckSpecTimeoutMs * 0.8)))
+          ) {
+            deckSpecMode = "deterministic_refine";
+          }
+
+          if (deckSpecMode === "deterministic_refine") {
+            runs.log(runId, "DeckSpec mode=deterministic_refine: seeded deterministic deck before lightweight model refinement.", "C");
+            if (!attemptPlotDirectorRefinement) {
+              runs.log(runId, "DeckSpec lightweight refinement skipped by policy.", "C");
+            } else if (fallbackForLowBudget("plotDirectorDeckSpec.refinement.preflight", 90_000)) {
+              runs.log(runId, "DeckSpec lightweight refinement skipped due to remaining step-C budget.", "C");
+            } else {
               try {
-                if (fallbackForLowBudget("plotDirectorDeckSpec.kernel.preflight", 110_000)) throw new Error("budget_guard");
-                workingDeck = DeckSpecSchema.parse(
+                const refinedDeck = DeckSpecSchema.parse(
                   await runIsolatedAgentOutput({
                     step: "C",
                     agentKey: "plotDirectorDeckSpec",
                     agent: plotDirectorDeckSpecAgent,
                     prompt: deckSpecKernelPrompt,
                     maxTurns: 6,
-                    timeoutMs: Math.max(120_000, Math.min(deckSpecTimeoutMs, 220_000)),
+                    timeoutMs: Math.max(90_000, Math.min(deckRefineTimeoutMs, 220_000)),
+                    signal: cSignal
+                  })
+                );
+                workingDeck = refinedDeck;
+                runs.log(runId, "DeckSpec lightweight refinement succeeded.", "C");
+              } catch (refineErr) {
+                if (shouldAbortOnError(refineErr, cSignal)) throw refineErr;
+                const refineMsg = refineErr instanceof Error ? refineErr.message : String(refineErr);
+                if (adherenceMode === "strict") throw refineErr;
+                runs.log(runId, `DeckSpec lightweight refinement unavailable; using deterministic seed (${refineMsg}).`, "C");
+                recordFallback("agent_retry", "plotDirectorDeckSpec.refinement", refineMsg);
+              }
+            }
+          } else {
+            try {
+              workingDeck = DeckSpecSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "plotDirectorDeckSpec",
+                  agent: plotDirectorDeckSpecAgent,
+                  prompt: deckSpecPrimaryPrompt,
+                  maxTurns: 10,
+                  timeoutMs: deckSpecTimeoutMs,
+                  signal: cSignal
+                })
+              );
+            } catch (err) {
+              if (shouldAbortOnError(err, cSignal)) throw err;
+              const msg = err instanceof Error ? err.message : String(err);
+              runs.log(runId, `DeckSpec primary attempt failed; retrying compact prompts (${msg}).`, "C");
+              recordFallback("agent_retry", "plotDirectorDeckSpec.primary", msg);
+              let recovered = false;
+              try {
+                if (fallbackForLowBudget("plotDirectorDeckSpec.ultra_compact.preflight", 140_000)) throw new Error("budget_guard");
+                workingDeck = DeckSpecSchema.parse(
+                  await runIsolatedAgentOutput({
+                    step: "C",
+                    agentKey: "plotDirectorDeckSpec",
+                    agent: plotDirectorDeckSpecAgent,
+                    prompt: deckSpecUltraCompactPrompt,
+                    maxTurns: 8,
+                    timeoutMs: Math.max(150_000, Math.min(deckSpecTimeoutMs, 280_000)),
                     signal: cSignal
                   })
                 );
                 recovered = true;
-                runs.log(runId, "DeckSpec kernel retry succeeded.", "C");
-                recordFallback("agent_retry", "plotDirectorDeckSpec.kernel", "succeeded");
-              } catch (kernelErr) {
-                if (shouldAbortOnError(kernelErr, cSignal)) throw kernelErr;
-                if (adherenceMode === "strict") throw kernelErr;
-                const kernelMsg = kernelErr instanceof Error ? kernelErr.message : String(kernelErr);
-                const timeoutHint = isLikelyTimeoutError(kernelMsg) || isLikelyTimeoutError(compactMsg) || isLikelyTimeoutError(msg);
-                const reason = timeoutHint ? "timed_out_or_aborted_after_retries" : "schema_or_runtime_error_after_retries";
-                runs.log(
-                  runId,
-                  `DeckSpec deterministic fallback activated (${reason}; primary=${msg}; compact=${compactMsg}; kernel=${kernelMsg}).`,
-                  "C"
-                );
-                recordFallback("deterministic_fallback", "plotDirectorDeckSpec", `${reason}; kernel=${kernelMsg}`);
-                workingDeck = fallbackSeedDeck;
-                deckUsedDeterministicFallback = true;
+                runs.log(runId, "DeckSpec ultra-compact retry succeeded.", "C");
+                recordFallback("agent_retry", "plotDirectorDeckSpec.ultra_compact", "succeeded");
+              } catch (compactErr) {
+                if (shouldAbortOnError(compactErr, cSignal)) throw compactErr;
+                const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+                runs.log(runId, `DeckSpec ultra-compact retry failed; trying kernel prompt (${compactMsg}).`, "C");
+                recordFallback("agent_retry", "plotDirectorDeckSpec.ultra_compact", compactMsg);
+                try {
+                  if (fallbackForLowBudget("plotDirectorDeckSpec.kernel.preflight", 110_000)) throw new Error("budget_guard");
+                  workingDeck = DeckSpecSchema.parse(
+                    await runIsolatedAgentOutput({
+                      step: "C",
+                      agentKey: "plotDirectorDeckSpec",
+                      agent: plotDirectorDeckSpecAgent,
+                      prompt: deckSpecKernelPrompt,
+                      maxTurns: 6,
+                      timeoutMs: Math.max(120_000, Math.min(deckSpecTimeoutMs, 220_000)),
+                      signal: cSignal
+                    })
+                  );
+                  recovered = true;
+                  runs.log(runId, "DeckSpec kernel retry succeeded.", "C");
+                  recordFallback("agent_retry", "plotDirectorDeckSpec.kernel", "succeeded");
+                } catch (kernelErr) {
+                  if (shouldAbortOnError(kernelErr, cSignal)) throw kernelErr;
+                  if (adherenceMode === "strict") throw kernelErr;
+                  const kernelMsg = kernelErr instanceof Error ? kernelErr.message : String(kernelErr);
+                  const timeoutHint = isLikelyTimeoutError(kernelMsg) || isLikelyTimeoutError(compactMsg) || isLikelyTimeoutError(msg);
+                  const reason = timeoutHint ? "timed_out_or_aborted_after_retries" : "schema_or_runtime_error_after_retries";
+                  runs.log(
+                    runId,
+                    `DeckSpec deterministic fallback activated (${reason}; primary=${msg}; compact=${compactMsg}; kernel=${kernelMsg}).`,
+                    "C"
+                  );
+                  recordFallback("deterministic_fallback", "plotDirectorDeckSpec", `${reason}; kernel=${kernelMsg}`);
+                  workingDeck = fallbackSeedDeck;
+                  deckUsedDeterministicFallback = true;
+                }
+              }
+              if (!recovered && adherenceMode === "strict") {
+                throw err;
               }
             }
-            if (!recovered && adherenceMode === "strict") {
-              throw err;
-            }
           }
+        } else {
+          runs.log(
+            runId,
+            "Quality block-authoring path active: using assembled slide blocks as primary DeckSpec and skipping monolithic Plot Director generation.",
+            "C"
+          );
         }
         if (deckUsedDeterministicFallback || deckNeedsSemanticPolish(workingDeck)) {
           runs.log(runId, "DeckSpec triggered semantic polish guardrails.", "C");
@@ -1509,6 +2421,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             topic
           })
         );
+        const seedFromDeterministic = deckSpecMode === "deterministic_refine" || deckUsedDeterministicFallback;
+        workingDeck = stampDeckProvenance(workingDeck, { seedFromDeterministic });
         runs.log(runId, "Applied deterministic semantic polish to DeckSpec.", "C");
         await writeIntermediateJson("C", "deck_spec_seed.json", workingDeck);
 
@@ -1518,7 +2432,10 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         let finalLintReport = V2DeckSpecLintReportSchema.parse(
           lintDeckSpecPhase1(workingDeck, {
             deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
-            targetDeckLengthMain: deckLengthPolicy.softTarget
+            targetDeckLengthMain: deckLengthPolicy.softTarget,
+            generationProfile,
+            enforceQualityLints: generationProfile === "quality" && adherenceMode === "strict",
+            stageAuthoringProvenance
           })
         );
         let finalReader!: ReturnType<typeof ReaderSimReportSchema.parse>;
@@ -1549,7 +2466,10 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           finalLintReport = V2DeckSpecLintReportSchema.parse(
             lintDeckSpecPhase1(workingDeck, {
               deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
-              targetDeckLengthMain: deckLengthPolicy.softTarget
+              targetDeckLengthMain: deckLengthPolicy.softTarget,
+              generationProfile,
+              enforceQualityLints: generationProfile === "quality" && adherenceMode === "strict",
+              stageAuthoringProvenance
             })
           );
           await writeIntermediateJson("C", `deck_spec_loop${attempt}.json`, workingDeck);
@@ -1701,11 +2621,124 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           if (!strictFailed) break;
           if (attempt >= maxAttempts) break;
 
+          const structuralFixes = finalQa.required_fixes.filter((fix) => isStructuralRegenFix(fix));
+          let structuralRegeneratedBlocks = 0;
+          let structuralRegenApplied = false;
+
+          if (generationProfile === "quality" && structuralFixes.length > 0) {
+            const blockIndexes = resolveStructuralBlockIndexes(
+              structuralFixes,
+              blockPlans.map((plan) => ({ start: plan.start, end: plan.end }))
+            );
+            for (const blockIndex of blockIndexes) {
+              const plan = blockPlans[blockIndex];
+              if (!plan) continue;
+              const priorBlockSummary = blockIndex > 0
+                ? authoredBlocks[blockIndex - 1]?.block_summary_out ?? "No prior block summary."
+                : "No prior block summary.";
+              const unresolvedThreadsIn = blockIndex > 0
+                ? authoredBlocks[blockIndex - 1]?.unresolved_threads_out ?? storyBlueprint.unresolved_threads.slice(0, 8)
+                : storyBlueprint.unresolved_threads.slice(0, 8);
+              const blockFixDescriptions = structuralFixes
+                .filter((fix) => {
+                  const targetSlideIds = extractSlideIdsFromFixes([fix]);
+                  if (targetSlideIds.size === 0) return true;
+                  for (const targetSlideId of targetSlideIds) {
+                    const targetSlideNum = parseSlideNumber(targetSlideId);
+                    if (targetSlideNum === null) continue;
+                    if (targetSlideNum >= plan.start && targetSlideNum <= plan.end) return true;
+                  }
+                  return false;
+                })
+                .map((fix) => `${fix.type}: ${fix.description}`);
+
+              try {
+                const regenerated = SlideBlockSchema.parse(
+                  await runIsolatedAgentOutput({
+                    step: "C",
+                    agentKey: "slideBlockAuthor",
+                    agent: slideBlockAuthorAgent,
+                    prompt:
+                      `${buildBlockPromptContext({
+                        topic,
+                        plan,
+                        storyBlueprint,
+                        actOutline,
+                        priorBlockSummary,
+                        unresolvedThreads: unresolvedThreadsIn,
+                        diseaseDossier,
+                        truthModel,
+                        differentialCast: workingDifferential,
+                        clueGraph: workingClueGraph,
+                        microWorldMap: workingMicroWorldMap,
+                        dramaPlan: workingDramaPlan,
+                        setpiecePlan: workingSetpiecePlan
+                      })}\n\n` +
+                      `${storyBeatsPromptSection}\n\n` +
+                      `QUALITY REGEN FIXES FOR THIS BLOCK:\n${JSON.stringify(blockFixDescriptions, null, 2)}\n\n` +
+                      "REGEN RULES:\n" +
+                      "- Resolve the listed quality fixes in this block.\n" +
+                      "- Preserve clue continuity and unresolved thread handoffs.\n" +
+                      "- Do not add placeholder/fallback wording.",
+                    maxTurns: 8,
+                    timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.65)),
+                    signal: cSignal
+                  })
+                );
+                authoredBlocks[blockIndex] = regenerated;
+                for (const override of regenerated.slide_overrides) agentAuthoredSlideIds.add(override.slide_id);
+                await writeIntermediateJson("C", `slide_block_${plan.blockId}_regen_loop${attempt}.json`, regenerated);
+                structuralRegeneratedBlocks += 1;
+                structuralRegenApplied = true;
+              } catch (regenErr) {
+                if (shouldAbortOnError(regenErr, cSignal)) throw regenErr;
+                const regenMsg = regenErr instanceof Error ? regenErr.message : String(regenErr);
+                runs.log(runId, `Slide-block structural regeneration fallback (${plan.blockId}; ${regenMsg}).`, "C");
+                recordFallback("deterministic_fallback", `slideBlockRegen.${plan.blockId}`, regenMsg);
+                const fallbackBlock = buildSlideBlockFallback({
+                  deck: workingDeck,
+                  plan,
+                  priorSummary: priorBlockSummary
+                });
+                authoredBlocks[blockIndex] = fallbackBlock;
+                await writeIntermediateJson("C", `slide_block_${plan.blockId}_regen_fallback_loop${attempt}.json`, fallbackBlock);
+                structuralRegeneratedBlocks += 1;
+                structuralRegenApplied = true;
+              }
+            }
+
+            if (structuralRegenApplied) {
+              const structuralAssembly = assembleDeckFromSlideBlocks({
+                scaffoldDeck: fallbackSeedDeck,
+                blocks: authoredBlocks
+              });
+              workingDeck = DeckSpecSchema.parse({
+                ...structuralAssembly.deck,
+                slides: structuralAssembly.deck.slides.map((slide) =>
+                  agentAuthoredSlideIds.has(slide.slide_id)
+                    ? { ...slide, authoring_provenance: "agent_authored" as const }
+                    : slide
+                )
+              });
+              await writeIntermediateJson("C", `deck_assembly_report_regen_loop${attempt}.json`, DeckAssemblyReportSchema.parse(structuralAssembly.report));
+              await writeIntermediateJson("C", `deck_spec_regen_loop${attempt}.json`, workingDeck);
+            }
+          }
+
+          const patchFixes = structuralRegenApplied
+            ? finalQa.required_fixes.filter((fix) => !isStructuralRegenFix(fix))
+            : finalQa.required_fixes;
+          const patchQa = patchFixes.length === finalQa.required_fixes.length
+            ? finalQa
+            : V2QaReportSchema.parse({
+                ...finalQa,
+                required_fixes: patchFixes
+              });
           const patch = applyTargetedQaPatches({
             deckSpec: workingDeck,
             clueGraph: workingClueGraph,
             differentialCast: workingDifferential,
-            qaReport: finalQa,
+            qaReport: patchQa,
             loopIndex: attempt
           });
           workingDeck = DeckSpecSchema.parse(
@@ -1718,6 +2751,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               topic
             })
           );
+          workingDeck = stampDeckProvenance(workingDeck);
           workingClueGraph = ClueGraphSchema.parse(patch.clueGraph);
           workingDifferential = DifferentialCastSchema.parse(patch.differentialCast);
           await writeIntermediateJson("C", `deck_spec_patched_loop${attempt}.json`, workingDeck);
@@ -1726,6 +2760,15 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           await writeIntermediateJson("C", `qa_patch_notes_loop${attempt}.json`, {
             schema_version: "1.0.0",
             loop: attempt,
+            structural_regeneration: structuralRegenApplied
+              ? {
+                  used: true,
+                  regenerated_block_count: structuralRegeneratedBlocks
+                }
+              : {
+                  used: false,
+                  regenerated_block_count: 0
+                },
             patch_notes: patch.patchNotes,
             deck_changes: patch.deckChanges,
             clue_changes: patch.clueChanges,
@@ -1733,8 +2776,36 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           });
           runs.log(
             runId,
-            `QA loop ${attempt} requested fixes; applied targeted patches (deck=${patch.deckChanges}, clues=${patch.clueChanges}, differentials=${patch.differentialChanges}).`,
+            `QA loop ${attempt} requested fixes; ${
+              structuralRegenApplied ? `structural block regeneration=${structuralRegeneratedBlocks}, ` : ""
+            }targeted patches (deck=${patch.deckChanges}, clues=${patch.clueChanges}, differentials=${patch.differentialChanges}).`,
             "C"
+          );
+        }
+
+        workingDeck = stampDeckProvenance(workingDeck);
+        const provenance = workingDeck.deck_meta.authoring_provenance_counts ?? {
+          agent_authored: 0,
+          deterministic_scaffold: 0,
+          patched_scaffold: 0
+        };
+        const scaffoldCount = provenance.deterministic_scaffold + provenance.patched_scaffold;
+        const scaffoldLimit = scaffoldSlideLimit(workingDeck.slides.length);
+        if (
+          generationProfile === "quality" &&
+          adherenceMode === "strict" &&
+          finalLintReport.pass &&
+          finalFactcheck.pass &&
+          finalQa.accept &&
+          scaffoldCount > scaffoldLimit
+        ) {
+          throw new Error(
+            `Quality finalization blocked: scaffold-derived slides=${scaffoldCount} exceed limit=${scaffoldLimit} (mainSlides=${workingDeck.slides.length}).`
+          );
+        }
+        if (generationProfile === "quality" && adherenceMode === "strict" && deckNeedsSemanticPolish(workingDeck)) {
+          throw new Error(
+            "Quality finalization blocked: deck still contains scaffold placeholder markers after QA/regeneration."
           );
         }
 
@@ -1746,6 +2817,26 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         await writeIntermediateJson("C", "med_factcheck_report.json", finalFactcheck);
         await writeIntermediateJson("C", "qa_report.json", finalQa);
         await writeIntermediateJson("C", "semantic_acceptance_report.json", finalSemantic);
+        const storyBeatsAlignmentReport = buildStoryBeatsAlignmentReport({
+          storyBeats,
+          chapterOutline,
+          deck: workingDeck,
+          blockPlans,
+          adherenceMode
+        });
+        await writeIntermediateJson("C", "story_beats_alignment_report.json", storyBeatsAlignmentReport);
+        if (storyBeatsAlignmentReport.lint_status === "fail") {
+          throw new Error(
+            `Story beats alignment failed in strict mode: ${storyBeatsAlignmentReport.warnings.join("; ")}`
+          );
+        }
+        if (storyBeatsAlignmentReport.lint_status === "warn") {
+          runs.log(
+            runId,
+            `Story beats alignment warning: ${storyBeatsAlignmentReport.warnings.join("; ")}`,
+            "C"
+          );
+        }
 
         const citationTraceability = buildCitationTraceabilityReport({
           dossier: diseaseDossier,
@@ -1834,6 +2925,12 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         }
         await runPhase4Packaging("C");
       });
+      await requireGateApproval(
+        "C",
+        "GATE_4_FINAL",
+        "Gate 4: review final packaging artifacts before run completion.",
+        "Submit /api/runs/:runId/gates/GATE_4_FINAL/submit with status=approve, then call /api/runs/:runId/resume."
+      );
     } else {
       runs.log(runId, "Reusing C artifacts", "C");
       await ensureArtifactExists(runId, "deck_spec.json");

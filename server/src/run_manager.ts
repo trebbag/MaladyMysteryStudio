@@ -41,6 +41,7 @@ export type StepName = (typeof STEP_ORDER)[number];
 export type RunLevel = "pcp" | "student";
 export type RunAdherenceMode = "strict" | "warn";
 export type RunWorkflow = "legacy" | "v2_micro_detectives";
+export type RunGenerationProfile = "quality" | "pilot";
 export type RunV2DeckLengthMain = 30 | 45 | 60;
 export type RunV2AudienceLevel = "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL";
 
@@ -52,6 +53,7 @@ export type RunSettings = {
   deckLengthConstraintEnabled?: boolean;
   deckLengthMain?: RunV2DeckLengthMain;
   audienceLevel?: RunV2AudienceLevel;
+  generationProfile?: RunGenerationProfile;
   minStoryForwardRatio?: number;
   minHybridSlideQuality?: number;
   minCitationGroundingCoverage?: number;

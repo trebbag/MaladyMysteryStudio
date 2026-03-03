@@ -15,6 +15,7 @@ export type RunSettings = {
   deckLengthConstraintEnabled?: boolean;
   deckLengthMain?: 30 | 45 | 60;
   audienceLevel?: "PHYSICIAN_LEVEL" | "COLLEGE_LEVEL";
+  generationProfile?: "quality" | "pilot";
   minStoryForwardRatio?: number;
   minHybridSlideQuality?: number;
   minCitationGroundingCoverage?: number;

@@ -59,6 +59,7 @@ export default function ChatStart({ health }: ChatStartProps) {
   const [deckLengthConstraintEnabled, setDeckLengthConstraintEnabled] = useState<boolean>(false);
   const [deckLengthMain, setDeckLengthMain] = useState<NonNullable<RunSettings["deckLengthMain"]>>(45);
   const [audienceLevel, setAudienceLevel] = useState<NonNullable<RunSettings["audienceLevel"]>>("PHYSICIAN_LEVEL");
+  const [generationProfile, setGenerationProfile] = useState<NonNullable<RunSettings["generationProfile"]>>("quality");
   const [level, setLevel] = useState<NonNullable<RunSettings["level"]>>("student");
   const [adherenceMode, setAdherenceMode] = useState<NonNullable<RunSettings["adherenceMode"]>>("strict");
   const [busy, setBusy] = useState(false);
@@ -154,6 +155,7 @@ export default function ChatStart({ health }: ChatStartProps) {
     }
 
     if (workflow === "v2_micro_detectives") {
+      s.generationProfile = generationProfile;
       s.audienceLevel = audienceLevel;
       if (deckLengthConstraintEnabled) {
         s.deckLengthConstraintEnabled = true;
@@ -172,10 +174,10 @@ export default function ChatStart({ health }: ChatStartProps) {
 
   function onWorkflowChange(next: NonNullable<RunSettings["workflow"]>) {
     setWorkflow(next);
-    if (next === "v2_micro_detectives" && adherenceMode === "strict") {
-      // v2 defaults to warn mode to keep long-running pilot flows resilient.
-      setAdherenceMode("warn");
-    }
+  }
+
+  function onGenerationProfileChange(next: NonNullable<RunSettings["generationProfile"]>) {
+    setGenerationProfile(next);
   }
 
   async function onRun() {
@@ -362,6 +364,20 @@ export default function ChatStart({ health }: ChatStartProps) {
 
               {workflow === "v2_micro_detectives" ? (
                 <>
+                  <div>
+                    <div className="subtle">Generation profile</div>
+                    <select
+                      value={generationProfile}
+                      onChange={(e) => onGenerationProfileChange(e.target.value as NonNullable<RunSettings["generationProfile"]>)}
+                    >
+                      <option value="quality">Quality authoring</option>
+                      <option value="pilot">Pilot resilient</option>
+                    </select>
+                    <div className="subtle" style={{ marginTop: 6 }}>
+                      Unconstrained runs generate by story/content needs; soft target is optional.
+                    </div>
+                  </div>
+
                   <div>
                     <div className="subtle">Deck length guidance</div>
                     <label className="row" style={{ gap: 8 }}>

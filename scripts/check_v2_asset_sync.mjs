@@ -4,24 +4,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const REQUIRED_SCHEMA_FILES = [
-  "clue_graph.schema.json",
-  "deck_spec.schema.json",
-  "differential_cast.schema.json",
-  "disease_dossier.schema.json",
-  "drama_plan.schema.json",
-  "episode_pitch.schema.json",
-  "human_review.schema.json",
-  "med_factcheck_report.schema.json",
-  "micro_world_map.schema.json",
-  "qa_report.schema.json",
-  "reader_sim_report.schema.json",
-  "setpiece_plan.schema.json",
-  "truth_model.schema.json"
-];
-
 const REQUIRED_PROMPT_FILES = [
   "00_global_system_prompt.md",
+  "agent_act_outline.md",
   "agent_case_engineer_truth_model.md",
   "agent_clue_architect.md",
   "agent_differential_cast_director.md",
@@ -32,6 +17,8 @@ const REQUIRED_PROMPT_FILES = [
   "agent_plot_director_deckspec.md",
   "agent_qa_med_factcheck.md",
   "agent_qa_reader_sim.md",
+  "agent_slide_block_author.md",
+  "agent_story_blueprint.md",
   "agent_setpiece_choreographer.md"
 ];
 
@@ -53,6 +40,14 @@ async function readTextOrThrow(filePath) {
   return raw.replace(/\r\n/g, "\n");
 }
 
+async function listSchemaFiles(schemaDirPath) {
+  const entries = await fs.readdir(schemaDirPath, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".schema.json"))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 async function assertExistsDirectory(dirPath, label) {
   try {
     const st = await fs.stat(dirPath);
@@ -70,8 +65,12 @@ async function main() {
   await assertExistsDirectory(runRoot, "runtime asset root");
 
   const mismatches = [];
+  const requiredSchemaFiles = await listSchemaFiles(path.join(srcRoot, "schemas"));
+  if (requiredSchemaFiles.length === 0) {
+    throw new Error(`No schema files discovered under ${path.join(srcRoot, "schemas")}`);
+  }
 
-  for (const name of REQUIRED_SCHEMA_FILES) {
+  for (const name of requiredSchemaFiles) {
     const srcPath = path.join(srcRoot, "schemas", name);
     const runPath = path.join(runRoot, "schemas", name);
     const src = await readTextOrThrow(srcPath);

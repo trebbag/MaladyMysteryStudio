@@ -46,6 +46,7 @@ jobs:
         run: |
           npm run v2:assets:lock:check
           npm run v2:assets:sync:check
+          npm run v2:schemas:check
 
       - name: Typecheck
         run: npm run typecheck
@@ -240,6 +241,26 @@ jobs:
             --history .ci/pilot/v2-pilot-trend-history.json \
             --outDir .ci/pilot-report
 
+      - name: Calibrate v2 thresholds from persisted run artifacts
+        if: always()
+        run: |
+          node scripts/calibrate_v2_quality_from_outputs.mjs \
+            --output-root output \
+            --out-json .ci/pilot-report/v2-threshold-calibration-from-runs.json \
+            --out-md .ci/pilot-report/v2-threshold-calibration-from-runs.md \
+            --min-runs 3
+
+      - name: Publish v2 pilot summary
+        if: always()
+        run: |
+          if [ -f .ci/pilot/v2-pilot-quality-latest.md ]; then
+            cat .ci/pilot/v2-pilot-quality-latest.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f .ci/pilot-report/v2-threshold-calibration-from-runs.md ]; then
+            printf "\n\n---\n\n" >> "$GITHUB_STEP_SUMMARY"
+            cat .ci/pilot-report/v2-threshold-calibration-from-runs.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload v2 pilot quality report
         if: always()
         uses: actions/upload-artifact@v4
@@ -335,6 +356,13 @@ jobs:
             --outDir .ci/soak-report \
             --outcome "${{ steps.soak.outcome }}"
 
+      - name: Publish soak summary
+        if: always()
+        run: |
+          if [ -f .ci/soak-report/soak-trend-summary.md ]; then
+            cat .ci/soak-report/soak-trend-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload soak Playwright HTML report
         if: always()
         uses: actions/upload-artifact@v4
@@ -350,6 +378,17 @@ jobs:
         with:
           name: soak-trend-history
           path: .ci/soak-report
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload soak trend summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-trend-summary
+          path: |
+            .ci/soak-report/soak-trend-summary.md
+            .ci/soak-report/soak-latest-summary.json
           if-no-files-found: warn
           retention-days: 30
 

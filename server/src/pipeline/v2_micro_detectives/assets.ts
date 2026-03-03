@@ -2,25 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { repoRoot } from "../utils.js";
+import { V2CanonicalSchemaFiles } from "./generated_schemas.js";
 
-const REQUIRED_SCHEMA_FILES = [
-  "clue_graph.schema.json",
-  "deck_spec.schema.json",
-  "differential_cast.schema.json",
-  "disease_dossier.schema.json",
-  "drama_plan.schema.json",
-  "episode_pitch.schema.json",
-  "human_review.schema.json",
-  "med_factcheck_report.schema.json",
-  "micro_world_map.schema.json",
-  "qa_report.schema.json",
-  "reader_sim_report.schema.json",
-  "setpiece_plan.schema.json",
-  "truth_model.schema.json"
-] as const;
+const REQUIRED_SCHEMA_FILES = [...V2CanonicalSchemaFiles];
 
 const REQUIRED_PROMPT_FILES = [
   "00_global_system_prompt.md",
+  "agent_act_outline.md",
   "agent_case_engineer_truth_model.md",
   "agent_clue_architect.md",
   "agent_differential_cast_director.md",
@@ -31,6 +19,8 @@ const REQUIRED_PROMPT_FILES = [
   "agent_plot_director_deckspec.md",
   "agent_qa_med_factcheck.md",
   "agent_qa_reader_sim.md",
+  "agent_slide_block_author.md",
+  "agent_story_blueprint.md",
   "agent_setpiece_choreographer.md"
 ] as const;
 

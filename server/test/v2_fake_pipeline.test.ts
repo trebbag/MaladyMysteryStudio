@@ -188,11 +188,35 @@ describe("v2 fake pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "citation_traceability.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "story_blueprint.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "act_outline.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "slide_block_plan.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_assembly_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "deck_spec_assembled.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_3_STORYBOARD_REQUIRED.json"))).resolves.toBeTruthy();
+    const filesBeforeGate3 = await fs.readdir(runIntermediateDirAbs(run.runId));
+    expect(filesBeforeGate3.some((name) => /^slide_block_ACT\d_B\d+\.json$/i.test(name))).toBe(true);
 
     await appendHumanReview(run.runId, {
       schema_version: "1.0.0",
       gate_id: "GATE_3_STORYBOARD",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await expect(
+      runMicroDetectivesFakePipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "C" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_4_FINAL",
       status: "approve",
       notes: "",
       requested_changes: [],

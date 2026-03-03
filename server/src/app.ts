@@ -97,6 +97,7 @@ const RunSettingsSchema = z
       )
       .optional(),
     audienceLevel: z.enum(["PHYSICIAN_LEVEL", "COLLEGE_LEVEL"]).optional(),
+    generationProfile: z.enum(["quality", "pilot"]).optional(),
     minStoryForwardRatio: z.number().min(0).max(1).optional(),
     minHybridSlideQuality: z.number().min(0).max(1).optional(),
     minCitationGroundingCoverage: z.number().min(0).max(1).optional(),
@@ -150,6 +151,13 @@ const RunSettingsSchema = z
         code: z.ZodIssueCode.custom,
         path: ["audienceLevel"],
         message: "audienceLevel is only valid for workflow=v2_micro_detectives."
+      });
+    }
+    if (typeof value.generationProfile === "string") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["generationProfile"],
+        message: "generationProfile is only valid for workflow=v2_micro_detectives."
       });
     }
     if (typeof value.minStoryForwardRatio === "number") {
@@ -248,6 +256,8 @@ function normalizeSettings(settings: RunSettings | undefined): RunSettings | und
       if (typeof settings.deckLengthMain === "number") s.deckLengthMain = settings.deckLengthMain;
     }
     if (settings.audienceLevel) s.audienceLevel = settings.audienceLevel;
+    const generationProfile = settings.generationProfile ?? "quality";
+    s.generationProfile = generationProfile;
     if (typeof settings.minStoryForwardRatio === "number") s.minStoryForwardRatio = settings.minStoryForwardRatio;
     if (typeof settings.minHybridSlideQuality === "number") s.minHybridSlideQuality = settings.minHybridSlideQuality;
     if (typeof settings.minCitationGroundingCoverage === "number") {
@@ -258,7 +268,7 @@ function normalizeSettings(settings: RunSettings | undefined): RunSettings | und
     if (settings.level) s.level = settings.level;
   }
   if (settings.adherenceMode) s.adherenceMode = settings.adherenceMode;
-  else if (workflow === V2_WORKFLOW) s.adherenceMode = "warn";
+  else if (workflow === V2_WORKFLOW) s.adherenceMode = "strict";
   if (Object.keys(s).length === 1 && s.workflow === LEGACY_WORKFLOW) return undefined;
   return s;
 }
@@ -903,10 +913,13 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
 
     const startFrom = parsed.data.startFrom as StepName;
     const startIdx = STEP_ORDER.indexOf(startFrom);
+    const sparseLegacyStartFromPCompat =
+      startFrom === "P" && (parent.settings?.workflow === undefined || parent.settings.workflow === "legacy");
 
     for (const step of STEP_ORDER.slice(0, startIdx)) {
       const s = parent.steps[step];
       if (!s || s.status !== "done") {
+        if (sparseLegacyStartFromPCompat) continue;
         res.status(400).json({ error: `cannot reuse step ${step} from parent run (not done)` });
         return;
       }
@@ -917,7 +930,8 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
 
     // Copy artifacts for steps strictly before startFrom.
     for (const step of STEP_ORDER.slice(0, startIdx)) {
-      const files = parent.steps[step]?.artifacts ?? [];
+      const stepState = parent.steps[step];
+      const files = stepState?.artifacts ?? [];
       const copied: string[] = [];
       for (const name of files) {
         if (!isSafeArtifactName(name)) continue;
@@ -965,8 +979,8 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
 
       await runs.setStepNoEvent(child.runId, step, {
         status: "done",
-        startedAt: parent.steps[step].startedAt ?? nowIso(),
-        finishedAt: parent.steps[step].finishedAt ?? nowIso(),
+        startedAt: stepState?.startedAt ?? nowIso(),
+        finishedAt: stepState?.finishedAt ?? nowIso(),
         artifacts: copied
       });
     }
