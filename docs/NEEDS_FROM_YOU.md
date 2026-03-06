@@ -31,7 +31,9 @@ By default, the app uses in-repo canonical files under `data/canon` and does not
 Optional pilot validation:
 
 - Run `npm run smoke:live` while the app is running locally to execute one real episode and verify canonical marker adherence in `story_bible.json` and `shot_list.json`.
-- Run `npm run pilot:v2:quality` while the app is running locally to execute a multi-topic v2 quality batch and produce `.ci/pilot/v2-pilot-quality-latest.json`.
+- Run `npm run smoke:v2:quality` while the app is running locally to execute one real v2 quality smoke run and produce `.ci/smoke/v2-quality-smoke-latest.json`.
+- Run `npm run smoke:v2:quality:trend` after repeated smoke runs to refresh `.ci/smoke-report/v2-quality-smoke-trend-history.html`.
+- Run `npm run pilot:v2:quality` while the app is running locally to execute a multi-topic unconstrained v2 quality batch and produce `.ci/pilot/v2-pilot-quality-latest.json`.
 - Use `npm run pilot:v2:quality -- --enforce-slo --min-qa-accept-rate 0.66 --min-med-pass-rate 0.66` to hard-fail the batch when pilot quality SLO targets are missed.
 - Run `npm run pilot:v2:trend` after pilot batches to refresh `.ci/pilot-report/v2-pilot-trend-history.html`.
 - If you want adherence checks to be non-blocking during pilots, use run setting `adherenceMode: "warn"` from the UI/API.

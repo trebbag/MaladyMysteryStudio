@@ -7,10 +7,11 @@ import path from "node:path";
 function parseArgs(argv) {
   const options = {
     baseUrl: "http://localhost:5050",
-    deckLengthMain: 30,
+    deckLengthConstraintEnabled: false,
+    deckLengthMain: null,
     audienceLevel: "PHYSICIAN_LEVEL",
-    generationProfile: "pilot",
-    adherenceMode: "warn",
+    generationProfile: "quality",
+    adherenceMode: "strict",
     phase: "pilot",
     timeoutMinutes: 45,
     outputDir: ".ci/pilot",
@@ -56,12 +57,23 @@ function parseArgs(argv) {
       continue;
     }
     if (arg === "--deck-length") {
-      options.deckLengthMain = Number(argv[i + 1] || options.deckLengthMain);
+      options.deckLengthConstraintEnabled = true;
+      options.deckLengthMain = Number(argv[i + 1] || options.deckLengthMain || 30);
       i += 1;
+      continue;
+    }
+    if (arg === "--no-deck-length-constraint") {
+      options.deckLengthConstraintEnabled = false;
+      options.deckLengthMain = null;
       continue;
     }
     if (arg === "--audience") {
       options.audienceLevel = argv[i + 1] || options.audienceLevel;
+      i += 1;
+      continue;
+    }
+    if (arg === "--generation-profile") {
+      options.generationProfile = argv[i + 1] || options.generationProfile;
       i += 1;
       continue;
     }
@@ -208,7 +220,13 @@ function parseArgs(argv) {
       "Nephrotic syndrome in adults"
     ];
   }
-  if (![30, 45, 60].includes(options.deckLengthMain)) {
+  if (!["quality", "pilot"].includes(String(options.generationProfile))) {
+    throw new Error(`Invalid --generation-profile value ${String(options.generationProfile)} (allowed: quality, pilot).`);
+  }
+  if (!["strict", "warn"].includes(String(options.adherenceMode))) {
+    throw new Error(`Invalid --adherence value ${String(options.adherenceMode)} (allowed: strict, warn).`);
+  }
+  if (options.deckLengthConstraintEnabled && ![30, 45, 60].includes(options.deckLengthMain)) {
     throw new Error(`Invalid --deck-length value ${String(options.deckLengthMain)} (allowed: 30, 45, 60).`);
   }
   if (!["pilot", "promotion"].includes(String(options.phase))) {
@@ -418,11 +436,14 @@ function graderScore(qaReport, category) {
 async function runOne(options, topic) {
   const settings = {
     workflow: "v2_micro_detectives",
-    deckLengthMain: options.deckLengthMain,
     audienceLevel: options.audienceLevel,
     generationProfile: options.generationProfile,
     adherenceMode: options.adherenceMode
   };
+  if (options.deckLengthConstraintEnabled && Number.isFinite(options.deckLengthMain)) {
+    settings.deckLengthConstraintEnabled = true;
+    settings.deckLengthMain = options.deckLengthMain;
+  }
   const started = await fetchJson(`${options.baseUrl}/api/runs`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -432,19 +453,38 @@ async function runOne(options, topic) {
   if (!runId) throw new Error("Run start did not return runId.");
 
   const timeoutAt = Date.now() + options.timeoutMinutes * 60_000;
+  let gate3RegenerateAttempts = 0;
   while (Date.now() < timeoutAt) {
     const run = await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}`);
     if (run.status === "paused" && run.activeGate?.gateId) {
       const gateId = run.activeGate.gateId;
-      await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          status: "approve",
-          notes: "Auto-approved by v2 pilot harness",
-          requested_changes: []
-        })
-      });
+      try {
+        await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            status: "approve",
+            notes: "Auto-approved by v2 pilot harness",
+            requested_changes: []
+          })
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (gateId === "GATE_3_STORYBOARD" && /semantic acceptance gate failed/i.test(message) && gate3RegenerateAttempts < 1) {
+          gate3RegenerateAttempts += 1;
+          await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              status: "regenerate",
+              notes: "Auto-regenerate once for semantic acceptance recovery",
+              requested_changes: []
+            })
+          });
+        } else {
+          throw error;
+        }
+      }
       await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
       await sleep(1000);
       continue;
@@ -797,7 +837,11 @@ async function main() {
   const results = [];
   for (const topic of options.topics) {
     // eslint-disable-next-line no-console
-    console.log(`Running pilot topic: ${topic}`);
+    console.log(
+      `Running pilot topic: ${topic} (profile=${options.generationProfile}; adherence=${options.adherenceMode}; deckConstraint=${
+        options.deckLengthConstraintEnabled ? String(options.deckLengthMain) : "off"
+      })`
+    );
     const result = await runOne(options, topic);
     results.push(result);
     // eslint-disable-next-line no-console

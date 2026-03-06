@@ -17,8 +17,8 @@ export const V2AudienceLevelSchema = z.enum(V2_AUDIENCE_LEVELS);
 
 export const CitationRefSchema = z.object({
   citation_id: z.string().min(1),
-  chunk_id: z.string().min(1).optional(),
-  locator: z.string().min(1).optional(),
+  chunk_id: z.string().optional(),
+  locator: z.string().optional(),
   claim: z.string().min(1)
 });
 
@@ -115,7 +115,7 @@ const SlideSpecSchema = z
     exhibit_ids: z.array(z.string().min(1)).optional(),
     story_panel: StoryPanelSchema,
     medical_payload: MedicalPayloadSchema,
-    pressure_channels_advanced: z.array(z.enum(["physical", "institutional", "relational", "moral"])).optional(),
+    pressure_channels_advanced: z.array(z.string().min(1)).optional(),
     hook: z.string().min(1),
     authoring_provenance: AuthoringProvenanceSchema.default("agent_authored"),
     appendix_links: z.array(z.string().min(1)).optional(),
@@ -293,12 +293,12 @@ export const SlideBlockSchema = z
         end: z.number().int().min(1)
       })
       .strict(),
-    prior_block_summary: z.string().min(1).optional(),
+    prior_block_summary: z.string().optional(),
     unresolved_threads_in: z.array(z.string().min(1)).optional(),
-    slide_overrides: z.array(SlideBlockOverrideSchema).min(1).optional(),
-    operations: z.array(SlideBlockOperationSchema).min(1).optional(),
+    slide_overrides: z.array(SlideBlockOverrideSchema).optional(),
+    operations: z.array(SlideBlockOperationSchema).optional(),
     unresolved_threads_out: z.array(z.string().min(1)).optional(),
-    block_summary_out: z.string().min(1)
+    block_summary_out: z.string().min(1).optional()
   })
   .superRefine((value, ctx) => {
     const hasOverrides = Array.isArray(value.slide_overrides) && value.slide_overrides.length > 0;
@@ -593,11 +593,42 @@ const MedIssueSchema = z
   })
   .strict();
 
+const MedIssueAgentOutputSchema = z
+  .object({
+    issue_id: z.string().min(1),
+    severity: z.enum(["critical", "major", "minor"]),
+    type: z.enum([
+      "incorrect_fact",
+      "unsupported_inference",
+      "misused_term",
+      "wrong_timecourse",
+      "wrong_test_interpretation",
+      "wrong_treatment_response",
+      "contradiction_with_dossier",
+      "other"
+    ]),
+    claim: z.string().min(1),
+    why_wrong: z.string().min(1),
+    suggested_fix: z.string().min(1),
+    supporting_citations: z.array(CitationRefSchema).default([])
+  })
+  .strict();
+
 export const MedFactcheckReportSchema = z
   .object({
     schema_version: z.string().min(1),
     pass: z.boolean(),
     issues: z.array(MedIssueSchema),
+    summary: z.string().min(1),
+    required_fixes: z.array(RequiredFixSchema)
+  })
+  .strict();
+
+export const MedFactcheckAgentOutputSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    pass: z.boolean(),
+    issues: z.array(MedIssueAgentOutputSchema),
     summary: z.string().min(1),
     required_fixes: z.array(RequiredFixSchema)
   })
@@ -721,6 +752,87 @@ export const ClueGraphSchema = z
       })
       .strict(),
     citations_used: z.array(CitationRefSchema).min(1)
+  })
+  .strict();
+
+const MicroWorldZoneAgentOutputSchema = z
+  .object({
+    zone_id: z.string().min(1),
+    name: z.string().min(1),
+    anatomic_location: z.string().min(1),
+    scale_notes: z.string().optional(),
+    physical_properties: z.array(z.string().min(1)).optional(),
+    resident_actors: z.array(z.string().min(1)).optional(),
+    environmental_gradients: z.array(z.string().min(1)).optional(),
+    narrative_motifs: z.array(z.string().min(1)).optional(),
+    citations: z.array(CitationRefSchema).optional().default([])
+  })
+  .strict();
+
+const MicroWorldHazardAgentOutputSchema = z
+  .object({
+    hazard_id: z.string().min(1),
+    type: z.enum([
+      "shear_flow",
+      "hypoxia",
+      "acidity",
+      "enzymatic_damage",
+      "immune_attack",
+      "thrombus_maze",
+      "edema_pressure",
+      "toxin_cloud",
+      "barrier_checkpoint",
+      "biofilm_trap",
+      "other"
+    ]),
+    description: z.string().min(1),
+    how_it_appears_visually: z.string().optional(),
+    how_characters_survive: z.string().optional(),
+    links_to_pathophysiology: z.string().min(1),
+    citations: z.array(CitationRefSchema).optional().default([])
+  })
+  .strict();
+
+const MicroWorldRouteAgentOutputSchema = z
+  .object({
+    route_id: z.string().min(1),
+    from_zone_id: z.string().min(1),
+    to_zone_id: z.string().min(1),
+    mode: z.enum(["bloodstream", "lymph", "mucus_surface", "interstitial", "neuronal_track", "duct_system", "airflow", "other"]),
+    constraints: z.array(z.string().min(1)).optional(),
+    story_use: z.string().optional(),
+    citations: z.array(CitationRefSchema).optional().default([])
+  })
+  .strict();
+
+export const MicroWorldMapAgentOutputSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    episode_slug: z.string().min(1),
+    primary_organs: z.array(z.string().min(1)).default([]),
+    zones: z.array(MicroWorldZoneAgentOutputSchema).min(1),
+    hazards: z.array(MicroWorldHazardAgentOutputSchema).min(1),
+    routes: z.array(MicroWorldRouteAgentOutputSchema).min(1),
+    immune_law_enforcement_metaphors: z
+      .array(
+        z
+          .object({
+            actor: z.string().min(1),
+            metaphor: z.string().min(1),
+            accuracy_notes: z.string().optional(),
+            citations: z.array(CitationRefSchema).optional().default([])
+          })
+          .strict()
+      )
+      .optional(),
+    visual_style_guide: z
+      .object({
+        palette_notes: z.string().optional(),
+        recurring_ui_elements: z.array(z.string().min(1)).optional(),
+        labeling_rules: z.array(z.string().min(1)).optional(),
+        citations: z.array(CitationRefSchema).optional().default([])
+      })
+      .strict()
   })
   .strict();
 
@@ -1153,6 +1265,7 @@ export type EpisodePitch = z.infer<typeof EpisodePitchSchema>;
 export type TruthModel = z.infer<typeof TruthModelSchema>;
 export type RequiredFix = z.infer<typeof RequiredFixSchema>;
 export type MedFactcheckReport = z.infer<typeof MedFactcheckReportSchema>;
+export type MedFactcheckAgentOutput = z.infer<typeof MedFactcheckAgentOutputSchema>;
 export type DifferentialCast = z.infer<typeof DifferentialCastSchema>;
 export type ClueGraph = z.infer<typeof ClueGraphSchema>;
 export type MicroWorldMap = z.infer<typeof MicroWorldMapSchema>;

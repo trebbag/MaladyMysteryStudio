@@ -11,8 +11,8 @@ import {
   DramaPlanSchema,
   DiseaseDossierSchema,
   EpisodePitchSchema,
-  MedFactcheckReportSchema,
-  MicroWorldMapSchema,
+  MedFactcheckAgentOutputSchema,
+  MicroWorldMapAgentOutputSchema,
   ReaderSimReportSchema,
   SetpiecePlanSchema,
   TruthModelSchema
@@ -108,7 +108,7 @@ export function makeV2MicroWorldMapAgent(assets: V2AssetBundle) {
     model: baseModel,
     modelSettings: storySettings,
     tools: [],
-    outputType: MicroWorldMapSchema,
+    outputType: MicroWorldMapAgentOutputSchema,
     instructions: instructionsFromAssets(assets, "agent_micro_world_mapper.md")
   });
 }
@@ -196,7 +196,7 @@ export function makeV2MedFactcheckAgent(assets: V2AssetBundle) {
     model: baseModel,
     modelSettings: factcheckSettings,
     tools: [],
-    outputType: MedFactcheckReportSchema,
+    outputType: MedFactcheckAgentOutputSchema,
     instructions: instructionsFromAssets(assets, "agent_qa_med_factcheck.md")
   });
 }

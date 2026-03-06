@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  clearStepSloPolicy,
   defaultStepSloPolicy,
+  defaultStepSloThresholdsForSettings,
+  hasPersistedStepSloPolicy,
   loadStepSloPolicy,
   normalizeThresholdOverrides,
   saveStepSloPolicy,
@@ -30,6 +33,7 @@ describe("slo policy", () => {
     const policy = await loadStepSloPolicy();
     expect(policy.thresholdsMs.A).toBeTypeOf("number");
     expect(policy.updatedAt).toBeTruthy();
+    expect(await hasPersistedStepSloPolicy()).toBe(false);
   });
 
   it("saves and reloads policy", async () => {
@@ -39,6 +43,14 @@ describe("slo policy", () => {
 
     const loaded = await loadStepSloPolicy();
     expect(loaded.thresholdsMs.A).toBe(111_000);
+    expect(await hasPersistedStepSloPolicy()).toBe(true);
+  });
+
+  it("clears persisted policy state", async () => {
+    await saveStepSloPolicy(defaultStepSloPolicy());
+    expect(await hasPersistedStepSloPolicy()).toBe(true);
+    await clearStepSloPolicy();
+    expect(await hasPersistedStepSloPolicy()).toBe(false);
   });
 
   it("falls back to defaults on invalid stored schema", async () => {
@@ -65,5 +77,17 @@ describe("slo policy", () => {
     expect(next.B).toBe(STEP_SLO_MAX_MS);
     expect(next.C).toBe(12346);
     expect(next.D).toBe(base.D);
+  });
+
+  it("returns workflow-aware defaults for v2 quality runs", () => {
+    const quality = defaultStepSloThresholdsForSettings({
+      workflow: "v2_micro_detectives",
+      generationProfile: "quality"
+    });
+    const legacy = defaultStepSloThresholdsForSettings({ workflow: "legacy" });
+
+    expect(quality.A).toBeGreaterThan(legacy.A);
+    expect(quality.B).toBeGreaterThanOrEqual(legacy.B);
+    expect(quality.C).toBeGreaterThan(legacy.C);
   });
 });

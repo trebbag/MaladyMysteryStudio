@@ -38,6 +38,7 @@ describe("v2 phase-3 quality helpers", () => {
 
   it("applies deterministic patch transforms when QA requires fixes", () => {
     const deck = generateV2DeckSpec({ topic: "AKI", deckLengthMain: 30, audienceLevel: "PHYSICIAN_LEVEL" });
+    deck.slides[0]!.authoring_provenance = "agent_authored";
     const qa = {
       schema_version: "1.0.0",
       lint_pass: false,
@@ -67,6 +68,7 @@ describe("v2 phase-3 quality helpers", () => {
     const patched = applyQaPatchesToDeckSpec(deck, qa, 1);
     expect(patched.patchNotes.length).toBeGreaterThan(0);
     expect(["clue", "dialogue", "action"]).toContain(patched.deck.slides[1]!.medical_payload.delivery_mode);
+    expect(patched.deck.slides[0]!.authoring_provenance).toBe("agent_authored");
   });
 
   it("applies targeted QA patches across deck, clue graph, and differential cast", () => {
@@ -112,7 +114,68 @@ describe("v2 phase-3 quality helpers", () => {
     expect(patched.clueChanges).toBe(0);
     expect(patched.differentialChanges).toBe(0);
     expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (edit_clue)"))).toBe(true);
-    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (edit_differential)"))).toBe(true);
+    expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (edit_differential)"))).toBe(false);
+  });
+
+  it("retargets slide citations from dossier-backed QA fixes and preserves authored provenance", () => {
+    const base = {
+      topic: "Community-acquired pneumonia",
+      audienceLevel: "PHYSICIAN_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    dossier.citations.push({
+      citation_id: "CIT-KB-PATHOGENS-SP-01",
+      claim: "Rust-colored sputum can be compatible with pneumococcal pneumonia.",
+      locator: "Pathogens / pneumococcus"
+    });
+    dossier.citations.push({
+      citation_id: "CIT-KB-MICRO-01",
+      claim: "Severe CAP workup can include Legionella urine antigen testing.",
+      locator: "Microbiology workup"
+    });
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "PHYSICIAN_LEVEL" });
+    deck.slides[0]!.authoring_provenance = "agent_authored";
+    deck.slides[0]!.medical_payload.dossier_citations = [{ citation_id: "CIT-KB-IMG-01", claim: "Wrong citation" }];
+    deck.slides[0]!.speaker_notes.citations = [{ citation_id: "CIT-KB-IMG-01", claim: "Wrong citation" }];
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+
+    const qa = {
+      schema_version: "1.0.0",
+      lint_pass: false,
+      lint_errors: [],
+      grader_scores: [],
+      accept: false,
+      required_fixes: [
+        {
+          fix_id: "FIX-CITE",
+          type: "medical_correction" as const,
+          priority: "must" as const,
+          description:
+            "Replace the citation with one that supports rusty sputum as a pneumococcal clue. Use CIT-KB-PATHOGENS-SP-01 and/or CIT-KB-MICRO-01.",
+          targets: [deck.slides[0]!.slide_id]
+        }
+      ],
+      summary: "needs citation retarget",
+      citations_used: [{ citation_id: "CIT-KB-PATHOGENS-SP-01", claim: "Rust-colored sputum clue." }]
+    };
+
+    const patched = applyTargetedQaPatches({
+      deckSpec: deck,
+      clueGraph,
+      differentialCast: differential,
+      qaReport: qa,
+      loopIndex: 1,
+      dossier
+    });
+
+    expect(patched.deck.slides[0]!.medical_payload.dossier_citations.map((citation) => citation.citation_id)).toContain("CIT-KB-PATHOGENS-SP-01");
+    expect(patched.deck.slides[0]!.speaker_notes.citations.map((citation) => citation.citation_id)).toContain("CIT-KB-PATHOGENS-SP-01");
+    expect(patched.deck.slides[0]!.authoring_provenance).toBe("agent_authored");
   });
 
   it("builds lint-driven required fixes across error-code branches and dedupes duplicates", () => {

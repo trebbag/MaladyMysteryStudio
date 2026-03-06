@@ -162,9 +162,50 @@ Optional envs:
 - `MMS_SMOKE_TIMEOUT_MS` (default 25 minutes)
 - `MMS_SMOKE_POLL_MS` (default 5000)
 
+## V2 quality smoke checklist
+
+Runs one real-key `workflow=v2_micro_detectives` quality run, auto-handles gate approvals, and validates:
+
+- required v2 authored artifacts are present
+- narrative markers (opening hook, false-theory lock-in, midpoint collapse, rupture+repair, ending callback)
+- twist receipt structure
+- quality-mode story-planning provenance is agent-authored
+
+```bash
+# Start app first in another shell: npm run dev (or npm run start)
+npm run smoke:v2:quality -- --topic "Community-acquired pneumonia in adults"
+```
+
+Optional args:
+
+- `--base-url` (default `http://localhost:5050`)
+- `--output-dir` (default `.ci/smoke`)
+- `--poll-ms` (default `5000`)
+- `--timeout-ms` (default `2100000`)
+- `--audience` (`PHYSICIAN_LEVEL` or `COLLEGE_LEVEL`; default `PHYSICIAN_LEVEL`)
+- `--verbose`
+
+Outputs:
+
+- `.ci/smoke/v2-quality-smoke-latest.json`
+- `.ci/smoke/v2-quality-smoke-latest.md`
+- timestamped JSON/MD snapshots per smoke run under `.ci/smoke/`
+
+Smoke trend history:
+
+```bash
+npm run smoke:v2:quality:trend
+```
+
+Trend outputs:
+
+- `.ci/smoke-report/v2-quality-smoke-trend-history.json`
+- `.ci/smoke-report/v2-quality-smoke-trend-history.md`
+- `.ci/smoke-report/v2-quality-smoke-trend-history.html`
+
 ## V2 pilot quality harness
 
-Runs multiple real v2 episodes sequentially, auto-approves gates, and writes a scored report.
+Runs multiple real v2 episodes sequentially, auto-approves gates, and writes a scored report. The harness now defaults to the authoring path: `generationProfile=quality`, `adherenceMode=strict`, and unconstrained deck length unless `--deck-length` is explicitly supplied.
 
 ```bash
 # Start app first in another shell: npm run dev (or npm run start)
@@ -193,6 +234,13 @@ npm run pilot:v2:quality -- --enforce-slo \
   --max-error-rate 0.2 \
   --max-timeout-rate 0.1
 ```
+
+Optional profile/constraint controls:
+
+- `--generation-profile quality|pilot` (default `quality`)
+- `--adherence strict|warn` (default `strict`)
+- `--deck-length 30|45|60` to enable a soft target for the batch
+- `--no-deck-length-constraint` to force unconstrained authoring explicitly
 
 Promotion gate mode (hard requirement: no deterministic DeckSpec fallback in the batch):
 

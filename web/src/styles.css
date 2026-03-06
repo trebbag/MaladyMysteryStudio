@@ -1206,6 +1206,59 @@ select:focus {
   gap: 8px;
 }
 
+.diagnosticPanelLead {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.diagnosticOverviewGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.diagnosticOverviewCard {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.72)),
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 55%);
+  padding: 10px 12px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+.diagnosticOverviewLabel {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.diagnosticOverviewValue {
+  font-size: 0.84rem;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.statusOk {
+  color: #166534;
+}
+
+.statusWarn {
+  color: #9a3412;
+}
+
+.statusErr {
+  color: #991b1b;
+}
+
+.statusMuted {
+  color: var(--muted);
+}
+
 .diagnosticDetails {
   border: 1px solid var(--border);
   border-radius: 12px;

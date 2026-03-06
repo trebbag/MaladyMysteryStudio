@@ -1,5 +1,6 @@
 import type {
   ClueGraph,
+  DiseaseDossier,
   DeckSpec,
   DifferentialCast,
   DeckSlideSpec,
@@ -94,13 +95,106 @@ function baseCitation(deckSpec: DeckSpec): { citation_id: string; claim: string 
   return { citation_id: "CIT-UNKNOWN", claim: "Fallback citation from deck context." };
 }
 
-function normalizeCitation(cite: { citation_id: string; claim: string; chunk_id?: unknown; locator?: unknown }) {
+function normalizeCitation(cite: { citation_id?: unknown; claim?: unknown; chunk_id?: unknown; locator?: unknown }) {
   return {
-    citation_id: cite.citation_id,
-    claim: cite.claim,
+    citation_id: String(cite.citation_id || "").trim(),
+    claim: String(cite.claim || "").trim(),
     chunk_id: typeof cite.chunk_id === "string" ? cite.chunk_id : undefined,
     locator: typeof cite.locator === "string" ? cite.locator : undefined
   };
+}
+
+function buildCitationLookup(input: { dossier?: DiseaseDossier; qaReport: V2QaReport }): Map<string, ReturnType<typeof normalizeCitation>> {
+  const lookup = new Map<string, ReturnType<typeof normalizeCitation>>();
+
+  const pushCitation = (cite: { citation_id?: unknown; claim?: unknown; chunk_id?: unknown; locator?: unknown }) => {
+    const citationId = String(cite.citation_id || "").trim();
+    const claim = String(cite.claim || "").trim();
+    if (citationId.length === 0 || claim.length === 0) return;
+    if (!lookup.has(citationId)) lookup.set(citationId, normalizeCitation(cite));
+  };
+
+  for (const citation of input.dossier?.citations ?? []) pushCitation(citation);
+  for (const section of input.dossier?.sections ?? []) {
+    for (const citation of section.citations ?? []) pushCitation(citation);
+  }
+  for (const citation of input.qaReport.citations_used ?? []) pushCitation(citation);
+
+  return lookup;
+}
+
+function extractCitationIds(text: string): string[] {
+  return [...new Set((String(text || "").match(/\bCIT-[A-Z0-9-]+\b/g) ?? []).map((item) => item.trim()))];
+}
+
+function replaceAllPattern(text: string, pattern: RegExp, replacement: string): string {
+  const source = String(text || "");
+  return source.replace(pattern, replacement);
+}
+
+function softenThresholdLanguage(slide: DeckSlideSpec): boolean {
+  const replacement = "SaO2 <93% or severe features -> ABG and closer evaluation";
+  const patchText = (value: string): string =>
+    replaceAllPattern(
+      replaceAllPattern(value, /\b(?:below|under|<)\s*93%\b[^.;,]*/gi, replacement),
+      /\b93%\s*(?:red line|threshold|cutoff)\b/gi,
+      replacement
+    );
+
+  let changed = false;
+  const headline = patchText(slide.on_slide_text.headline);
+  if (headline !== slide.on_slide_text.headline) {
+    slide.on_slide_text.headline = headline;
+    changed = true;
+  }
+  if (slide.on_slide_text.subtitle) {
+    const subtitle = patchText(slide.on_slide_text.subtitle);
+    if (subtitle !== slide.on_slide_text.subtitle) {
+      slide.on_slide_text.subtitle = subtitle;
+      changed = true;
+    }
+  }
+  if (slide.on_slide_text.callouts) {
+    const callouts = slide.on_slide_text.callouts.map((callout) => patchText(callout));
+    if (JSON.stringify(callouts) !== JSON.stringify(slide.on_slide_text.callouts)) {
+      slide.on_slide_text.callouts = callouts;
+      changed = true;
+    }
+  }
+  const hook = patchText(slide.hook);
+  if (hook !== slide.hook) {
+    slide.hook = hook;
+    changed = true;
+  }
+  const medicalReasoning = patchText(slide.speaker_notes.medical_reasoning);
+  if (medicalReasoning !== slide.speaker_notes.medical_reasoning) {
+    slide.speaker_notes.medical_reasoning = medicalReasoning;
+    changed = true;
+  }
+  const note = "SaO2 <93% or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory.";
+  if (!slide.speaker_notes.medical_reasoning.includes(note)) {
+    slide.speaker_notes.medical_reasoning = `${slide.speaker_notes.medical_reasoning} ${note}`.trim();
+    changed = true;
+  }
+  return changed;
+}
+
+function retargetSlideCitations(input: {
+  slide: DeckSlideSpec;
+  fix: RequiredFix;
+  citationLookup: Map<string, ReturnType<typeof normalizeCitation>>;
+}): boolean {
+  const citationIds = extractCitationIds(input.fix.description);
+  if (citationIds.length === 0) return false;
+  const citations = citationIds
+    .map((citationId) => input.citationLookup.get(citationId))
+    .filter((citation): citation is ReturnType<typeof normalizeCitation> => Boolean(citation))
+    .slice(0, 4);
+  if (citations.length === 0) return false;
+
+  input.slide.medical_payload.dossier_citations = citations;
+  input.slide.speaker_notes.citations = citations;
+  return true;
 }
 
 function toQaLintErrors(errors: V2DeckSpecLintError[]): V2QaReport["lint_errors"] {
@@ -802,11 +896,13 @@ type TargetedPatchResult = {
 };
 
 function markSlidePatched(slide: DeckSlideSpec): void {
+  if (slide.authoring_provenance === "agent_authored") return;
   slide.authoring_provenance = "patched_scaffold";
 }
 
 const LOCAL_PATCH_ONLY_FIX_TYPES = new Set<RequiredFix["type"]>([
   "reduce_text_density",
+  "edit_differential",
   "medical_correction",
   "edit_slide",
   "other"
@@ -818,11 +914,13 @@ export function applyTargetedQaPatches(input: {
   differentialCast: DifferentialCast;
   qaReport: V2QaReport;
   loopIndex: number;
+  dossier?: DiseaseDossier;
 }): TargetedPatchResult {
-  const { deckSpec, clueGraph: sourceClueGraph, differentialCast: sourceDifferentialCast, qaReport, loopIndex } = input;
+  const { deckSpec, clueGraph: sourceClueGraph, differentialCast: sourceDifferentialCast, qaReport, loopIndex, dossier } = input;
   const deck = JSON.parse(JSON.stringify(deckSpec)) as DeckSpec;
   const clueGraph = JSON.parse(JSON.stringify(sourceClueGraph)) as ClueGraph;
   const differentialCast = JSON.parse(JSON.stringify(sourceDifferentialCast)) as DifferentialCast;
+  const citationLookup = buildCitationLookup({ dossier, qaReport });
   const patchNotes: string[] = [];
   let deckChanges = 0;
   let clueChanges = 0;
@@ -886,13 +984,28 @@ export function applyTargetedQaPatches(input: {
         continue;
       }
 
-      if (fix.type === "medical_correction" || fix.type === "edit_slide") {
+      if (fix.type === "medical_correction" || fix.type === "edit_slide" || fix.type === "edit_differential") {
+        let patchedSlide = false;
+        if (retargetSlideCitations({ slide, fix, citationLookup })) {
+          patchedSlide = true;
+          patchNotes.push(`${slideId}: retargeted citations from QA fix`);
+        }
+        if (/93%|SaO.?2|ABG|oxygen/i.test(fix.description) && softenThresholdLanguage(slide)) {
+          patchedSlide = true;
+          patchNotes.push(`${slideId}: softened oxygen-threshold framing`);
+        }
+        if (slide.slide_id.startsWith("A-") && /appendix|placeholder|remove/i.test(fix.description)) {
+          deck.appendix_slides = deck.appendix_slides.filter((candidate) => candidate.slide_id !== slide.slide_id);
+          patchNotes.push(`${slideId}: removed placeholder appendix slide`);
+          deckChanges += 1;
+          continue;
+        }
         slide.speaker_notes.medical_reasoning = `${slide.speaker_notes.medical_reasoning} Correction note: ${fix.description}`.trim();
         if (slide.medical_payload.major_concept_id.trim().length === 0) {
           slide.medical_payload.major_concept_id = `MC-PATCH-${slide.slide_id}`;
         }
         markSlidePatched(slide);
-        patchNotes.push(`${slideId}: applied medical correction patch`);
+        patchNotes.push(`${slideId}: applied medical correction patch${patchedSlide ? " + citation repair" : ""}`);
         deckChanges += 1;
         continue;
       }

@@ -72,6 +72,7 @@ import { normalizeDossierCitationIds, polishDeckSpecForFallback } from "./qualit
 import { gateRequirementArtifactName, latestGateDecision, readHumanReviewStore } from "./reviews.js";
 import {
   ClueGraphSchema,
+  CitationRefSchema,
   DeckAssemblyReportSchema,
   DeckCohesionPassSchema,
   DeckSpecSchema,
@@ -80,7 +81,9 @@ import {
   DiseaseDossierSchema,
   EpisodePitchSchema,
   ActOutlineSchema,
+  MedFactcheckAgentOutputSchema,
   MedFactcheckReportSchema,
+  MicroWorldMapAgentOutputSchema,
   MicroWorldMapSchema,
   ReaderSimReportSchema,
   NarrativeStateSchema,
@@ -96,11 +99,20 @@ import {
   V2TemplateRegistrySchema,
   V2StoryboardGateSchema,
   StoryBeatsAlignmentReportSchema,
+  type DeckSlideSpec,
+  type SlideBlockOperation,
   type HumanReviewEntry,
   type DiseaseDossier,
+  type ClueGraph,
+  type DeckSpec,
+  type DramaPlan,
+  type MedFactcheckAgentOutput,
   type MedFactcheckReport,
+  type ActOutline,
   type RequiredFix,
   type ReaderSimReport,
+  type SetpiecePlan,
+  type StoryBlueprint,
   type TruthModel,
   type V2GateId,
   type V2StageAuthoringProvenance
@@ -218,16 +230,44 @@ function stepCDeckRefineTimeoutMs(): number {
   return Math.max(90_000, Math.min(600_000, Math.round(raw)));
 }
 
-function kb0TimeoutMs(): number {
-  const raw = Number(process.env.MMS_V2_KB0_TIMEOUT_MS ?? 120_000);
-  if (!Number.isFinite(raw)) return 120_000;
-  return Math.max(60_000, Math.min(600_000, Math.round(raw)));
+function kb0TimeoutMs(generationProfile: GenerationProfile): number {
+  const fallback = generationProfile === "quality" ? 300_000 : 120_000;
+  const raw = Number(process.env.MMS_V2_KB0_TIMEOUT_MS ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(60_000, Math.min(900_000, Math.round(raw)));
 }
 
-function stepABAgentTimeoutMs(): number {
-  const raw = Number(process.env.MMS_V2_STEP_AB_AGENT_TIMEOUT_MS ?? 120_000);
-  if (!Number.isFinite(raw)) return 120_000;
-  return Math.max(90_000, Math.min(600_000, Math.round(raw)));
+function stepABAgentTimeoutMs(generationProfile: GenerationProfile): number {
+  const fallback = generationProfile === "quality" ? 300_000 : 120_000;
+  const raw = Number(process.env.MMS_V2_STEP_AB_AGENT_TIMEOUT_MS ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(90_000, Math.min(900_000, Math.round(raw)));
+}
+
+function storyPlannerTimeoutMs(
+  baseTimeoutMs: number,
+  generationProfile: GenerationProfile,
+  stage: "microWorldMap" | "dramaPlan" | "setpiecePlan" | "storyBlueprint" | "actOutline"
+): number {
+  if (generationProfile !== "quality") return baseTimeoutMs;
+
+  const floorByStage = {
+    microWorldMap: 360_000,
+    dramaPlan: 240_000,
+    setpiecePlan: 330_000,
+    storyBlueprint: 240_000,
+    actOutline: 210_000
+  } as const;
+  const multiplierByStage = {
+    microWorldMap: 1.3,
+    dramaPlan: 1.1,
+    setpiecePlan: 1.25,
+    storyBlueprint: 1.15,
+    actOutline: 1.05
+  } as const;
+
+  const target = Math.max(floorByStage[stage], Math.round(baseTimeoutMs * multiplierByStage[stage]));
+  return clampTimeoutMs(target, baseTimeoutMs, 720_000);
 }
 
 function deckSpecAbortWarningThresholdSlides(): number {
@@ -246,6 +286,8 @@ function buildAdaptiveStepCTimeoutPlan(input: {
   baseAgentTimeoutMs: number;
   baseDeckSpecTimeoutMs: number;
   baseWatchdogMs: number;
+  generationProfile: GenerationProfile;
+  qaLoopBudget: number;
 }): {
   estimatedMainSlides: number;
   agentTimeoutMs: number;
@@ -261,13 +303,19 @@ function buildAdaptiveStepCTimeoutPlan(input: {
   // to preserve historical behavior for typical runs.
   const agentScale = 1 + growthUnits * 0.55;
   const deckSpecScale = 1 + growthUnits * 0.9;
-  const watchdogScale = 1 + growthUnits * 0.8;
+  const qaLoopBudget = Math.max(0, Math.min(3, Math.round(input.qaLoopBudget)));
+  const loopScale =
+    input.generationProfile === "quality"
+      ? 1 + qaLoopBudget * 0.55
+      : 1 + Math.min(1, qaLoopBudget) * 0.2;
+  const narrativeTailScale = input.generationProfile === "quality" ? 1.2 : 1.05;
+  const watchdogScale = (1 + growthUnits * 0.8) * loopScale * narrativeTailScale;
 
   return {
     estimatedMainSlides,
     agentTimeoutMs: clampTimeoutMs(input.baseAgentTimeoutMs * agentScale, input.baseAgentTimeoutMs, 1_500_000),
     deckSpecTimeoutMs: clampTimeoutMs(input.baseDeckSpecTimeoutMs * deckSpecScale, input.baseDeckSpecTimeoutMs, 2_400_000),
-    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 3_600_000)
+    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 7_200_000)
   };
 }
 
@@ -298,6 +346,37 @@ function shouldAttemptPlotDirectorRefinement(
   // Pilot mode uses "auto": only attempt on agent-first plans; remaining-budget guards
   // later in step C still decide whether the attempt is affordable.
   return planningMode === "agent_first";
+}
+
+function preferredBlockSize(generationProfile: GenerationProfile): number {
+  if (generationProfile === "quality") {
+    const raw = Number(process.env.MMS_V2_QUALITY_BLOCK_SIZE ?? 8);
+    if (!Number.isFinite(raw)) return 8;
+    return Math.max(8, Math.min(16, Math.round(raw)));
+  }
+  const raw = Number(process.env.MMS_V2_PILOT_BLOCK_SIZE ?? 16);
+  if (!Number.isFinite(raw)) return 16;
+  return Math.max(10, Math.min(20, Math.round(raw)));
+}
+
+function slideBlockAuthorTimeoutMs(
+  baseTimeoutMs: number,
+  generationProfile: GenerationProfile,
+  plan: { start: number; end: number }
+): number {
+  const override = Number(process.env.MMS_V2_SLIDE_BLOCK_TIMEOUT_MS ?? Number.NaN);
+  if (Number.isFinite(override) && override > 0) {
+    return clampTimeoutMs(override, baseTimeoutMs, 900_000);
+  }
+
+  const slideCount = Math.max(1, plan.end - plan.start + 1);
+  if (generationProfile === "quality") {
+    const computed = Math.max(baseTimeoutMs + 120_000, 180_000 + slideCount * 26_000);
+    return clampTimeoutMs(computed, baseTimeoutMs, 540_000);
+  }
+
+  const computed = Math.max(baseTimeoutMs, 120_000 + slideCount * 18_000);
+  return clampTimeoutMs(computed, baseTimeoutMs, 360_000);
 }
 
 function useChildAgentIsolation(): boolean {
@@ -376,6 +455,58 @@ function deckNeedsSemanticPolish(input: ReturnType<typeof DeckSpecSchema.parse>)
   return false;
 }
 
+const SCAFFOLD_SIGNAL_RE = /\[SCAFFOLD\]|CIT-KB-001|DX_(?:PRIMARY|ALTERNATE|MIMIC|UNKNOWN)|MC-PATCH-|LO-SCAFFOLD-/i;
+
+function hasScaffoldSignal(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return SCAFFOLD_SIGNAL_RE.test(value);
+}
+
+function isPlaceholderAppendixSlide(slide: ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]): boolean {
+  if (hasScaffoldSignal(slide.title) || hasScaffoldSignal(slide.hook) || hasScaffoldSignal(slide.visual_description)) return true;
+  if (hasScaffoldSignal(slide.on_slide_text.headline) || hasScaffoldSignal(slide.on_slide_text.subtitle)) return true;
+  if ((slide.on_slide_text.callouts ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if ((slide.on_slide_text.labels ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if (hasScaffoldSignal(slide.story_panel.goal) || hasScaffoldSignal(slide.story_panel.opposition) || hasScaffoldSignal(slide.story_panel.turn) || hasScaffoldSignal(slide.story_panel.decision)) return true;
+  if (hasScaffoldSignal(slide.medical_payload.major_concept_id)) return true;
+  if ((slide.medical_payload.supporting_details ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if ((slide.medical_payload.linked_learning_objectives ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if ((slide.medical_payload.dossier_citations ?? []).some((citation) => hasScaffoldSignal(citation.citation_id) || hasScaffoldSignal(citation.claim))) return true;
+  if (hasScaffoldSignal(slide.speaker_notes.narrative_notes) || hasScaffoldSignal(slide.speaker_notes.medical_reasoning)) return true;
+  if ((slide.speaker_notes.what_this_slide_teaches ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if ((slide.speaker_notes.differential_update.top_dx_ids ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if ((slide.speaker_notes.differential_update.eliminated_dx_ids ?? []).some((item) => hasScaffoldSignal(item))) return true;
+  if (hasScaffoldSignal(slide.speaker_notes.differential_update.why)) return true;
+  if ((slide.speaker_notes.citations ?? []).some((citation) => hasScaffoldSignal(citation.citation_id) || hasScaffoldSignal(citation.claim))) return true;
+  return false;
+}
+
+function stabilizeQualityDeckArtifacts(input: {
+  deck: ReturnType<typeof DeckSpecSchema.parse>;
+  topic: string;
+  episodeTitle: string;
+  generationProfile: "quality" | "pilot";
+}): ReturnType<typeof DeckSpecSchema.parse> {
+  const deck = JSON.parse(JSON.stringify(input.deck)) as ReturnType<typeof DeckSpecSchema.parse>;
+  if (input.generationProfile === "quality") {
+    if (hasScaffoldSignal(deck.deck_meta.episode_title) || String(deck.deck_meta.episode_title || "").trim().length === 0) {
+      deck.deck_meta.episode_title = input.episodeTitle.trim().length > 0
+        ? input.episodeTitle.trim()
+        : `${input.topic} — Micro-Detectives Case`;
+    }
+    const retainedAppendix = deck.appendix_slides.filter((slide) => !isPlaceholderAppendixSlide(slide));
+    if (retainedAppendix.length !== deck.appendix_slides.length) {
+      const retainedIds = new Set(retainedAppendix.map((slide) => slide.slide_id));
+      deck.appendix_slides = retainedAppendix;
+      deck.slides = deck.slides.map((slide) => ({
+        ...slide,
+        appendix_links: (slide.appendix_links ?? []).filter((link) => retainedIds.has(link))
+      }));
+    }
+  }
+  return DeckSpecSchema.parse(deck);
+}
+
 function hasInvalidRequiredFields(input: ReturnType<typeof DeckSpecSchema.parse>): boolean {
   const slides = [...input.slides, ...input.appendix_slides];
   for (const slide of slides) {
@@ -428,6 +559,19 @@ function scaffoldSlideLimit(mainSlideCount: number): number {
   return Math.max(1, Math.ceil(mainSlideCount * 0.02));
 }
 
+function resolveSlideBlockSummary(block: ReturnType<typeof SlideBlockSchema.parse>): string {
+  const summary = String(block.block_summary_out ?? "").trim();
+  if (summary.length > 0) return summary;
+  return `Block ${block.block_id} advances ${block.act_id} from slide ${block.slide_range.start} to ${block.slide_range.end}.`;
+}
+
+function withResolvedSlideBlockSummary(block: ReturnType<typeof SlideBlockSchema.parse>) {
+  return {
+    ...block,
+    block_summary_out: resolveSlideBlockSummary(block)
+  };
+}
+
 const STRUCTURAL_REGEN_FIX_TYPES = new Set<RequiredFix["type"]>([
   "increase_story_turn",
   "add_twist_receipts",
@@ -477,6 +621,7 @@ function resolveStructuralBlockIndexes(
 ): number[] {
   const slideIds = extractSlideIdsFromFixes(fixes);
   const indexes = new Set<number>();
+  const widenWindow = fixes.some((fix) => fix.type === "increase_story_turn" || fix.type === "regenerate_section");
   if (slideIds.size === 0) {
     if (blockPlans.length > 0) indexes.add(0);
     return [...indexes];
@@ -488,6 +633,10 @@ function resolveStructuralBlockIndexes(
       const plan = blockPlans[i]!;
       if (slideNumber >= plan.start && slideNumber <= plan.end) {
         indexes.add(i);
+        if (widenWindow) {
+          if (i > 0) indexes.add(i - 1);
+          if (i + 1 < blockPlans.length) indexes.add(i + 1);
+        }
         break;
       }
     }
@@ -564,6 +713,13 @@ function recentSlideExcerpts(deck: ReturnType<typeof DeckSpecSchema.parse>, star
   );
 }
 
+function trimList(values: string[] | undefined, maxItems: number, maxChars: number): string[] {
+  return (values ?? [])
+    .map((value) => clampText(value, maxChars))
+    .filter((value) => value.trim().length > 0)
+    .slice(0, maxItems);
+}
+
 function compactMedicalSliceForBlock(input: {
   plan: { start: number; end: number };
   diseaseDossier: ReturnType<typeof DiseaseDossierSchema.parse>;
@@ -585,16 +741,28 @@ function compactMedicalSliceForBlock(input: {
   return {
     dossier_focus: {
       canonical_name: input.diseaseDossier.canonical_name,
-      top_sections: input.diseaseDossier.sections.slice(0, 4).map((section) => ({
+      top_sections: input.diseaseDossier.sections.slice(0, 3).map((section) => ({
         section: section.section,
-        key_points: section.key_points.slice(0, 3),
+        key_points: section.key_points.slice(0, 2).map((point) => clampText(point, 160)),
         citations: section.citations.slice(0, 2).map((cite) => cite.citation_id)
       }))
     },
     truth_focus: {
-      final_diagnosis: input.truthModel.final_diagnosis,
-      twist_blueprint: input.truthModel.twist_blueprint,
-      cover_story: input.truthModel.cover_story
+      final_diagnosis: {
+        dx_id: input.truthModel.final_diagnosis.dx_id,
+        name: input.truthModel.final_diagnosis.name,
+        one_sentence_mechanism: clampText(input.truthModel.final_diagnosis.one_sentence_mechanism, 180)
+      },
+      twist_blueprint: {
+        setup: clampText(input.truthModel.twist_blueprint.setup, 180),
+        reveal: clampText(input.truthModel.twist_blueprint.reveal, 180),
+        receipts: trimList(input.truthModel.twist_blueprint.receipts, 4, 140)
+      },
+      cover_story: {
+        initial_working_dx_ids: input.truthModel.cover_story.initial_working_dx_ids.slice(0, 4),
+        why_it_seems_right: clampText(input.truthModel.cover_story.why_it_seems_right, 180),
+        what_it_gets_wrong: clampText(input.truthModel.cover_story.what_it_gets_wrong, 180)
+      }
     },
     differential_focus: {
       suspects: input.differentialCast.primary_suspects.slice(0, 5).map((suspect) => ({
@@ -605,23 +773,180 @@ function compactMedicalSliceForBlock(input: {
       rotation_plan: input.differentialCast.rotation_plan
     },
     clue_focus: {
-      clues: clueWindow.slice(0, 8),
-      red_herrings: input.clueGraph.red_herrings.slice(0, 4),
-      twist_support_matrix: input.clueGraph.twist_support_matrix.slice(0, 6)
+      clues: clueWindow.slice(0, 6).map((clue) => ({
+        clue_id: clue.clue_id,
+        first_seen_slide_id: clue.first_seen_slide_id,
+        payoff_slide_id: clue.payoff_slide_id,
+        observed: clampText(clue.observed, 140),
+        correct_inference: clampText(clue.correct_inference, 140)
+      })),
+      red_herrings: input.clueGraph.red_herrings.slice(0, 3).map((item) => ({
+        rh_id: item.rh_id,
+        payoff_slide_id: item.payoff_slide_id,
+        why_believable: clampText(item.why_believable, 140)
+      })),
+      twist_support_matrix: input.clueGraph.twist_support_matrix.slice(0, 4).map((item) => ({
+        twist_id: item.twist_id,
+        supporting_clue_ids: item.supporting_clue_ids.slice(0, 4),
+        recontextualized_slide_ids: item.recontextualized_slide_ids.slice(0, 4)
+      }))
     },
     micro_world_focus: {
-      zones: input.microWorldMap.zones.slice(0, 4),
-      hazards: input.microWorldMap.hazards.slice(0, 4)
+      zones: input.microWorldMap.zones.slice(0, 3).map((zone) => ({
+        zone_id: zone.zone_id,
+        name: zone.name,
+        anatomic_location: zone.anatomic_location,
+        scale_notes: clampText(zone.scale_notes ?? "", 140),
+        narrative_motifs: trimList(zone.narrative_motifs, 2, 100)
+      })),
+      hazards: input.microWorldMap.hazards.slice(0, 3).map((hazard) => ({
+        hazard_id: hazard.hazard_id,
+        type: hazard.type,
+        description: clampText(hazard.description, 140),
+        links_to_pathophysiology: clampText(hazard.links_to_pathophysiology, 140)
+      }))
     },
     drama_focus: {
-      relationship_arcs: input.dramaPlan.relationship_arcs.slice(0, 3),
+      relationship_arcs: input.dramaPlan.relationship_arcs.slice(0, 2).map((arc) => ({
+        pair: arc.pair,
+        starting_dynamic: clampText(arc.starting_dynamic, 140),
+        friction_points: trimList(arc.friction_points, 3, 120),
+        repair_moments: trimList(arc.repair_moments, 3, 120),
+        climax_resolution: clampText(arc.climax_resolution, 140)
+      })),
       pressure_ladder: input.dramaPlan.pressure_ladder,
-      chapter_or_act_setups: (input.dramaPlan.chapter_or_act_setups ?? []).slice(0, 4)
+      chapter_or_act_setups: (input.dramaPlan.chapter_or_act_setups ?? [])
+        .filter((setup) => setup.act_id === (input.plan.start <= 8 ? "ACT1" : input.plan.start <= 16 ? "ACT2" : input.plan.start <= 24 ? "ACT3" : "ACT4"))
+        .slice(0, 2)
+        .map((setup) => ({
+          act_id: setup.act_id,
+          required_emotional_beats: trimList(setup.required_emotional_beats, 3, 120),
+          required_choices: trimList(setup.required_choices, 3, 120),
+          notes: clampText(setup.notes ?? "", 120)
+        }))
     },
     setpiece_focus: {
-      setpieces: input.setpiecePlan.setpieces.filter((sp) => sp.act_id !== "ACT4" || input.plan.end >= input.plan.start).slice(0, 6)
+      setpieces: input.setpiecePlan.setpieces
+        .filter((sp) => sp.act_id === (input.plan.start <= 8 ? "ACT1" : input.plan.start <= 16 ? "ACT2" : input.plan.start <= 24 ? "ACT3" : "ACT4"))
+        .slice(0, 3)
+        .map((sp) => ({
+          setpiece_id: sp.setpiece_id,
+          act_id: sp.act_id,
+          type: sp.type,
+          location_zone_id: sp.location_zone_id,
+          story_purpose: clampText(sp.story_purpose, 140),
+          outcome_turn: clampText(sp.outcome_turn, 140)
+        }))
     }
   };
+}
+
+const STORY_FORWARD_QUALITY_MODES = new Set(["clue", "dialogue", "action"]);
+
+function preferredStoryForwardModeForSlide(slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number]): "clue" | "dialogue" | "action" {
+  switch (slide.beat_type) {
+    case "cold_open":
+    case "first_dive":
+    case "setback":
+    case "reversal":
+    case "action_setpiece":
+    case "showdown":
+      return "action";
+    case "suspect_intro":
+    case "theory_update":
+    case "false_theory_lock_in":
+    case "false_theory_collapse":
+    case "aftermath":
+      return "dialogue";
+    default:
+      return "clue";
+  }
+}
+
+function isStrongStoryForwardCandidate(slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number]): boolean {
+  return (
+    slide.act_id !== "APPENDIX" &&
+    slide.story_panel.goal.trim().length > 0 &&
+    slide.story_panel.opposition.trim().length > 0 &&
+    slide.story_panel.turn.trim().length > 0 &&
+    slide.story_panel.decision.trim().length > 0 &&
+    (slide.story_panel.consequence?.trim().length ?? 0) > 0 &&
+    slide.medical_payload.major_concept_id.trim().length > 0 &&
+    slide.medical_payload.dossier_citations.length > 0 &&
+    slide.speaker_notes.citations.length > 0
+  );
+}
+
+function normalizeQualityDeckDeliveryModes(
+  deck: ReturnType<typeof DeckSpecSchema.parse>,
+  generationProfile: GenerationProfile
+): { deck: ReturnType<typeof DeckSpecSchema.parse>; adjustments: Array<{ slide_id: string; from: string; to: string; reason: string }> } {
+  if (generationProfile !== "quality") return { deck, adjustments: [] };
+
+  const adjustments: Array<{ slide_id: string; from: string; to: string; reason: string }> = [];
+  const slides = deck.slides.map((slide) => {
+    const currentMode = slide.medical_payload.delivery_mode;
+    if (STORY_FORWARD_QUALITY_MODES.has(currentMode)) return slide;
+    if (!isStrongStoryForwardCandidate(slide)) return slide;
+    const preferred = preferredStoryForwardModeForSlide(slide);
+    if (preferred === currentMode) return slide;
+    adjustments.push({
+      slide_id: slide.slide_id,
+      from: currentMode,
+      to: preferred,
+      reason: "Strong authored story turn with explicit decision/consequence should be story-forward in the main deck."
+    });
+    return {
+      ...slide,
+      medical_payload: {
+        ...slide.medical_payload,
+        delivery_mode: preferred
+      }
+    };
+  });
+
+  if (adjustments.length === 0) return { deck, adjustments };
+  return {
+    deck: DeckSpecSchema.parse({
+      ...deck,
+      slides
+    }),
+    adjustments
+  };
+}
+
+function buildStructuralRegenGuidance(input: {
+  fixes: RequiredFix[];
+  plan: { blockId: string; start: number; end: number };
+}): {
+  policySummary: string[];
+  targetSlideIds: string[];
+} {
+  const targetSlideIds = [...extractSlideIdsFromFixes(input.fixes)]
+    .filter((slideId) => {
+      const slideNum = parseSlideNumber(slideId);
+      return slideNum !== null && slideNum >= input.plan.start && slideNum <= input.plan.end;
+    })
+    .sort();
+
+  const hasStoryTurnFix = input.fixes.some((fix) => fix.type === "increase_story_turn");
+  const hasSectionRegen = input.fixes.some((fix) => fix.type === "regenerate_section");
+  const hasTwistFix = input.fixes.some((fix) => fix.type === "add_twist_receipts");
+  const policySummary = [
+    "If a targeted slide is note_only or passive exhibit, convert it into a clue, dialogue, or action beat with an explicit decision and consequence on the same slide.",
+    "Use replace_window or split_slide when a single weak slide is carrying too much summary or too little dramatic consequence.",
+    "Do not preserve flat handoff or recap slides just because they already exist; replace them with active investigation beats."
+  ];
+  if (hasStoryTurnFix) {
+    policySummary.push("Prioritize story-forward delivery modes on targeted slides and tighten medical teaching into the same dramatic move.");
+  }
+  if (hasSectionRegen) {
+    policySummary.push("Rebalance pacing across the whole block so the emotional turn, false-theory pressure, and clue obligations escalate together.");
+  }
+  if (hasTwistFix) {
+    policySummary.push("Seed or pay off twist receipts inside this block instead of deferring them to appendix-style explanation.");
+  }
+  return { policySummary, targetSlideIds };
 }
 
 function storyBeatsMarkerCoverage(storyBeats: z.infer<typeof StoryBeatsSchema>) {
@@ -972,6 +1297,17 @@ function stampDeckProvenance(
   });
 }
 
+function canonicalSlideIdKey(slideId: string | undefined | null): string {
+  const raw = String(slideId ?? "").trim();
+  if (raw.length === 0) return "";
+  const numeric = raw.match(/\d+/)?.[0];
+  if (numeric) {
+    const normalized = String(Number(numeric));
+    return normalized === "NaN" ? raw.toUpperCase() : normalized;
+  }
+  return raw.toUpperCase();
+}
+
 function readerScoreMean(report: ReaderSimReport): number {
   return (
     Number(report.overall_story_dominance_score_0_to_5 || 0) +
@@ -1004,6 +1340,238 @@ function collectDossierCitationIds(dossier: DiseaseDossier): Set<string> {
     }
   }
   return ids;
+}
+
+function collectDossierCitationPool(dossier: DiseaseDossier): DiseaseDossier["citations"] {
+  const out: DiseaseDossier["citations"] = [];
+  const seen = new Set<string>();
+
+  const pushCitation = (citation: DiseaseDossier["citations"][number]): void => {
+    const citationId = String(citation.citation_id || "").trim();
+    const claim = String(citation.claim || "").trim();
+    if (citationId.length === 0 || claim.length === 0) return;
+    const chunkId = typeof citation.chunk_id === "string" && citation.chunk_id.trim().length > 0 ? citation.chunk_id.trim() : undefined;
+    const locator = typeof citation.locator === "string" && citation.locator.trim().length > 0 ? citation.locator.trim() : undefined;
+    const key = `${citationId}::${claim}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      citation_id: citationId,
+      claim,
+      ...(chunkId ? { chunk_id: chunkId } : {}),
+      ...(locator ? { locator } : {})
+    });
+  };
+
+  for (const citation of dossier.citations) pushCitation(citation);
+  for (const section of dossier.sections) {
+    for (const citation of section.citations) pushCitation(citation);
+  }
+
+  if (out.length === 0) {
+    out.push({
+      citation_id: "CIT-KB-001",
+      claim: `Fallback grounding for ${dossier.canonical_name || dossier.disease_request.disease_topic || "episode"}`,
+      locator: "kb_context.md"
+    });
+  }
+
+  return out;
+}
+
+function fallbackCitationFromPool(
+  citationPool: DiseaseDossier["citations"],
+  claim: string
+): DiseaseDossier["citations"][number] {
+  const first = citationPool[0] ?? {
+    citation_id: "CIT-KB-001",
+    claim: "Fallback grounding for episode.",
+    locator: "kb_context.md"
+  };
+  return {
+    citation_id: first.citation_id,
+    claim: String(claim || "").trim() || first.claim,
+    ...(first.chunk_id ? { chunk_id: first.chunk_id } : {}),
+    ...(first.locator ? { locator: first.locator } : {})
+  };
+}
+
+function normalizeCitationRefs(citations: unknown): Array<z.infer<typeof CitationRefSchema>> {
+  if (!Array.isArray(citations)) return [];
+  const out: Array<z.infer<typeof CitationRefSchema>> = [];
+  const seen = new Set<string>();
+
+  for (const raw of citations) {
+    if (!raw || typeof raw !== "object") continue;
+    const citationId = String((raw as { citation_id?: unknown }).citation_id ?? "").trim();
+    const claim = String((raw as { claim?: unknown }).claim ?? "").trim();
+    if (citationId.length === 0 || claim.length === 0) continue;
+    const chunkIdRaw = (raw as { chunk_id?: unknown }).chunk_id;
+    const locatorRaw = (raw as { locator?: unknown }).locator;
+    const chunkId = typeof chunkIdRaw === "string" ? chunkIdRaw.trim() : "";
+    const locator = typeof locatorRaw === "string" ? locatorRaw.trim() : "";
+    const key = `${citationId}::${claim}::${chunkId}::${locator}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      citation_id: citationId,
+      claim,
+      ...(chunkId.length > 0 ? { chunk_id: chunkId } : {}),
+      ...(locator.length > 0 ? { locator } : {})
+    });
+  }
+
+  return out;
+}
+
+function extractIssueSlideIds(issue: MedFactcheckReport["issues"][number]): string[] {
+  const joined = [issue.claim, issue.why_wrong, issue.suggested_fix].join(" ");
+  const matches = joined.match(/\b(?:S\d{1,3}|A-\d{1,3})\b/g) ?? [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const match of matches) {
+    const normalized = canonicalSlideIdKey(match);
+    if (normalized.length === 0 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(match);
+  }
+
+  return out;
+}
+
+function collectSlideCitationRefs(slide: DeckSlideSpec): Array<z.infer<typeof CitationRefSchema>> {
+  return normalizeCitationRefs([...(slide.medical_payload.dossier_citations ?? []), ...(slide.speaker_notes.citations ?? [])]);
+}
+
+function normalizeMedFactcheckReport(
+  report: MedFactcheckAgentOutput | MedFactcheckReport,
+  deck: DeckSpec,
+  dossier: DiseaseDossier
+): MedFactcheckReport {
+  const citationPool = collectDossierCitationPool(dossier);
+  const slideMap = new Map<string, DeckSlideSpec>();
+  for (const slide of [...deck.slides, ...deck.appendix_slides]) {
+    slideMap.set(canonicalSlideIdKey(slide.slide_id), slide);
+  }
+
+  const issues = report.issues.map((issue, index) => {
+    let supportingCitations = normalizeCitationRefs(issue.supporting_citations);
+
+    if (supportingCitations.length === 0) {
+      const recovered: Array<z.infer<typeof CitationRefSchema>> = [];
+      for (const slideId of extractIssueSlideIds(issue)) {
+        const slide = slideMap.get(canonicalSlideIdKey(slideId));
+        if (!slide) continue;
+        recovered.push(...collectSlideCitationRefs(slide));
+      }
+      supportingCitations = normalizeCitationRefs(recovered);
+    }
+
+    if (supportingCitations.length === 0) {
+      supportingCitations = [
+        fallbackCitationFromPool(
+          citationPool,
+          issue.claim || issue.suggested_fix || issue.why_wrong || `Med factcheck issue ${issue.issue_id || index + 1}`
+        )
+      ];
+    }
+
+    return {
+      ...issue,
+      supporting_citations: supportingCitations
+    };
+  });
+
+  const pass = issues.length === 0;
+  const requiredFixes =
+    Array.isArray(report.required_fixes) && report.required_fixes.length > 0
+      ? report.required_fixes
+      : pass
+        ? []
+        : issues.map((issue, idx) => ({
+            fix_id: `MED-FIX-${String(idx + 1).padStart(3, "0")}`,
+            type: medIssueToFixType(issue.type),
+            priority: issue.severity === "critical" ? "must" : issue.severity === "major" ? "should" : "could",
+            description: issue.suggested_fix,
+            targets: [issue.claim.match(/\b(?:S\d{2,3}|A-\d{2,3})\b/)?.[0] ?? "deck_spec.json"]
+          }));
+
+  return MedFactcheckReportSchema.parse({
+    ...report,
+    pass,
+    issues,
+    summary:
+      String(report.summary || "").trim() ||
+      (pass ? "Medical factcheck passed after normalization." : `Medical factcheck found ${issues.length} issue(s).`),
+    required_fixes: requiredFixes
+  });
+}
+
+export { normalizeMedFactcheckReport as __testOnlyNormalizeMedFactcheckReport };
+
+function normalizeMicroWorldMapOutput(
+  raw: unknown,
+  dossier: DiseaseDossier,
+  truth: TruthModel,
+  topic: string
+): { microWorldMap: ReturnType<typeof MicroWorldMapSchema.parse>; repairedCitationBuckets: number } {
+  const parsed = MicroWorldMapAgentOutputSchema.parse(raw);
+  const citationPool = collectDossierCitationPool(dossier);
+  let repairedCitationBuckets = 0;
+
+  const ensureCitations = (
+    citations: DiseaseDossier["citations"] | undefined,
+    fallbackClaim: string
+  ): DiseaseDossier["citations"] => {
+    if (Array.isArray(citations) && citations.length > 0) return citations;
+    repairedCitationBuckets += 1;
+    return [fallbackCitationFromPool(citationPool, fallbackClaim)];
+  };
+
+  const normalized = {
+    ...parsed,
+    zones: parsed.zones.map((zone, index) => ({
+      ...zone,
+      citations: ensureCitations(
+        zone.citations,
+        `${zone.name || `Zone ${index + 1}`} anchors the ${topic} micro-world geography at ${zone.anatomic_location}.`
+      )
+    })),
+    hazards: parsed.hazards.map((hazard, index) => ({
+      ...hazard,
+      citations: ensureCitations(
+        hazard.citations,
+        `${hazard.hazard_id || `hazard-${index + 1}`} reflects ${hazard.links_to_pathophysiology || truth.final_diagnosis.name}.`
+      )
+    })),
+    routes: parsed.routes.map((route, index) => ({
+      ...route,
+      citations: ensureCitations(
+        route.citations,
+        `${route.route_id || `route-${index + 1}`} connects ${route.from_zone_id} to ${route.to_zone_id} for the ${topic} case map.`
+      )
+    })),
+    immune_law_enforcement_metaphors: parsed.immune_law_enforcement_metaphors?.map((entry, index) => ({
+      ...entry,
+      citations: ensureCitations(
+        entry.citations,
+        `${entry.actor || `Immune actor ${index + 1}`} metaphor stays grounded in the ${truth.final_diagnosis.name} immune response.`
+      )
+    })),
+    visual_style_guide: {
+      ...parsed.visual_style_guide,
+      citations: ensureCitations(
+        parsed.visual_style_guide.citations,
+        `Visual style guidance for ${topic} preserves readable medically grounded micro-world scenes.`
+      )
+    }
+  };
+
+  return {
+    microWorldMap: MicroWorldMapSchema.parse(normalized),
+    repairedCitationBuckets
+  };
 }
 
 function validateTruthLockCitations(dossier: DiseaseDossier, truth: TruthModel): { pass: boolean; issues: string[]; knownCitationCount: number } {
@@ -1069,7 +1637,15 @@ function mergeStrictMedFactcheckReports(agent: MedFactcheckReport, deterministic
   const issueMap = new Map<string, MedFactcheckReport["issues"][number]>();
   for (const issue of [...agent.issues, ...deterministic.issues]) {
     const key = [issue.issue_id, issue.type, issue.claim, issue.why_wrong, issue.suggested_fix].join("|");
-    if (!issueMap.has(key)) issueMap.set(key, issue);
+    const existing = issueMap.get(key);
+    if (!existing) {
+      issueMap.set(key, issue);
+      continue;
+    }
+    issueMap.set(key, {
+      ...existing,
+      supporting_citations: normalizeCitationRefs([...(existing.supporting_citations ?? []), ...(issue.supporting_citations ?? [])])
+    });
   }
   const mergedIssues = [...issueMap.values()];
   const pass = mergedIssues.length === 0;
@@ -1102,6 +1678,315 @@ function compactGateFeedback(value: string): string {
   const normalized = String(value || "").trim();
   if (normalized.length <= 900) return normalized;
   return clampText(normalized, 900);
+}
+
+function clipJsonForPrompt<T>(value: T, maxChars = 4_000): string {
+  return clipExcerpt(JSON.stringify(value, null, 2), maxChars);
+}
+
+function buildDeckCohesionPrompt(input: {
+  deck: ReturnType<typeof DeckSpecSchema.parse>;
+  storyBlueprint: StoryBlueprint;
+  actOutline: ActOutline;
+  clueGraph: ClueGraph;
+  dramaPlan: DramaPlan;
+  setpiecePlan: SetpiecePlan;
+  gate2Feedback: string;
+  compact: boolean;
+}): string {
+  const guardrails =
+    "COHESION PASS GUARDRAILS:\n" +
+    "- This is a bounded continuity repair pass, not a second deck-authoring pass.\n" +
+    "- Preserve the authored deck length and act structure; do not compress an act into a summary window.\n" +
+    "- Prefer replace_slide, split_slide, or insert_after for local repairs.\n" +
+    "- Use replace_window only for local beat clusters no larger than 6 contiguous slides, and keep replacement length nearly the same.\n" +
+    "- Never rewrite multiple whole acts or collapse repeated beats into a short canonical mini-deck.\n" +
+    "- Preserve clue/payoff fairness, midpoint collapse, rupture+repair, and ending callback without reducing story scope.";
+  if (!input.compact) {
+    return (
+      `DECK SPEC (json):\n${JSON.stringify(input.deck, null, 2)}\n\n` +
+      `STORY BLUEPRINT (json):\n${JSON.stringify(input.storyBlueprint, null, 2)}\n\n` +
+      `ACT OUTLINE (json):\n${JSON.stringify(input.actOutline, null, 2)}\n\n` +
+      `CLUE GRAPH (json):\n${JSON.stringify(input.clueGraph, null, 2)}\n\n` +
+      `DRAMA PLAN (json):\n${JSON.stringify(input.dramaPlan, null, 2)}\n\n` +
+      `SETPIECE PLAN (json):\n${JSON.stringify(input.setpiecePlan, null, 2)}\n\n` +
+      `${guardrails}\n\n` +
+      `GATE 2 FEEDBACK:\n${input.gate2Feedback}`
+    );
+  }
+
+  const compactDeck = {
+    deck_meta: input.deck.deck_meta,
+    acts: input.deck.acts,
+    slides: input.deck.slides.map((slide) => ({
+      slide_id: slide.slide_id,
+      act_id: slide.act_id,
+      beat_type: slide.beat_type,
+      title: clampText(String(slide.title ?? ""), 90),
+      hook: clampText(String(slide.hook ?? ""), 120),
+      story_panel: {
+        goal: clampText(String(slide.story_panel.goal ?? ""), 120),
+        opposition: clampText(String(slide.story_panel.opposition ?? ""), 120),
+        turn: clampText(String(slide.story_panel.turn ?? ""), 120),
+        decision: clampText(String(slide.story_panel.decision ?? ""), 120),
+        consequence: clampText(String(slide.story_panel.consequence ?? ""), 120)
+      },
+      delivery_mode: slide.medical_payload.delivery_mode,
+      major_concept_id: slide.medical_payload.major_concept_id,
+      top_dx_ids: slide.speaker_notes.differential_update.top_dx_ids.slice(0, 3),
+      exhibit_ids: (slide.exhibit_ids ?? []).slice(0, 4)
+    }))
+  };
+  const compactClueGraph = {
+    clue_count: input.clueGraph.clues.length,
+    exhibit_count: input.clueGraph.exhibits.length,
+    clues: input.clueGraph.clues.map((clue: ClueGraph["clues"][number]) => ({
+      clue_id: clue.clue_id,
+      macro_or_micro: clue.macro_or_micro,
+      observed: clampText(clue.observed, 140),
+      correct_inference: clampText(clue.correct_inference, 140),
+      first_seen_slide_id: clue.first_seen_slide_id,
+      payoff_slide_id: clue.payoff_slide_id
+    })),
+    twist_support_matrix: input.clueGraph.twist_support_matrix
+  };
+  const compactDramaPlan = {
+    character_arcs: input.dramaPlan.character_arcs.map((arc) => ({
+      character_id: arc.character_id,
+      name: arc.name,
+      core_need: clampText(arc.core_need, 120),
+      core_fear: clampText(arc.core_fear, 120)
+    })),
+    relationship_arcs: input.dramaPlan.relationship_arcs.map((arc) => ({
+      pair: arc.pair,
+      starting_dynamic: clampText(arc.starting_dynamic, 140),
+      friction_points: (arc.friction_points ?? []).slice(0, 4),
+      repair_moments: (arc.repair_moments ?? []).slice(0, 4),
+      climax_resolution: clampText(arc.climax_resolution, 140)
+    })),
+    pressure_ladder: input.dramaPlan.pressure_ladder,
+    chapter_or_act_setups: input.dramaPlan.chapter_or_act_setups ?? []
+  };
+  const compactSetpiecePlan = {
+    notes: (input.setpiecePlan.notes ?? []).map((note) => clampText(note, 140)),
+    quotas: input.setpiecePlan.quotas,
+    setpieces: input.setpiecePlan.setpieces.map((setpiece: SetpiecePlan["setpieces"][number]) => ({
+      setpiece_id: setpiece.setpiece_id,
+      act_id: setpiece.act_id,
+      type: setpiece.type,
+      location_zone_id: setpiece.location_zone_id,
+      purpose: clampText(setpiece.story_purpose, 140),
+      medical_mechanism_anchor: clampText(setpiece.medical_mechanism_anchor, 140),
+      visual_signature: clampText(setpiece.visual_signature, 140),
+      outcome_turn: clampText(setpiece.outcome_turn, 140)
+    }))
+  };
+
+  return (
+    `DECK SPEC SUMMARY (json):\n${clipJsonForPrompt(compactDeck, 24_000)}\n\n` +
+    `STORY BLUEPRINT (json):\n${clipJsonForPrompt(input.storyBlueprint, 5_000)}\n\n` +
+    `ACT OUTLINE (json):\n${clipJsonForPrompt(input.actOutline, 5_000)}\n\n` +
+    `CLUE GRAPH SUMMARY (json):\n${clipJsonForPrompt(compactClueGraph, 9_000)}\n\n` +
+    `DRAMA PLAN SUMMARY (json):\n${clipJsonForPrompt(compactDramaPlan, 5_000)}\n\n` +
+    `SETPIECE PLAN SUMMARY (json):\n${clipJsonForPrompt(compactSetpiecePlan, 5_000)}\n\n` +
+    `${guardrails}\n\n` +
+    `GATE 2 FEEDBACK:\n${compactGateFeedback(input.gate2Feedback)}`
+  );
+}
+
+function findDeckSlideIndex(slides: DeckSlideSpec[], slideId: string): number {
+  const targetKey = canonicalSlideIdKey(slideId);
+  return slides.findIndex((slide) => canonicalSlideIdKey(slide.slide_id) === targetKey);
+}
+
+function sanitizeDeckCohesionOperations(input: {
+  deck: ReturnType<typeof DeckSpecSchema.parse>;
+  operations: SlideBlockOperation[];
+  generationProfile: "quality" | "pilot";
+}): {
+  operations: SlideBlockOperation[];
+  warnings: string[];
+  projectedMainSlideCount: number;
+} {
+  if (input.generationProfile !== "quality") {
+    return {
+      operations: input.operations,
+      warnings: [],
+      projectedMainSlideCount: input.deck.slides.length
+    };
+  }
+
+  const warnings: string[] = [];
+  const maxWindowSpan = Math.max(6, Math.ceil(input.deck.slides.length * 0.08));
+  const maxTotalSlideDelta = Math.max(2, Math.ceil(input.deck.slides.length * 0.05));
+  let previewDeck = input.deck;
+  const accepted: SlideBlockOperation[] = [];
+
+  for (const operation of input.operations) {
+    if (operation.op === "replace_window") {
+      const startIdx = operation.start_slide_id ? findDeckSlideIndex(previewDeck.slides, operation.start_slide_id) : -1;
+      const endIdx = operation.end_slide_id ? findDeckSlideIndex(previewDeck.slides, operation.end_slide_id) : -1;
+      const replacementCount = operation.replacement_slides?.length ?? 0;
+      if (startIdx < 0 || endIdx < 0 || replacementCount === 0) {
+        warnings.push(
+          `Rejected cohesion operation replace_window(${operation.start_slide_id ?? "?"}..${operation.end_slide_id ?? "?"}) due to missing anchors or empty replacement.`
+        );
+        continue;
+      }
+      const span = Math.abs(endIdx - startIdx) + 1;
+      if (span > maxWindowSpan) {
+        warnings.push(
+          `Rejected cohesion replace_window(${operation.start_slide_id}..${operation.end_slide_id}) because span=${span} exceeds local limit=${maxWindowSpan}.`
+        );
+        continue;
+      }
+      if (replacementCount < Math.max(1, span - 2)) {
+        warnings.push(
+          `Rejected cohesion replace_window(${operation.start_slide_id}..${operation.end_slide_id}) because replacement_count=${replacementCount} would over-compress span=${span}.`
+        );
+        continue;
+      }
+    }
+
+    const previewBlock = SlideBlockSchema.parse({
+      schema_version: "1.0.0",
+      block_id: "COHESION_PREVIEW",
+      act_id: "ACT4",
+      slide_range: { start: 1, end: Math.max(1, previewDeck.slides.length) },
+      operations: [operation],
+      block_summary_out: "Preview cohesion operation."
+    });
+    const previewAssembly = assembleDeckFromSlideBlocks({
+      scaffoldDeck: previewDeck,
+      blocks: [previewBlock]
+    });
+    const delta = Math.abs(previewAssembly.deck.slides.length - previewDeck.slides.length);
+    if (delta > maxTotalSlideDelta) {
+      warnings.push(
+        `Rejected cohesion ${operation.op} because it would change deck length by ${delta} slides (limit=${maxTotalSlideDelta}).`
+      );
+      continue;
+    }
+    previewDeck = previewAssembly.deck;
+    accepted.push(operation);
+  }
+
+  const totalDelta = Math.abs(previewDeck.slides.length - input.deck.slides.length);
+  if (totalDelta > maxTotalSlideDelta) {
+    warnings.push(
+      `Rejected all cohesion operations because cumulative deck-length delta=${totalDelta} exceeds quality limit=${maxTotalSlideDelta}.`
+    );
+    return {
+      operations: [],
+      warnings,
+      projectedMainSlideCount: input.deck.slides.length
+    };
+  }
+
+  return {
+    operations: accepted,
+    warnings,
+    projectedMainSlideCount: previewDeck.slides.length
+  };
+}
+
+function compactKbExcerpt(kbContext: string): string {
+  return clipExcerpt(kbContext, 4_000);
+}
+
+function buildDiseaseDossierCompactPrompt(dossier: DiseaseDossier): string {
+  return clipJsonForPrompt({
+    canonical_name: dossier.canonical_name,
+    aliases: dossier.aliases.slice(0, 4),
+    disease_request: dossier.disease_request,
+    learning_objectives: dossier.learning_objectives.slice(0, 8),
+    sections: dossier.sections.slice(0, 8).map((section) => ({
+      section: section.section,
+      key_points: section.key_points.slice(0, 3),
+      citations: section.citations.slice(0, 3).map((citation) => ({
+        citation_id: citation.citation_id,
+        claim: clampText(citation.claim, 180),
+        locator: clampText(String(citation.locator ?? ""), 80)
+      }))
+    })),
+    citations: dossier.citations.slice(0, 10).map((citation) => ({
+      citation_id: citation.citation_id,
+      claim: clampText(citation.claim, 180),
+      locator: clampText(String(citation.locator ?? ""), 80)
+    }))
+  });
+}
+
+function buildEpisodePitchCompactPrompt(pitch: ReturnType<typeof EpisodePitchSchema.parse>): string {
+  return clipJsonForPrompt({
+    episode_title: pitch.episode_title,
+    logline: pitch.logline,
+    target_deck_length: pitch.target_deck_length,
+    tone: pitch.tone,
+    patient_stub: pitch.patient_stub,
+    macro_hook: pitch.macro_hook,
+    micro_hook: pitch.micro_hook,
+    proposed_twist_type: pitch.proposed_twist_type,
+    teaser_storyboard: pitch.teaser_storyboard.slice(0, 4).map((slide) => ({
+      slide_id: slide.slide_id,
+      title: slide.title,
+      hook: slide.hook,
+      medical_payload_brief: slide.medical_payload_brief ?? ""
+    }))
+  });
+}
+
+function buildMicroWorldCompactPrompt(input: {
+  topic: string;
+  caseRequest: Record<string, unknown>;
+  dossierDigest: unknown;
+  truthDigest: unknown;
+  clueGraph: ReturnType<typeof ClueGraphSchema.parse>;
+  gate2Feedback: string;
+}): string {
+  return [
+    `TOPIC:\n${input.topic}`,
+    `CASE REQUEST (json):\n${JSON.stringify(input.caseRequest, null, 2)}`,
+    `DISEASE DOSSIER DIGEST (json):\n${JSON.stringify(input.dossierDigest, null, 2)}`,
+    `TRUTH MODEL DIGEST (json):\n${JSON.stringify(input.truthDigest, null, 2)}`,
+    `CLUE GRAPH DIGEST (json):\n${JSON.stringify(
+      {
+        clues: input.clueGraph.clues.slice(0, 8).map((clue) => ({
+          clue_id: clue.clue_id,
+          observed: clampText(clue.observed, 140),
+          correct_inference: clampText(clue.correct_inference, 140),
+          first_seen_slide_id: clue.first_seen_slide_id,
+          payoff_slide_id: clue.payoff_slide_id
+        })),
+        red_herrings: input.clueGraph.red_herrings.slice(0, 4).map((item) => ({
+          rh_id: item.rh_id,
+          rooted_truth: clampText(item.rooted_truth, 140),
+          payoff_slide_id: item.payoff_slide_id
+        }))
+      },
+      null,
+      2
+    )}`,
+    `GATE 2 FEEDBACK:\n${clampText(input.gate2Feedback, 500)}`
+  ].join("\n\n");
+}
+
+function buildSetpieceCompactPrompt(input: {
+  topic: string;
+  truthDigest: unknown;
+  clueDigest: unknown;
+  microWorldDigest: unknown;
+  dramaDigest: unknown;
+  gate2Feedback: string;
+}): string {
+  return [
+    `TOPIC:\n${input.topic}`,
+    `TRUTH MODEL DIGEST (json):\n${JSON.stringify(input.truthDigest, null, 2)}`,
+    `CLUE GRAPH DIGEST (json):\n${JSON.stringify(input.clueDigest, null, 2)}`,
+    `MICRO WORLD DIGEST (json):\n${JSON.stringify(input.microWorldDigest, null, 2)}`,
+    `DRAMA DIGEST (json):\n${JSON.stringify(input.dramaDigest, null, 2)}`,
+    `GATE 2 FEEDBACK:\n${clampText(input.gate2Feedback, 500)}`
+  ].join("\n\n");
 }
 
 function buildStoryBeatsPromptSection(input: {
@@ -1532,6 +2417,57 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     }
   }
 
+  async function runIsolatedAgentWithCompactRetry<T>(args: {
+    step: StepName;
+    agentKey: V2AgentKey;
+    agent: unknown;
+    prompt: string;
+    compactPrompt: string;
+    maxTurns: number;
+    timeoutMs: number;
+    signal?: AbortSignal;
+    vectorStoreId?: string;
+    retryLabel: string;
+    compactRetryTimeoutMs?: number;
+  }): Promise<T> {
+    try {
+      return await runIsolatedAgentOutput<T>({
+        step: args.step,
+        agentKey: args.agentKey,
+        agent: args.agent,
+        prompt: args.prompt,
+        maxTurns: args.maxTurns,
+        timeoutMs: args.timeoutMs,
+        signal: args.signal,
+        vectorStoreId: args.vectorStoreId
+      });
+    } catch (err) {
+      if (shouldAbortOnError(err, args.signal)) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!isLikelyTimeoutError(msg)) throw err;
+      runs.log(runId, `${args.retryLabel} primary attempt failed; retrying compact prompt (${msg}).`, args.step);
+      try {
+        const retried = await runIsolatedAgentOutput<T>({
+          step: args.step,
+          agentKey: args.agentKey,
+          agent: args.agent,
+          prompt: args.compactPrompt,
+          maxTurns: Math.max(4, Math.min(args.maxTurns, 8)),
+          timeoutMs: Math.max(args.compactRetryTimeoutMs ?? 180_000, args.timeoutMs),
+          signal: args.signal,
+          vectorStoreId: args.vectorStoreId
+        });
+        runs.log(runId, `${args.retryLabel} compact retry succeeded.`, args.step);
+        return retried;
+      } catch (compactErr) {
+        if (shouldAbortOnError(compactErr, args.signal)) throw compactErr;
+        const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+        runs.log(runId, `${args.retryLabel} compact retry failed (${compactMsg}).`, args.step);
+        throw compactErr;
+      }
+    }
+  }
+
   async function runStep<T>(step: StepName, fn: () => Promise<T>): Promise<T> {
     if (signal.aborted) throw new Error("Cancelled");
     await runs.startStep(runId, step);
@@ -1602,16 +2538,22 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           `TOPIC:\n${topic}\n\n` +
           `CANONICAL PROFILE (markdown):\n${canonicalProfile.combined_markdown}\n\n` +
           `Compile KB context for v2 disease dossier + truth lock + deck spec + QA generation.`;
+        const compactPrompt =
+          `TOPIC:\n${topic}\n\n` +
+          `CANONICAL PROFILE EXCERPT (markdown):\n${canonicalProfileExcerpt}\n\n` +
+          "Compile only the essential KB context sections needed for disease dossier, truth lock, deck authoring, and QA.";
         try {
-          const timeoutMs = kb0TimeoutMs();
-          const out = await runIsolatedAgentOutput<{ kb_context: string }>({
+          const timeoutMs = kb0TimeoutMs(generationProfile);
+          const out = await runIsolatedAgentWithCompactRetry<{ kb_context: string }>({
             step: "KB0",
             agentKey: "kbCompiler",
             agent: kbAgent as never,
             prompt,
+            compactPrompt,
             maxTurns: 8,
             timeoutMs,
-            vectorStoreId
+            vectorStoreId,
+            retryLabel: "KB0"
           });
           if (!out?.kb_context || out.kb_context.trim().length === 0) {
             throw new Error("KB0 output missing kb_context");
@@ -1653,7 +2595,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
       audienceLevel,
       kbContext
     } as const;
-    const abTimeoutMs = stepABAgentTimeoutMs();
+    const abTimeoutMs = stepABAgentTimeoutMs(generationProfile);
 
     let diseaseDossier = shouldRun("A")
       ? await runStep("A", async () => {
@@ -1670,16 +2612,32 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             )}\n\n` +
             `KB CONTEXT (markdown):\n${kbContext}\n\n` +
             `CANONICAL PROFILE (markdown):\n${canonicalProfile.combined_markdown}`;
+          const diseaseCompactPrompt =
+            `TOPIC:\n${topic}\n\n` +
+            `CASE REQUEST (json):\n${JSON.stringify(
+              {
+                disease_topic: topic,
+                target_level: audienceLevel,
+                deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+                ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {})
+              },
+              null,
+              2
+            )}\n\n` +
+            `KB CONTEXT EXCERPT (markdown):\n${compactKbExcerpt(kbContext)}\n\n` +
+            `CANONICAL PROFILE EXCERPT (markdown):\n${canonicalProfileExcerpt}`;
           let dossier: ReturnType<typeof DiseaseDossierSchema.parse>;
           try {
             dossier = DiseaseDossierSchema.parse(
-              await runIsolatedAgentOutput({
+              await runIsolatedAgentWithCompactRetry({
                 step: "A",
                 agentKey: "diseaseResearch",
                 agent: diseaseResearchAgent,
                 prompt: diseasePrompt,
+                compactPrompt: diseaseCompactPrompt,
                 maxTurns: 12,
-                timeoutMs: abTimeoutMs
+                timeoutMs: abTimeoutMs,
+                retryLabel: "DiseaseResearch"
               })
             );
           } catch (err) {
@@ -1696,16 +2654,24 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
             `DISEASE DOSSIER (json):\n${JSON.stringify(dossier, null, 2)}\n\n` +
             `KB CONTEXT (markdown):\n${kbContext}`;
+          const pitchCompactPrompt =
+            `TOPIC:\n${topic}\n\n` +
+            `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
+            `DISEASE DOSSIER DIGEST (json):\n${buildDiseaseDossierCompactPrompt(dossier)}\n\n` +
+            `KB CONTEXT EXCERPT (markdown):\n${compactKbExcerpt(kbContext)}\n\n` +
+            `CANONICAL PROFILE EXCERPT (markdown):\n${canonicalProfileExcerpt}`;
           let pitch: ReturnType<typeof EpisodePitchSchema.parse>;
           try {
             pitch = EpisodePitchSchema.parse(
-              await runIsolatedAgentOutput({
+              await runIsolatedAgentWithCompactRetry({
                 step: "A",
                 agentKey: "episodePitch",
                 agent: episodePitchAgent,
                 prompt: pitchPrompt,
+                compactPrompt: pitchCompactPrompt,
                 maxTurns: 8,
-                timeoutMs: abTimeoutMs
+                timeoutMs: abTimeoutMs,
+                retryLabel: "EpisodePitch"
               })
             );
           } catch (err) {
@@ -1753,19 +2719,28 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               `TOPIC:\n${topic}\n\n` +
               `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
               `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
-              `EPISODE PITCH (json):\n${JSON.stringify(episodePitch, null, 2)}\n\n` +
-              `GATE 1 FEEDBACK:\n${gate1Feedback}\n\n` +
-              `KB CONTEXT (markdown):\n${kbContext}`;
+            `EPISODE PITCH (json):\n${JSON.stringify(episodePitch, null, 2)}\n\n` +
+            `GATE 1 FEEDBACK:\n${gate1Feedback}\n\n` +
+            `KB CONTEXT (markdown):\n${kbContext}`;
+            const truthCompactPrompt =
+              `TOPIC:\n${topic}\n\n` +
+              `TARGET SETTINGS (json):\n${JSON.stringify(targetSettings, null, 2)}\n\n` +
+              `DISEASE DOSSIER DIGEST (json):\n${buildDiseaseDossierCompactPrompt(diseaseDossier)}\n\n` +
+              `EPISODE PITCH DIGEST (json):\n${buildEpisodePitchCompactPrompt(episodePitch)}\n\n` +
+              `GATE 1 FEEDBACK:\n${compactGateFeedback(gate1Feedback)}\n\n` +
+              `KB CONTEXT EXCERPT (markdown):\n${compactKbExcerpt(kbContext)}`;
             let truth: ReturnType<typeof TruthModelSchema.parse>;
             try {
               truth = TruthModelSchema.parse(
-                await runIsolatedAgentOutput({
+                await runIsolatedAgentWithCompactRetry({
                   step: "B",
                   agentKey: "truthModel",
                   agent: truthModelAgent,
                   prompt: truthPrompt,
+                  compactPrompt: truthCompactPrompt,
                   maxTurns: 10,
-                  timeoutMs: abTimeoutMs
+                  timeoutMs: abTimeoutMs,
+                  retryLabel: "TruthModel"
                 })
               );
             } catch (err) {
@@ -1824,7 +2799,9 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           estimatedMainSlides,
           baseAgentTimeoutMs: stepCAgentTimeoutMs(),
           baseDeckSpecTimeoutMs: stepCDeckSpecTimeoutMs(),
-          baseWatchdogMs: stepCHardWatchdogMs()
+          baseWatchdogMs: stepCHardWatchdogMs(),
+          generationProfile,
+          qaLoopBudget: maxQaPatchLoops()
         });
         const abortThresholdSlides = deckSpecAbortWarningThresholdSlides();
         const abortRecommended = adaptiveTimeouts.estimatedMainSlides >= abortThresholdSlides;
@@ -2076,6 +3053,20 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
           `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
           `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        const microWorldCompactPrompt = buildMicroWorldCompactPrompt({
+          topic,
+          caseRequest: {
+            disease_topic: topic,
+            deck_length_policy: deckLengthPolicy.constraintEnabled ? "soft_target" : "unconstrained",
+            ...(deckLengthPolicy.constraintEnabled ? { deck_length_main_soft_target: deckLengthPolicy.softTarget } : {}),
+            audience_level: audienceLevel
+          },
+          dossierDigest: dossierPromptDigest,
+          truthDigest: truthPromptDigest,
+          clueGraph: workingClueGraph,
+          gate2Feedback
+        });
+        const microWorldTimeoutMs = storyPlannerTimeoutMs(cTimeoutMs, generationProfile, "microWorldMap");
         const allowStoryStageFallback = shouldAllowStoryStageDeterministicFallback(generationProfile, adherenceMode);
         let microWorldAuthoring: { source: "agent" | "deterministic_fallback"; reason?: string } = { source: "agent" };
         let workingMicroWorldMap: ReturnType<typeof MicroWorldMapSchema.parse>;
@@ -2093,17 +3084,31 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           workingMicroWorldMap = MicroWorldMapSchema.parse(generateMicroWorldMap(fallbackSeedDeck, diseaseDossier, truthModel));
         } else {
           try {
-            workingMicroWorldMap = MicroWorldMapSchema.parse(
-              await runIsolatedAgentOutput({
+            const normalizedMicroWorld = normalizeMicroWorldMapOutput(
+              await runIsolatedAgentWithCompactRetry({
                 step: "C",
                 agentKey: "microWorldMap",
                 agent: microWorldMapAgent,
                 prompt: microWorldPrompt,
+                compactPrompt: microWorldCompactPrompt,
                 maxTurns: 8,
-                timeoutMs: cTimeoutMs,
-                signal: cSignal
-              })
+                timeoutMs: microWorldTimeoutMs,
+                compactRetryTimeoutMs: Math.max(microWorldTimeoutMs, 420_000),
+                signal: cSignal,
+                retryLabel: "[C] MicroWorldMap"
+              }),
+              diseaseDossier,
+              truthModel,
+              topic
             );
+            workingMicroWorldMap = normalizedMicroWorld.microWorldMap;
+            if (normalizedMicroWorld.repairedCitationBuckets > 0) {
+              runs.log(
+                runId,
+                `MicroWorldMap citation repair backfilled ${normalizedMicroWorld.repairedCitationBuckets} empty citation bucket(s).`,
+                "C"
+              );
+            }
           } catch (err) {
             if (shouldAbortOnError(err, cSignal)) throw err;
             const msg = err instanceof Error ? err.message : String(err);
@@ -2146,7 +3151,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 agent: dramaPlanAgent,
                 prompt: dramaPrompt,
                 maxTurns: 8,
-                timeoutMs: cTimeoutMs,
+                timeoutMs: storyPlannerTimeoutMs(cTimeoutMs, generationProfile, "dramaPlan"),
                 signal: cSignal
               })
             );
@@ -2170,6 +3175,27 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
           `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
           `GATE 2 FEEDBACK:\n${gate2Feedback}`;
+        const setpieceCompactPrompt = buildSetpieceCompactPrompt({
+          topic,
+          truthDigest: truthPromptDigest,
+          clueDigest: {
+            clues: workingClueGraph.clues.slice(0, 8).map((clue) => ({
+              clue_id: clue.clue_id,
+              observed: clampText(clue.observed, 140),
+              correct_inference: clampText(clue.correct_inference, 140),
+              payoff_slide_id: clue.payoff_slide_id
+            })),
+            red_herrings: workingClueGraph.red_herrings.slice(0, 4).map((item) => ({
+              rh_id: item.rh_id,
+              rooted_truth: clampText(item.rooted_truth, 140),
+              payoff_slide_id: item.payoff_slide_id
+            }))
+          },
+          microWorldDigest: compactMicroWorldDigest(workingMicroWorldMap),
+          dramaDigest: compactDramaDigest(workingDramaPlan),
+          gate2Feedback
+        });
+        const setpieceTimeoutMs = storyPlannerTimeoutMs(cTimeoutMs, generationProfile, "setpiecePlan");
         let setpieceAuthoring: { source: "agent" | "deterministic_fallback"; reason?: string } = { source: "agent" };
         let workingSetpiecePlan: ReturnType<typeof SetpiecePlanSchema.parse>;
         if (deterministicPlanning) {
@@ -2187,14 +3213,17 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         } else {
           try {
             workingSetpiecePlan = SetpiecePlanSchema.parse(
-              await runIsolatedAgentOutput({
+              await runIsolatedAgentWithCompactRetry({
                 step: "C",
                 agentKey: "setpiecePlan",
                 agent: setpiecePlanAgent,
                 prompt: setpiecePrompt,
+                compactPrompt: setpieceCompactPrompt,
                 maxTurns: 8,
-                timeoutMs: cTimeoutMs,
-                signal: cSignal
+                timeoutMs: setpieceTimeoutMs,
+                compactRetryTimeoutMs: Math.max(setpieceTimeoutMs, 390_000),
+                signal: cSignal,
+                retryLabel: "[C] SetpiecePlan"
               })
             );
           } catch (err) {
@@ -2366,7 +3395,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 agent: storyBlueprintAgent,
                 prompt: storyBlueprintPrompt,
                 maxTurns: 8,
-                timeoutMs: cTimeoutMs,
+                timeoutMs: storyPlannerTimeoutMs(cTimeoutMs, generationProfile, "storyBlueprint"),
                 signal: cSignal
               })
             );
@@ -2399,7 +3428,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 agent: actOutlineAgent,
                 prompt: actOutlinePrompt,
                 maxTurns: 8,
-                timeoutMs: cTimeoutMs,
+                timeoutMs: storyPlannerTimeoutMs(cTimeoutMs, generationProfile, "actOutline"),
                 signal: cSignal
               })
             );
@@ -2412,7 +3441,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         }
         await writeIntermediateJson("C", "act_outline.json", actOutline);
 
-        let blockPlans = planSlideBlocksFromOutline(actOutline);
+        let blockPlans = planSlideBlocksFromOutline(actOutline, preferredBlockSize(generationProfile));
         await writeIntermediateJson(
           "C",
           "slide_block_plan.json",
@@ -2511,6 +3540,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             dramaPlan: workingDramaPlan,
             setpiecePlan: workingSetpiecePlan
           });
+          const blockTimeoutMs = slideBlockAuthorTimeoutMs(cTimeoutMs, generationProfile, plan);
 
           let block = buildSlideBlockFallback({
             deck: fallbackSeedDeck,
@@ -2522,8 +3552,9 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             deterministicPlanning || fallbackForLowBudget(`slideBlock.${plan.blockId}.preflight`, Math.max(80_000, Math.round(cTimeoutMs * 0.6)));
           if (!blockPreflightSkipped) {
             try {
-              block = SlideBlockSchema.parse(
-                await runIsolatedAgentOutput({
+              block = withResolvedSlideBlockSummary(
+                SlideBlockSchema.parse(
+                await runIsolatedAgentWithCompactRetry({
                   step: "C",
                   agentKey: "slideBlockAuthor",
                   agent: slideBlockAuthorAgent,
@@ -2535,10 +3566,23 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                     narrativeState,
                     medicalSlice
                   }) + `\n\n${storyBeatsPromptSection}`,
+                  compactPrompt:
+                    buildBlockPromptContext({
+                      topic,
+                      plan,
+                      storyBlueprint,
+                      actOutline,
+                      narrativeState,
+                      medicalSlice,
+                      mode: "retry_compact"
+                    }) + `\n\n${clampText(storyBeatsPromptSection, 1800)}`,
                   maxTurns: 8,
-                  timeoutMs: cTimeoutMs,
-                  signal: cSignal
+                  timeoutMs: blockTimeoutMs,
+                  signal: cSignal,
+                  compactRetryTimeoutMs: Math.max(blockTimeoutMs, 300_000),
+                  retryLabel: `[C] SlideBlockAuthor ${plan.blockId}`
                 })
+                )
               );
               blockFromAgent = true;
               deckAuthoringContextManifest.attempts.push({
@@ -2551,6 +3595,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             } catch (err) {
               if (shouldAbortOnError(err, cSignal)) throw err;
               const msg = err instanceof Error ? err.message : String(err);
+              if (!allowStoryStageFallback) throw err;
               runs.log(runId, `SlideBlockAuthor agent fallback activated (${plan.blockId}; ${msg}).`, "C");
               recordFallback("deterministic_fallback", `slideBlockAuthor.${plan.blockId}`, msg);
               deckAuthoringContextManifest.attempts.push({
@@ -2585,7 +3630,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             for (const slideId of collectBlockAuthoredSlideIds(block)) agentAuthoredSlideIds.add(slideId);
           }
           authoredBlocks.push(block);
-          priorSummary = block.block_summary_out;
+          priorSummary = resolveSlideBlockSummary(block);
           unresolvedThreads = (block.unresolved_threads_out ?? unresolvedThreads).slice(0, 12);
           await writeIntermediateJson("C", `slide_block_${plan.blockId}.json`, block);
           blockCheckpointIndex.blocks[planIndex] = {
@@ -2610,7 +3655,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           const deckWithBlockProvenance = DeckSpecSchema.parse({
             ...out.deck,
             slides: out.deck.slides.map((slide) =>
-              agentAuthoredSlideIds.has(slide.slide_id)
+              agentAuthoredSlideIds.has(canonicalSlideIdKey(slide.slide_id))
                 ? { ...slide, authoring_provenance: "agent_authored" as const }
                 : slide
             )
@@ -2630,40 +3675,91 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         const useMonolithicDeckAuthoring = generationProfile === "pilot" || deterministicPlanning;
         if (!useMonolithicDeckAuthoring) {
           try {
-            const cohesionPrompt =
-              `DECK SPEC (json):\n${JSON.stringify(workingDeck, null, 2)}\n\n` +
-              `STORY BLUEPRINT (json):\n${JSON.stringify(storyBlueprint, null, 2)}\n\n` +
-              `ACT OUTLINE (json):\n${JSON.stringify(actOutline, null, 2)}\n\n` +
-              `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}\n\n` +
-              `DRAMA PLAN (json):\n${JSON.stringify(workingDramaPlan, null, 2)}\n\n` +
-              `SETPIECE PLAN (json):\n${JSON.stringify(workingSetpiecePlan, null, 2)}\n\n` +
-              `GATE 2 FEEDBACK:\n${gate2Feedback}`;
-            const cohesionPass = DeckCohesionPassSchema.parse(
-              await runIsolatedAgentOutput({
-                step: "C",
-                agentKey: "deckCohesionPass",
-                agent: deckCohesionPassAgent,
-                prompt: cohesionPrompt,
-                maxTurns: 6,
-                timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.65)),
-                signal: cSignal
-              })
-            );
+            const runCohesionPassAttempt = async (variant: "full" | "compact") =>
+              DeckCohesionPassSchema.parse(
+                await runIsolatedAgentOutput({
+                  step: "C",
+                  agentKey: "deckCohesionPass",
+                  agent: deckCohesionPassAgent,
+                  prompt: buildDeckCohesionPrompt({
+                    deck: workingDeck,
+                    storyBlueprint,
+                    actOutline,
+                    clueGraph: workingClueGraph,
+                    dramaPlan: workingDramaPlan,
+                    setpiecePlan: workingSetpiecePlan,
+                    gate2Feedback,
+                    compact: variant === "compact"
+                  }),
+                  maxTurns: 6,
+                  timeoutMs:
+                    variant === "full"
+                      ? Math.max(120_000, Math.round(cTimeoutMs * 0.8))
+                      : Math.max(120_000, Math.round(cTimeoutMs * 0.55)),
+                  signal: cSignal
+                })
+              );
+
+            let cohesionPass: ReturnType<typeof DeckCohesionPassSchema.parse>;
+            let cohesionSuccessContext: "full" | "compact" = "full";
+            try {
+              cohesionPass = await runCohesionPassAttempt("full");
+            } catch (cohesionPrimaryErr) {
+              if (shouldAbortOnError(cohesionPrimaryErr, cSignal)) throw cohesionPrimaryErr;
+              const primaryMsg = cohesionPrimaryErr instanceof Error ? cohesionPrimaryErr.message : String(cohesionPrimaryErr);
+              deckAuthoringContextManifest.attempts.push({
+                attempt_id: "deckCohesionPass.primary",
+                prompt_variant: "cohesion_pass",
+                context_mode: "full",
+                reason: "quality_continuity_pass",
+                result: "error",
+                details: clampText(primaryMsg, 320)
+              });
+              if (!isLikelyTimeoutError(primaryMsg)) throw cohesionPrimaryErr;
+              runs.log(runId, `Deck cohesion pass full-context retry downgraded to compact (${primaryMsg}).`, "C");
+              recordFallback("agent_retry", "deckCohesionPass.primary", primaryMsg);
+              cohesionPass = await runCohesionPassAttempt("compact");
+              cohesionSuccessContext = "compact";
+            }
             deckAuthoringContextManifest.attempts.push({
               attempt_id: "deckCohesionPass.primary",
               prompt_variant: "cohesion_pass",
-              context_mode: "full",
-              reason: "quality_continuity_pass",
+              context_mode: cohesionSuccessContext,
+              reason: cohesionSuccessContext === "full" ? "quality_continuity_pass" : "transport_retry",
               result: "success"
             });
             await writeIntermediateJson("C", "deck_cohesion_pass.json", cohesionPass);
             if (cohesionPass.must_fix_operations.length > 0) {
+              const cohesionGuard = sanitizeDeckCohesionOperations({
+                deck: workingDeck,
+                operations: cohesionPass.must_fix_operations,
+                generationProfile
+              });
+              await writeIntermediateJson("C", "deck_cohesion_pass_guardrail.json", {
+                schema_version: "1.0.0",
+                generated_at: nowIso(),
+                original_operation_count: cohesionPass.must_fix_operations.length,
+                accepted_operation_count: cohesionGuard.operations.length,
+                projected_main_slide_count: cohesionGuard.projectedMainSlideCount,
+                warnings: cohesionGuard.warnings
+              });
+              if (cohesionGuard.warnings.length > 0) {
+                runs.log(
+                  runId,
+                  `Deck cohesion pass guardrails filtered ${cohesionPass.must_fix_operations.length - cohesionGuard.operations.length} operation(s).`,
+                  "C"
+                );
+              }
+              if (cohesionGuard.operations.length === 0) {
+                runs.log(runId, "Deck cohesion pass produced no acceptable bounded operations; keeping assembled deck.", "C");
+              }
+              if (cohesionGuard.operations.length > 0) {
               const cohesionBlock = SlideBlockSchema.parse({
                 schema_version: "1.0.0",
                 block_id: "COHESION_PASS",
                 act_id: "ACT4",
                 slide_range: { start: 1, end: Math.max(1, workingDeck.slides.length) },
-                operations: cohesionPass.must_fix_operations,
+                operations: cohesionGuard.operations,
                 block_summary_out: "Applied deck cohesion pass operations."
               });
               for (const slideId of collectBlockAuthoredSlideIds(cohesionBlock)) agentAuthoredSlideIds.add(slideId);
@@ -2684,27 +3780,28 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               workingDeck = DeckSpecSchema.parse({
                 ...cohesionAssembly.deck,
                 slides: cohesionAssembly.deck.slides.map((slide) =>
-                  agentAuthoredSlideIds.has(slide.slide_id)
+                  agentAuthoredSlideIds.has(canonicalSlideIdKey(slide.slide_id))
                     ? { ...slide, authoring_provenance: "agent_authored" as const }
                     : slide
                 )
               });
               await writeIntermediateJson("C", "deck_assembly_report_cohesion_pass.json", DeckAssemblyReportSchema.parse(cohesionAssembly.report));
               await writeIntermediateJson("C", "deck_spec_after_cohesion_pass.json", workingDeck);
-              runs.log(runId, `Applied ${cohesionPass.must_fix_operations.length} cohesion-pass operation(s).`, "C");
+              runs.log(runId, `Applied ${cohesionGuard.operations.length} cohesion-pass operation(s).`, "C");
+              }
             }
           } catch (cohesionErr) {
             if (shouldAbortOnError(cohesionErr, cSignal)) throw cohesionErr;
             const msg = cohesionErr instanceof Error ? cohesionErr.message : String(cohesionErr);
             deckAuthoringContextManifest.attempts.push({
-              attempt_id: "deckCohesionPass.primary",
+              attempt_id: "deckCohesionPass.compact",
               prompt_variant: "cohesion_pass",
-              context_mode: "full",
+              context_mode: "compact",
               reason: "quality_continuity_pass",
               result: "error",
               details: clampText(msg, 320)
             });
-            if (adherenceMode === "strict") throw cohesionErr;
+            if (adherenceMode === "strict" && !isLikelyTimeoutError(msg)) throw cohesionErr;
             runs.log(runId, `Deck cohesion pass unavailable; continuing with assembled deck (${msg}).`, "C");
             recordFallback("agent_retry", "deckCohesionPass", msg);
           }
@@ -2939,6 +4036,27 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
         } else {
           runs.log(runId, "Skipped fallback polish; using authored DeckSpec content unchanged.", "C");
         }
+        const initialDeliveryNormalization = normalizeQualityDeckDeliveryModes(workingDeck, generationProfile);
+        workingDeck = initialDeliveryNormalization.deck;
+        if (initialDeliveryNormalization.adjustments.length > 0) {
+          runs.log(
+            runId,
+            `Normalized ${initialDeliveryNormalization.adjustments.length} main-deck delivery mode(s) to story-forward labels.`,
+            "C"
+          );
+          await writeIntermediateJson("C", "quality_delivery_mode_adjustments_seed.json", {
+            schema_version: "1.0.0",
+            workflow: "v2_micro_detectives",
+            generated_at: nowIso(),
+            adjustments: initialDeliveryNormalization.adjustments
+          });
+        }
+        workingDeck = stabilizeQualityDeckArtifacts({
+          deck: workingDeck,
+          topic,
+          episodeTitle: episodePitch.episode_title,
+          generationProfile
+        });
         workingDeck = stampDeckProvenance(workingDeck, { seedFromDeterministic });
         await writeIntermediateJson("C", "deck_authoring_context_manifest.json", deckAuthoringContextManifest);
         await writeIntermediateJson("C", "deck_spec_seed.json", workingDeck);
@@ -2980,6 +4098,16 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           if (cSignal.aborted) throw abortErrorFromSignal(cSignal, "Cancelled");
+          const attemptDeliveryNormalization = normalizeQualityDeckDeliveryModes(workingDeck, generationProfile);
+          workingDeck = attemptDeliveryNormalization.deck;
+          if (attemptDeliveryNormalization.adjustments.length > 0) {
+            await writeIntermediateJson("C", `quality_delivery_mode_adjustments_loop${attempt}.json`, {
+              schema_version: "1.0.0",
+              workflow: "v2_micro_detectives",
+              generated_at: nowIso(),
+              adjustments: attemptDeliveryNormalization.adjustments
+            });
+          }
           finalLintReport = V2DeckSpecLintReportSchema.parse(
             lintDeckSpecPhase1(workingDeck, {
               deckLengthConstraintEnabled: deckLengthPolicy.constraintEnabled,
@@ -3040,21 +4168,33 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
             `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}`;
           if (deterministicPlanning) {
-            finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+            finalFactcheck = normalizeMedFactcheckReport(
+              MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier)),
+              workingDeck,
+              diseaseDossier
+            );
           } else if (fallbackForLowBudget("medFactcheck.preflight", Math.max(120_000, Math.round(cTimeoutMs * 0.9)))) {
-            finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+            finalFactcheck = normalizeMedFactcheckReport(
+              MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier)),
+              workingDeck,
+              diseaseDossier
+            );
           } else {
             try {
-              finalFactcheck = MedFactcheckReportSchema.parse(
-                await runIsolatedAgentOutput({
-                  step: "C",
-                  agentKey: "medFactcheck",
-                  agent: medFactcheckAgent,
-                  prompt: medFactPrompt,
-                  maxTurns: 8,
-                  timeoutMs: cTimeoutMs,
-                  signal: cSignal
-                })
+              finalFactcheck = normalizeMedFactcheckReport(
+                MedFactcheckAgentOutputSchema.parse(
+                  await runIsolatedAgentOutput({
+                    step: "C",
+                    agentKey: "medFactcheck",
+                    agent: medFactcheckAgent,
+                    prompt: medFactPrompt,
+                    maxTurns: 8,
+                    timeoutMs: cTimeoutMs,
+                    signal: cSignal
+                  })
+                ),
+                workingDeck,
+                diseaseDossier
               );
             } catch (err) {
               if (shouldAbortOnError(err, cSignal)) throw err;
@@ -3062,12 +4202,24 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               const msg = err instanceof Error ? err.message : String(err);
               runs.log(runId, `MedFactcheck agent fallback activated (${msg}).`, "C");
               recordFallback("deterministic_fallback", "medFactcheck", msg);
-              finalFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+              finalFactcheck = normalizeMedFactcheckReport(
+                MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier)),
+                workingDeck,
+                diseaseDossier
+              );
             }
           }
-          const deterministicFactcheck = MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier));
+          const deterministicFactcheck = normalizeMedFactcheckReport(
+            MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier)),
+            workingDeck,
+            diseaseDossier
+          );
           if (adherenceMode === "strict") {
-            const mergedFactcheck = mergeStrictMedFactcheckReports(finalFactcheck, deterministicFactcheck);
+            const mergedFactcheck = normalizeMedFactcheckReport(
+              mergeStrictMedFactcheckReports(finalFactcheck, deterministicFactcheck),
+              workingDeck,
+              diseaseDossier
+            );
             if (mergedFactcheck.issues.length > finalFactcheck.issues.length) {
               runs.log(
                 runId,
@@ -3218,7 +4370,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 );
                 structuralTrace.routes.push("act_outline_regen");
                 await writeIntermediateJson("C", `act_outline_regen_loop${attempt}.json`, actOutline);
-                const nextPlans = planSlideBlocksFromOutline(actOutline);
+                const nextPlans = planSlideBlocksFromOutline(actOutline, preferredBlockSize(generationProfile));
                 if (nextPlans.length === blockPlans.length) {
                   blockPlans = nextPlans;
                 } else {
@@ -3260,6 +4412,10 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                   return false;
                 })
                 .map((fix) => `${fix.type}: ${fix.description}`);
+              const regenGuidance = buildStructuralRegenGuidance({
+                fixes: structuralFixes,
+                plan
+              });
               const regenNarrativeState = NarrativeStateSchema.parse(
                 buildNarrativeStateForBlock({
                   blockId: `${plan.blockId}:regen_loop${attempt}`,
@@ -3293,7 +4449,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               });
 
               try {
-                const regenerated = SlideBlockSchema.parse(
+                const regenerated = withResolvedSlideBlockSummary(
+                  SlideBlockSchema.parse(
                   await runIsolatedAgentOutput({
                     step: "C",
                     agentKey: "slideBlockAuthor",
@@ -3309,14 +4466,20 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                       })}\n\n` +
                       `${storyBeatsPromptSection}\n\n` +
                       `QUALITY REGEN FIXES FOR THIS BLOCK:\n${JSON.stringify(blockFixDescriptions, null, 2)}\n\n` +
+                      `QUALITY REGEN TARGET SLIDES:\n${JSON.stringify(regenGuidance.targetSlideIds, null, 2)}\n\n` +
+                      `QUALITY REGEN POLICY:\n${JSON.stringify(regenGuidance.policySummary, null, 2)}\n\n` +
                       "REGEN RULES:\n" +
                       "- Resolve the listed quality fixes in this block.\n" +
+                      "- Convert passive note_only or weak exhibit slides into clue, dialogue, or action beats when they carry a full story turn.\n" +
+                      "- If a slide remains exhibit, the exhibit must force a decision or consequence on that same slide.\n" +
+                      "- Prefer replace_window or split_slide if multiple weak slides are flattening pacing across this window.\n" +
                       "- Preserve clue continuity and unresolved thread handoffs.\n" +
                       "- Do not add placeholder/fallback wording.",
                     maxTurns: 8,
-                    timeoutMs: Math.max(90_000, Math.round(cTimeoutMs * 0.65)),
+                    timeoutMs: Math.max(120_000, Math.round(slideBlockAuthorTimeoutMs(cTimeoutMs, generationProfile, plan) * 0.85)),
                     signal: cSignal
                   })
+                  )
                 );
                 authoredBlocks[blockIndex] = regenerated;
                 for (const slideId of collectBlockAuthoredSlideIds(regenerated)) agentAuthoredSlideIds.add(slideId);
@@ -3356,16 +4519,21 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
 
             if (structuralRegenApplied) {
               const structuralAssembly = assembleDeckFromSlideBlocks({
-                scaffoldDeck: fallbackSeedDeck,
+                scaffoldDeck: workingDeck,
                 blocks: authoredBlocks
               });
-              workingDeck = DeckSpecSchema.parse({
-                ...structuralAssembly.deck,
-                slides: structuralAssembly.deck.slides.map((slide) =>
-                  agentAuthoredSlideIds.has(slide.slide_id)
-                    ? { ...slide, authoring_provenance: "agent_authored" as const }
-                    : slide
-                )
+              workingDeck = stabilizeQualityDeckArtifacts({
+                deck: DeckSpecSchema.parse({
+                  ...structuralAssembly.deck,
+                  slides: structuralAssembly.deck.slides.map((slide) =>
+                    agentAuthoredSlideIds.has(canonicalSlideIdKey(slide.slide_id))
+                      ? { ...slide, authoring_provenance: "agent_authored" as const }
+                      : slide
+                  )
+                }),
+                topic,
+                episodeTitle: episodePitch.episode_title,
+                generationProfile
               });
               await writeIntermediateJson("C", `deck_assembly_report_regen_loop${attempt}.json`, DeckAssemblyReportSchema.parse(structuralAssembly.report));
               await writeIntermediateJson("C", `deck_spec_regen_loop${attempt}.json`, workingDeck);
@@ -3389,7 +4557,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             clueGraph: workingClueGraph,
             differentialCast: workingDifferential,
             qaReport: patchQa,
-            loopIndex: attempt
+            loopIndex: attempt,
+            dossier: diseaseDossier
           });
           const patchedDeckCandidate = DeckSpecSchema.parse(patch.deck);
           const patchPolishDecision = shouldRunFallbackPolish({
@@ -3416,6 +4585,12 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               "C"
             );
           }
+          workingDeck = stabilizeQualityDeckArtifacts({
+            deck: workingDeck,
+            topic,
+            episodeTitle: episodePitch.episode_title,
+            generationProfile
+          });
           workingDeck = stampDeckProvenance(workingDeck);
           workingClueGraph = ClueGraphSchema.parse(patch.clueGraph);
           workingDifferential = DifferentialCastSchema.parse(patch.differentialCast);

@@ -50,6 +50,16 @@ type ApplyOperationState = {
   blockId: string;
 };
 
+function clampPromptText(value: string, maxChars: number): string {
+  const trimmed = String(value ?? "").trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function compactPromptJson<T>(value: T, maxChars = 2_000): string {
+  return clampPromptText(JSON.stringify(value, null, 2), maxChars);
+}
+
 function chunkSlides(start: number, end: number, preferred = 16): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
   let cursor = start;
@@ -64,6 +74,17 @@ function chunkSlides(start: number, end: number, preferred = 16): Array<{ start:
 function slideOrderValue(slideId: string): number {
   const value = Number(String(slideId).replace(/^S/i, ""));
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+}
+
+function canonicalSlideIdKey(slideId: string | undefined | null): string {
+  const raw = String(slideId ?? "").trim();
+  if (raw.length === 0) return "";
+  const numeric = raw.match(/\d+/)?.[0];
+  if (numeric) {
+    const normalized = String(Number(numeric));
+    return normalized === "NaN" ? raw.toUpperCase() : normalized;
+  }
+  return raw.toUpperCase();
 }
 
 function sortSlides(slides: DeckSlideSpec[]): DeckSlideSpec[] {
@@ -82,7 +103,8 @@ function cloneSlide(slide: DeckSlideSpec): DeckSlideSpec {
 }
 
 function findSlideIndex(slides: DeckSlideSpec[], slideId: string): number {
-  return slides.findIndex((slide) => slide.slide_id === slideId);
+  const targetKey = canonicalSlideIdKey(slideId);
+  return slides.findIndex((slide) => canonicalSlideIdKey(slide.slide_id) === targetKey);
 }
 
 function applyBlockOverride(slide: DeckSlideSpec, override: NonNullable<SlideBlock["slide_overrides"]>[number]): DeckSlideSpec {
@@ -163,7 +185,7 @@ function applyOperation(state: ApplyOperationState, operation: SlideBlockOperati
       return;
     }
     const replacement = cloneSlide(operation.replacement_slide);
-    replacement.slide_id = operation.slide_id;
+    replacement.slide_id = state.slides[idx]!.slide_id;
     state.slides.splice(idx, 1, replacement);
     return;
   }
@@ -338,10 +360,11 @@ export function buildActOutlineFallback(input: ActOutlineInput): ActOutline {
   });
 }
 
-export function planSlideBlocksFromOutline(outline: ActOutline): SlideBlockPlan[] {
+export function planSlideBlocksFromOutline(outline: ActOutline, preferredBlockSize = 16): SlideBlockPlan[] {
   const plans: SlideBlockPlan[] = [];
+  const blockSize = Math.max(8, Math.min(20, Math.round(preferredBlockSize)));
   for (const act of outline.acts) {
-    const ranges = chunkSlides(act.target_slide_span.start, act.target_slide_span.end, 16);
+    const ranges = chunkSlides(act.target_slide_span.start, act.target_slide_span.end, blockSize);
     for (let i = 0; i < ranges.length; i += 1) {
       const range = ranges[i]!;
       plans.push({
@@ -420,16 +443,16 @@ function rebuildActsFromSlides(scaffoldDeck: DeckSpec, slides: DeckSlideSpec[]):
 
 export function collectBlockAuthoredSlideIds(block: SlideBlock): string[] {
   const ids = new Set<string>();
-  for (const override of block.slide_overrides ?? []) ids.add(override.slide_id);
+  for (const override of block.slide_overrides ?? []) ids.add(canonicalSlideIdKey(override.slide_id));
   for (const op of block.operations ?? []) {
-    if (op.slide_id) ids.add(op.slide_id);
-    if (op.start_slide_id) ids.add(op.start_slide_id);
-    if (op.end_slide_id) ids.add(op.end_slide_id);
-    if (op.after_slide_id) ids.add(op.after_slide_id);
-    if (op.replacement_slide?.slide_id) ids.add(op.replacement_slide.slide_id);
-    for (const slide of op.replacement_slides ?? []) ids.add(slide.slide_id);
+    if (op.slide_id) ids.add(canonicalSlideIdKey(op.slide_id));
+    if (op.start_slide_id) ids.add(canonicalSlideIdKey(op.start_slide_id));
+    if (op.end_slide_id) ids.add(canonicalSlideIdKey(op.end_slide_id));
+    if (op.after_slide_id) ids.add(canonicalSlideIdKey(op.after_slide_id));
+    if (op.replacement_slide?.slide_id) ids.add(canonicalSlideIdKey(op.replacement_slide.slide_id));
+    for (const slide of op.replacement_slides ?? []) ids.add(canonicalSlideIdKey(slide.slide_id));
   }
-  return [...ids];
+  return [...ids].filter((id) => id.length > 0);
 }
 
 export function assembleDeckFromSlideBlocks(input: ApplyBlocksInput): { deck: DeckSpec; report: DeckAssemblyReport } {
@@ -461,6 +484,10 @@ export function assembleDeckFromSlideBlocks(input: ApplyBlocksInput): { deck: De
   const rebuiltActs = rebuildActsFromSlides(input.scaffoldDeck, normalizedSlides);
   const deck = DeckSpecSchema.parse({
     ...input.scaffoldDeck,
+    deck_meta: {
+      ...input.scaffoldDeck.deck_meta,
+      deck_length_main: String(normalizedSlides.length)
+    },
     acts: rebuiltActs,
     slides: normalizedSlides
   });
@@ -557,10 +584,41 @@ export function buildBlockPromptContext(input: {
     drama_focus: unknown;
     setpiece_focus: unknown;
   };
+  mode?: "primary" | "retry_compact";
 }): string {
   const act = input.actOutline.acts.find((candidate) => candidate.act_id === input.plan.actId);
+  const mode = input.mode ?? "primary";
+  const narrativeState =
+    mode === "retry_compact"
+      ? {
+          current_false_theory: input.narrativeState.current_false_theory,
+          relationship_state_detective_deputy: input.narrativeState.relationship_state_detective_deputy,
+          unresolved_emotional_thread: input.narrativeState.unresolved_emotional_thread,
+          active_clue_obligations: input.narrativeState.active_clue_obligations.slice(0, 5),
+          active_motif_callback_lexicon: input.narrativeState.active_motif_callback_lexicon.slice(0, 5),
+          pressure_channels: input.narrativeState.pressure_channels.slice(0, 5),
+          recent_slide_excerpts: input.narrativeState.recent_slide_excerpts.slice(0, 2),
+          active_differential_ordering: input.narrativeState.active_differential_ordering.slice(0, 4),
+          delta_from_previous_block: input.narrativeState.delta_from_previous_block,
+          canonical_profile_excerpt: clampPromptText(input.narrativeState.canonical_profile_excerpt, 600),
+          episode_memory_excerpt: clampPromptText(input.narrativeState.episode_memory_excerpt, 420)
+        }
+      : input.narrativeState;
+  const medicalSlice =
+    mode === "retry_compact"
+      ? {
+          dossier_focus: input.medicalSlice.dossier_focus,
+          truth_focus: input.medicalSlice.truth_focus,
+          differential_focus: input.medicalSlice.differential_focus,
+          clue_focus: input.medicalSlice.clue_focus,
+          micro_world_focus: input.medicalSlice.micro_world_focus,
+          drama_focus: input.medicalSlice.drama_focus,
+          setpiece_focus: input.medicalSlice.setpiece_focus
+        }
+      : input.medicalSlice;
   return [
     `TOPIC:\n${input.topic}`,
+    `BLOCK AUTHORING RULES:\n- Replacement slides must be fully authored, not scaffold echoes.\n- Never return scaffold placeholders such as [SCAFFOLD], TBD, TODO, DX_PRIMARY, DX_ALTERNATE, MC-PATCH-*, or CIT-KB-001.\n- If optional citation fields are unavailable, omit them instead of emitting empty strings.\n- Prefer fewer, stronger operations over preserving weak scaffold language.\n- Main-deck slides should default to delivery_mode clue, dialogue, or action.\n- Use exhibit only when the exhibit itself forces a decision or consequence on the same slide.\n- Avoid note_only in the main deck; reserve it for appendix or truly minimal bridge beats, and even then preserve a concrete decision/consequence.\n- When a block is repairing weak story turns, convert passive summary slides into active clue, dialogue, or action beats instead of summarizing the same material again.\n- If the current pacing is weak, prefer replace_window or split_slide over preserving a flat slide just because it already exists.`,
     `BLOCK PLAN (json):\n${JSON.stringify(input.plan, null, 2)}`,
     `ACT OBLIGATIONS (json):\n${JSON.stringify(act ?? null, null, 2)}`,
     `STORY BLUEPRINT DIGEST (json):\n${JSON.stringify(
@@ -573,7 +631,7 @@ export function buildBlockPromptContext(input: {
       null,
       2
     )}`,
-    `NARRATIVE STATE (json):\n${JSON.stringify(input.narrativeState, null, 2)}`,
-    `COMPACT MEDICAL CONTEXT (json):\n${JSON.stringify(input.medicalSlice, null, 2)}`
+    `NARRATIVE STATE (json):\n${mode === "retry_compact" ? compactPromptJson(narrativeState, 2_200) : compactPromptJson(narrativeState, 3_600)}`,
+    `COMPACT MEDICAL CONTEXT (json):\n${mode === "retry_compact" ? compactPromptJson(medicalSlice, 2_800) : compactPromptJson(medicalSlice, 3_800)}`
   ].join("\n\n");
 }

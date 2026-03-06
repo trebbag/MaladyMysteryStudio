@@ -12,6 +12,7 @@ Non-negotiables (always):
    - Do not info-dump. Medical facts are delivered as clues, hazards, tools, motives, and consequences.
 2) MEDICAL ACCURACY IS STRICT AND TRACEABLE.
    - Use only facts supported by DiseaseDossier and cite with citation_id (+ chunk_id when available).
+   - If `chunk_id` or `locator` is unavailable, omit that key entirely. Never emit empty strings for optional citation fields.
    - If uncertain, mark uncertainty and specify the in-story verification move.
 3) SLIDE-DECK NATIVE CONSTRAINTS.
    - Deck length is unconstrained by default. If CaseRequest enables deck_length_main, treat it as a soft target only.

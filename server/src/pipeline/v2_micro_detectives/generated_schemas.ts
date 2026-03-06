@@ -25,7 +25,7 @@ export const V2CanonicalSchemaFiles = [
 export const V2CanonicalSchemaHashes = {
   "clue_graph.schema.json": "9bfef9b2ce5eb527815b1a0b120a7e7e33caf6ce020b3665931667c203188627",
   "deck_cohesion_pass.schema.json": "07afdb214172dffc94d8c9c549c576f2a72bfe2c5fc75df30e6b9aeff164167d",
-  "deck_spec.schema.json": "6ec27011b5ff01a3a8c3f9380699144b6cfcc364ddeb2475db35aa0e2c241f65",
+  "deck_spec.schema.json": "844d13f0c31e6819435601288b80b5e9fb23be79a51dcf9f3ebc00e55095d2e3",
   "differential_cast.schema.json": "bfe2185c9cb8cbbafbce69edea1dc8efdb151616f95f2030710c04784d3a47bd",
   "disease_dossier.schema.json": "de476862b0241e0892dcd080ae50b6d554a8faad141ed26cd0b2b46bca8dff36",
   "drama_plan.schema.json": "127ed37fce3f542c914d2c537bc52d27882699d47fb03f5c401f1f373abf92a9",
@@ -37,7 +37,7 @@ export const V2CanonicalSchemaHashes = {
   "qa_report.schema.json": "d0e372d88543777c7386d939f9f99ac03a16f110fe12c4c3feb2588713dfd6b0",
   "reader_sim_report.schema.json": "88d0c4c29ed0bc920f162346b4dcbceb02f53e44536a5a20ec1ef2a99170315c",
   "setpiece_plan.schema.json": "d47f24d4af9ef745df7c79fc937b340d7caf436724a5ead50627ddb9043d8c80",
-  "slide_block.schema.json": "3645c6d9e0b2024656536361bf1ec4747150887c0edf38c9485e1b03a7ce1e46",
+  "slide_block.schema.json": "766d55568217b50e27e36624ee51f56c498c4256e5aa0f9ee0b5613e0847c331",
   "truth_model.schema.json": "193a89566bed9b9fb2b08a89816d1970e054008ea0f5b32e593f7fc10cfa10e2"
 } as const;
 
@@ -954,12 +954,7 @@ export const V2CanonicalSchemas = {
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": [
-                  "physical",
-                  "institutional",
-                  "relational",
-                  "moral"
-                ]
+                "minLength": 1
               }
             },
             "hook": {
@@ -1290,12 +1285,7 @@ export const V2CanonicalSchemas = {
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": [
-                  "physical",
-                  "institutional",
-                  "relational",
-                  "moral"
-                ]
+                "minLength": 1
               }
             },
             "hook": {
@@ -4887,8 +4877,7 @@ export const V2CanonicalSchemas = {
       "schema_version",
       "block_id",
       "act_id",
-      "slide_range",
-      "block_summary_out"
+      "slide_range"
     ],
     "properties": {
       "schema_version": {
@@ -4927,8 +4916,7 @@ export const V2CanonicalSchemas = {
         }
       },
       "prior_block_summary": {
-        "type": "string",
-        "minLength": 1
+        "type": "string"
       },
       "unresolved_threads_in": {
         "type": "array",
@@ -4939,7 +4927,6 @@ export const V2CanonicalSchemas = {
       },
       "slide_overrides": {
         "type": "array",
-        "minItems": 1,
         "items": {
           "type": "object",
           "additionalProperties": false,
@@ -4987,7 +4974,6 @@ export const V2CanonicalSchemas = {
       },
       "operations": {
         "type": "array",
-        "minItems": 1,
         "items": {
           "type": "object",
           "additionalProperties": false,
@@ -5053,12 +5039,24 @@ export const V2CanonicalSchemas = {
       {
         "required": [
           "slide_overrides"
-        ]
+        ],
+        "properties": {
+          "slide_overrides": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
       },
       {
         "required": [
           "operations"
-        ]
+        ],
+        "properties": {
+          "operations": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
       }
     ]
   },

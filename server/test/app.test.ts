@@ -7,6 +7,7 @@ import http from "node:http";
 import { RunManager } from "../src/run_manager.js";
 import { createApp } from "../src/app.js";
 import { artifactAbsPath, runFinalDirAbs, runIntermediateDirAbs, runOutputDirAbs } from "../src/pipeline/utils.js";
+import { defaultStepSloThresholdsForSettings } from "../src/slo_policy.js";
 
 let tmpOut: string | null = null;
 
@@ -468,6 +469,32 @@ describe("server app", () => {
     expect(res.status).toBe(200);
     expect(res.body.stepSlo.evaluations.B.status).toBe("ok");
     expect(res.body.stepSlo.evaluations.C.status).toBe("n/a");
+  });
+
+  it("GET /api/runs/:runId uses workflow-aware defaults for v2 quality runs when no persisted policy exists", async () => {
+    const runs = new RunManager();
+    const app = createApp(runs, makeExecutor() as never);
+    const run = await runs.createRun("topic", {
+      workflow: "v2_micro_detectives",
+      generationProfile: "quality",
+      adherenceMode: "strict",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      deckLengthConstraintEnabled: false
+    });
+
+    await runs.setStepNoEvent(run.runId, "A", {
+      status: "done",
+      startedAt: "2020-01-01T00:00:00.000Z",
+      finishedAt: "2020-01-01T00:06:30.000Z",
+      artifacts: []
+    });
+
+    const res = await request(app).get(`/api/runs/${run.runId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.stepSlo.evaluations.A.thresholdMs).toBe(
+      defaultStepSloThresholdsForSettings({ workflow: "v2_micro_detectives", generationProfile: "quality" }).A
+    );
+    expect(res.body.stepSlo.evaluations.A.status).toBe("ok");
   });
 
   it("POST /api/runs accepts settings", async () => {

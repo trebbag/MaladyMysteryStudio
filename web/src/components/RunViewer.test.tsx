@@ -635,7 +635,7 @@ describe("RunViewer", () => {
           text: JSON.stringify({
             character_arcs: [
               {
-                character_id: "CYTO"
+                act_turns: [{}]
               }
             ],
             relationship_arcs: [{}]
@@ -663,9 +663,12 @@ describe("RunViewer", () => {
 
     expect(await screen.findByText("V2 artifact inspectors")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Drama Plan" }));
+    expect(await screen.findByText(/Character 1/i)).toBeInTheDocument();
     expect(await screen.findByText(/Pair 1/i)).toBeInTheDocument();
     expect(await screen.findByText(/^core need$/i)).toBeInTheDocument();
     expect(await screen.findByText(/^core fear$/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/ACT\?/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/- \/ - \/ -/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Setpieces" }));
     expect(await screen.findByText(/SP-001/i)).toBeInTheDocument();
@@ -704,6 +707,63 @@ describe("RunViewer", () => {
     expect(screen.queryByText(/Storyboard review required/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/V2 artifact inspectors/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/V2 packaging status/i)).not.toBeInTheDocument();
+  });
+
+  it("ignores v2 diagnostics artifacts for legacy runs and never fetches their payloads", async () => {
+    vi.mocked(getRun).mockResolvedValueOnce({
+      runId: "legacy-v2-diagnostics",
+      topic: "legacy diagnostics compatibility",
+      status: "done",
+      startedAt: "2026-02-09T00:00:00.000Z",
+      finishedAt: "2026-02-09T00:10:00.000Z",
+      outputFolder: "output/legacy-v2-diagnostics",
+      settings: { workflow: "legacy", targetSlides: 140, adherenceMode: "strict" },
+      steps: makeSteps("done")
+    } as never);
+    vi.mocked(listArtifacts).mockResolvedValueOnce([
+      { name: "final_slide_spec_patched.json", size: 100, mtimeMs: 20, folder: "final" },
+      { name: "v2_stage_authoring_provenance.json", size: 20, mtimeMs: 19, folder: "intermediate" },
+      { name: "story_beats_alignment_report.json", size: 20, mtimeMs: 18, folder: "intermediate" },
+      { name: "narrative_state_current.json", size: 20, mtimeMs: 17, folder: "intermediate" },
+      { name: "deck_authoring_context_manifest.json", size: 20, mtimeMs: 16, folder: "intermediate" },
+      { name: "block_regen_trace_loop3.json", size: 20, mtimeMs: 15, folder: "intermediate" }
+    ]);
+    vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
+      if (name === "final_slide_spec_patched.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            final_slide_spec: {
+              slides: [
+                {
+                  slide_id: "S01",
+                  title: "Legacy slide"
+                }
+              ]
+            }
+          })
+        };
+      }
+      return { contentType: "application/json", text: "{broken-json" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/runs/legacy-v2-diagnostics"]}>
+        <Routes>
+          <Route path="/runs/:runId" element={<RunViewer />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Slide spec diffs")).toBeInTheDocument();
+    expect(screen.queryByText(/V2 stage provenance/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Story beats alignment/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/V2 block authoring diagnostics/i)).not.toBeInTheDocument();
+    expect(fetchArtifact).not.toHaveBeenCalledWith("legacy-v2-diagnostics", "v2_stage_authoring_provenance.json");
+    expect(fetchArtifact).not.toHaveBeenCalledWith("legacy-v2-diagnostics", "story_beats_alignment_report.json");
+    expect(fetchArtifact).not.toHaveBeenCalledWith("legacy-v2-diagnostics", "narrative_state_current.json");
+    expect(fetchArtifact).not.toHaveBeenCalledWith("legacy-v2-diagnostics", "deck_authoring_context_manifest.json");
+    expect(fetchArtifact).not.toHaveBeenCalledWith("legacy-v2-diagnostics", "block_regen_trace_loop3.json");
   });
 
   it("renders paused gate controls and submits review/resume actions", async () => {
@@ -2190,7 +2250,11 @@ describe("RunViewer", () => {
     vi.mocked(listArtifacts).mockResolvedValueOnce([
       { name: "deck_spec.json", size: 100, mtimeMs: 20, folder: "final" },
       { name: "v2_stage_authoring_provenance.json", size: 80, mtimeMs: 19, folder: "intermediate" },
-      { name: "story_beats_alignment_report.json", size: 90, mtimeMs: 18, folder: "intermediate" }
+      { name: "story_beats_alignment_report.json", size: 90, mtimeMs: 18, folder: "intermediate" },
+      { name: "narrative_state_current.json", size: 95, mtimeMs: 17, folder: "intermediate" },
+      { name: "deck_authoring_context_manifest.json", size: 96, mtimeMs: 16, folder: "intermediate" },
+      { name: "block_regen_trace_loop1.json", size: 97, mtimeMs: 15, folder: "intermediate" },
+      { name: "block_regen_trace_loop2.json", size: 98, mtimeMs: 14, folder: "intermediate" }
     ]);
     vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
       if (name === "deck_spec.json") {
@@ -2267,6 +2331,67 @@ describe("RunViewer", () => {
           })
         };
       }
+      if (name === "narrative_state_current.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            block_id: "ACT2_B01",
+            current_false_theory: "Anchored on a mimic syndrome.",
+            relationship_state_detective_deputy: "Deputy challenges Detective certainty.",
+            unresolved_emotional_thread: "Trust remains fragile after midpoint fracture.",
+            active_clue_obligations: ["CLUE_A", "CLUE_B"],
+            active_motif_callback_lexicon: ["caseboard", "forensic motif"],
+            pressure_channels: ["time pressure", "relationship tension"],
+            recent_slide_excerpts: ["S18 clue push", "S19 reversal"],
+            active_differential_ordering: ["DX-1", "DX-2"],
+            delta_from_previous_block: "Moved from lock-in to fracture."
+          })
+        };
+      }
+      if (name === "deck_authoring_context_manifest.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            generated_at: "2026-02-09T00:09:00.000Z",
+            generation_profile: "quality",
+            attempts: [
+              {
+                attempt_id: "primary-full",
+                prompt_variant: "primary",
+                context_mode: "full",
+                reason: "initial",
+                result: "success"
+              }
+            ]
+          })
+        };
+      }
+      if (name === "block_regen_trace_loop1.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            loop: 1,
+            fix_count: 2,
+            fix_types: ["increase_story_turn", "regenerate_section"],
+            routes: ["regen_act_outline", "regen_block"],
+            regenerated_blocks: ["ACT2_B01"],
+            warnings: []
+          })
+        };
+      }
+      if (name === "block_regen_trace_loop2.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            loop: 2,
+            fix_count: 1,
+            fix_types: ["regenerate_section"],
+            routes: ["regen_block"],
+            regenerated_blocks: ["ACT3_B01"],
+            warnings: ["fallback path used once"]
+          })
+        };
+      }
       return { contentType: "text/plain", text: "ok" };
     });
 
@@ -2285,6 +2410,11 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/Story-beat mapping coverage is low/i)).toBeInTheDocument();
     expect(await screen.findByText(/ACT1_B01/i)).toBeInTheDocument();
     expect(await screen.findByText(/S01 · ACT1 · aligned/i)).toBeInTheDocument();
+    expect(await screen.findByText("V2 block authoring diagnostics")).toBeInTheDocument();
+    expect(await screen.findByText(/narrative_state_current: present/i)).toBeInTheDocument();
+    expect(await screen.findByText(/authoring_context_manifest: present/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Latest regen trace/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Latest regen trace \(block_regen_trace_loop2\.json\)/i)).toBeInTheDocument();
   });
 
   it("renders v2 packaging inspector details and canonical source fallback values", async () => {

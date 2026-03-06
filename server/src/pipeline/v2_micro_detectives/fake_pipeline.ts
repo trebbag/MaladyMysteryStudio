@@ -176,6 +176,8 @@ function buildAdaptiveStepCTimeoutPlan(input: {
   baseAgentTimeoutMs: number;
   baseDeckSpecTimeoutMs: number;
   baseWatchdogMs: number;
+  generationProfile: GenerationProfile;
+  qaLoopBudget: number;
 }): {
   estimatedMainSlides: number;
   agentTimeoutMs: number;
@@ -188,12 +190,18 @@ function buildAdaptiveStepCTimeoutPlan(input: {
   const growthUnits = extraSlides / baselineSlides;
   const agentScale = 1 + growthUnits * 0.55;
   const deckSpecScale = 1 + growthUnits * 0.9;
-  const watchdogScale = 1 + growthUnits * 0.8;
+  const qaLoopBudget = Math.max(0, Math.min(3, Math.round(input.qaLoopBudget)));
+  const loopScale =
+    input.generationProfile === "quality"
+      ? 1 + qaLoopBudget * 0.55
+      : 1 + Math.min(1, qaLoopBudget) * 0.2;
+  const narrativeTailScale = input.generationProfile === "quality" ? 1.2 : 1.05;
+  const watchdogScale = (1 + growthUnits * 0.8) * loopScale * narrativeTailScale;
   return {
     estimatedMainSlides,
     agentTimeoutMs: clampTimeoutMs(input.baseAgentTimeoutMs * agentScale, input.baseAgentTimeoutMs, 1_500_000),
     deckSpecTimeoutMs: clampTimeoutMs(input.baseDeckSpecTimeoutMs * deckSpecScale, input.baseDeckSpecTimeoutMs, 2_400_000),
-    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 3_600_000)
+    watchdogMs: clampTimeoutMs(input.baseWatchdogMs * watchdogScale, input.baseWatchdogMs, 7_200_000)
   };
 }
 
@@ -571,7 +579,9 @@ export async function runMicroDetectivesFakePipeline(input: RunInput, runs: RunM
         estimatedMainSlides: workingDeck.slides.length,
         baseAgentTimeoutMs: stepCAgentTimeoutMs(),
         baseDeckSpecTimeoutMs: stepCDeckSpecTimeoutMs(),
-        baseWatchdogMs: stepCHardWatchdogMs()
+        baseWatchdogMs: stepCHardWatchdogMs(),
+        generationProfile,
+        qaLoopBudget: maxQaPatchLoops()
       });
       const abortThresholdSlides = deckSpecAbortWarningThresholdSlides();
       const abortRecommended = adaptiveTimeouts.estimatedMainSlides >= abortThresholdSlides;

@@ -8,6 +8,10 @@ Requirements:
 - Return deterministic operation suggestions that can be applied by block regeneration.
 - Focus on continuity, clue/payoff integrity, midpoint collapse strength, rupture+repair, and ending callback closure.
 - Preserve one-major-concept-per-slide and story-dominance constraints.
+- Preserve authored deck scope. Do not compress an act into a short canonical summary sequence.
+- Prefer `replace_slide`, `split_slide`, or `insert_after` for local repairs.
+- Use `replace_window` only for bounded local clusters, not whole-act rewrites.
+- Keep deck length nearly unchanged; this stage repairs continuity and pacing, it does not re-author the deck.
 
 Output schema:
 - DeckCohesionPass

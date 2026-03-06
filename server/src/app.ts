@@ -39,7 +39,10 @@ import {
   StoryBeatsSchema
 } from "./pipeline/workshop.js";
 import {
+  clearStepSloPolicy,
   defaultStepSloPolicy,
+  defaultStepSloThresholdsForSettings,
+  hasPersistedStepSloPolicy,
   loadStepSloPolicy,
   normalizeThresholdOverrides,
   saveStepSloPolicy,
@@ -340,6 +343,7 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
   let sloPolicy: StepSloPolicy | null = null;
+  let sloPolicyPersisted: boolean | null = null;
 
   async function readChapterOutline(runId: string) {
     const chapterPath = await resolveArtifactPathAbs(runId, "chapter_outline.json");
@@ -397,21 +401,38 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
 
   async function ensureSloPolicy(): Promise<StepSloPolicy> {
     if (sloPolicy) return sloPolicy;
+    sloPolicyPersisted = await hasPersistedStepSloPolicy();
     sloPolicy = await loadStepSloPolicy();
     return sloPolicy;
+  }
+
+  async function usingPersistedSloPolicy(): Promise<boolean> {
+    if (sloPolicyPersisted !== null) return sloPolicyPersisted;
+    sloPolicyPersisted = await hasPersistedStepSloPolicy();
+    return sloPolicyPersisted;
   }
 
   async function policyEnvelope(): Promise<{
     policy: StepSloPolicy;
     bounds: { minMs: number; maxMs: number };
     defaults: Record<StepName, number>;
+    workflowDefaults: {
+      legacy: Record<StepName, number>;
+      v2Quality: Record<StepName, number>;
+      v2Pilot: Record<StepName, number>;
+    };
   }> {
     const policy = await ensureSloPolicy();
-    const defaults = defaultStepSloPolicy().thresholdsMs;
+    const defaults = defaultStepSloThresholdsForSettings({ workflow: LEGACY_WORKFLOW });
     return {
       policy,
       bounds: { minMs: STEP_SLO_MIN_MS, maxMs: STEP_SLO_MAX_MS },
-      defaults
+      defaults,
+      workflowDefaults: {
+        legacy: defaultStepSloThresholdsForSettings({ workflow: LEGACY_WORKFLOW }),
+        v2Quality: defaultStepSloThresholdsForSettings({ workflow: V2_WORKFLOW, generationProfile: "quality" }),
+        v2Pilot: defaultStepSloThresholdsForSettings({ workflow: V2_WORKFLOW, generationProfile: "pilot" })
+      }
     };
   }
 
@@ -480,7 +501,15 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
       return;
     }
 
-    const base = parsed.data.reset ? defaultStepSloPolicy() : await ensureSloPolicy();
+    if (parsed.data.reset) {
+      await clearStepSloPolicy();
+      sloPolicy = defaultStepSloPolicy();
+      sloPolicyPersisted = false;
+      res.json(await policyEnvelope());
+      return;
+    }
+
+    const base = await ensureSloPolicy();
     const thresholdsMs = normalizeThresholdOverrides(parsed.data.thresholdsMs ?? {}, base.thresholdsMs);
     const next: StepSloPolicy = {
       thresholdsMs,
@@ -488,6 +517,7 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
     };
     await saveStepSloPolicy(next);
     sloPolicy = next;
+    sloPolicyPersisted = true;
     res.json(await policyEnvelope());
   });
 
@@ -498,7 +528,10 @@ export function createApp(runs: RunManager, executor: RunExecutor, options: AppO
       return;
     }
     const policy = await ensureSloPolicy();
-    res.json(attachStepSlo(run, policy.thresholdsMs));
+    const thresholdsMs = (await usingPersistedSloPolicy())
+      ? policy.thresholdsMs
+      : defaultStepSloThresholdsForSettings(run.settings);
+    res.json(attachStepSlo(run, thresholdsMs));
   });
 
   app.get("/api/runs/:runId/chapter-outline", async (req, res) => {

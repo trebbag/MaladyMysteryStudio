@@ -8,7 +8,9 @@ function parseArgs(argv) {
   const options = {
     baseUrl: "http://localhost:5050",
     outputDir: ".ci/pilot",
-    deckLength: 30,
+    deckLength: null,
+    generationProfile: "quality",
+    adherenceMode: "strict",
     timeoutMinutes: 35,
     topics: [],
     enforceSlo: true
@@ -33,6 +35,16 @@ function parseArgs(argv) {
     }
     if (arg === "--deck-length") {
       options.deckLength = Number(argv[i + 1] || options.deckLength);
+      i += 1;
+      continue;
+    }
+    if (arg === "--generation-profile") {
+      options.generationProfile = argv[i + 1] || options.generationProfile;
+      i += 1;
+      continue;
+    }
+    if (arg === "--adherence") {
+      options.adherenceMode = argv[i + 1] || options.adherenceMode;
       i += 1;
       continue;
     }
@@ -155,8 +167,10 @@ async function main() {
     options.baseUrl,
     "--output-dir",
     options.outputDir,
-    "--deck-length",
-    String(options.deckLength),
+    "--generation-profile",
+    options.generationProfile,
+    "--adherence",
+    options.adherenceMode,
     "--timeout-minutes",
     String(options.timeoutMinutes),
     "--min-qa-accept-rate",
@@ -188,6 +202,11 @@ async function main() {
     "--max-timeout-rate",
     "0.1"
   ];
+  if (Number.isFinite(options.deckLength)) {
+    harnessArgs.push("--deck-length", String(options.deckLength));
+  } else {
+    harnessArgs.push("--no-deck-length-constraint");
+  }
   if (options.enforceSlo) harnessArgs.push("--enforce-slo");
   for (const topic of options.topics) {
     harnessArgs.push("--topic", topic);
@@ -195,6 +214,7 @@ async function main() {
 
   runCommand("v2-pilot-quality", "node", harnessArgs);
   runCommand("v2-pilot-trend", "node", ["scripts/build_v2_pilot_trend_report.mjs"]);
+  runCommand("v2-semantic-calibration", "node", ["scripts/calibrate_v2_semantic_thresholds.mjs"]);
   runCommand("v2-asset-lock", "node", ["scripts/build_v2_asset_lock.mjs"]);
 
   const latestReportPath = path.join(options.outputDir, "v2-pilot-quality-latest.json");

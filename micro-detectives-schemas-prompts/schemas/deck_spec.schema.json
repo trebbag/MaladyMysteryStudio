@@ -461,12 +461,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
-                "physical",
-                "institutional",
-                "relational",
-                "moral"
-              ]
+              "minLength": 1
             }
           },
           "hook": {
@@ -797,12 +792,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
-                "physical",
-                "institutional",
-                "relational",
-                "moral"
-              ]
+              "minLength": 1
             }
           },
           "hook": {

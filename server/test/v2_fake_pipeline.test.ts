@@ -331,6 +331,31 @@ describe("v2 fake pipeline", () => {
     expect(status?.v2DeckSpecEstimate?.abortRecommended).toBe(false);
   });
 
+  it("budgets extra quality-mode watchdog time for unconstrained decks with QA loops", async () => {
+    const runs = new RunManager();
+    const run = await runs.createRun(
+      "Very long unconstrained storyline to force a large estimated deck size with many detail terms and clinical branches",
+      {
+        workflow: "v2_micro_detectives",
+        generationProfile: "quality",
+        deckLengthConstraintEnabled: false,
+        audienceLevel: "PHYSICIAN_LEVEL",
+        adherenceMode: "warn"
+      }
+    );
+
+    await advanceToGate3Pause(runs, run.runId, run.topic, run.settings);
+
+    const timeoutPlanRaw = await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "deck_spec_timeout_plan.json"), "utf8");
+    const timeoutPlan = JSON.parse(timeoutPlanRaw) as {
+      estimate: { main_slide_count: number };
+      adaptive_timeouts_ms: { watchdog: number };
+    };
+
+    expect(timeoutPlan.estimate.main_slide_count).toBeGreaterThan(45);
+    expect(timeoutPlan.adaptive_timeouts_ms.watchdog).toBeGreaterThan(3_600_000);
+  });
+
   it("flags abort recommendation when estimate exceeds threshold", async () => {
     const runs = new RunManager();
     const run = await runs.createRun("Unconstrained threshold hit topic with multiple words to increase deck size", {

@@ -39,6 +39,10 @@ This runbook is the operator checklist for piloting `workflow=v2_micro_detective
      - abort threshold + warning state
    - If estimate exceeds pilot budget, use `Abort run` before long C generation completes.
    - Resolve gate pauses at Gate 1/2/3 using Review + Resume.
+   - In quality runs, verify the v2 diagnostics panels are populated:
+     - `V2 stage provenance`
+     - `Story beats alignment`
+     - `V2 block authoring diagnostics` (`narrative_state_current`, `deck_authoring_context_manifest`, latest `block_regen_trace_loopN`)
 4. Inspect artifacts:
    - `deck_spec.json`
    - `disease_dossier.json`
@@ -84,7 +88,37 @@ Use the harness for batch quality scoring and reports:
    - `.ci/pilot/v2-pilot-quality-latest.json`
    - `.ci/pilot/v2-pilot-quality-latest.md`
 
-## 7) Semantic Threshold Calibration
+## 7) Real-Key Quality Smoke Checklist (Single-Run)
+
+Use this when you need one deterministic operator check (not a full harness batch):
+
+1. Start app (`npm run start`).
+2. Run smoke checklist:
+   - `npm run smoke:v2:quality -- --topic "Community-acquired pneumonia in adults"`
+3. What it enforces:
+   - Gate-aware completion (auto approve/resume through Gate 1/2/3/4).
+   - Final run status `done`.
+   - Required v2 authored/planning artifacts present.
+   - Narrative markers in generated deck:
+     - opening hook signal
+     - false-theory lock-in
+     - midpoint collapse
+     - detective/deputy rupture + repair
+     - ending callback signal
+   - Twist receipts in clue graph.
+   - Story-planning provenance is fully agent-authored in quality mode.
+4. Output:
+   - success/fail summary in terminal with per-check diagnostics
+   - `.ci/smoke/v2-quality-smoke-latest.json`
+   - `.ci/smoke/v2-quality-smoke-latest.md`
+5. Refresh smoke trend history after repeated checks:
+   - `npm run smoke:v2:quality:trend`
+6. Smoke trend outputs:
+   - `.ci/smoke-report/v2-quality-smoke-trend-history.json`
+   - `.ci/smoke-report/v2-quality-smoke-trend-history.md`
+   - `.ci/smoke-report/v2-quality-smoke-trend-history.html`
+
+## 8) Semantic Threshold Calibration
 
 After collecting pilot batch results, calibrate semantic defaults from observed quality metrics:
 
@@ -101,7 +135,35 @@ After collecting pilot batch results, calibrate semantic defaults from observed 
    - `MMS_V2_MIN_CITATION_GROUNDING_COVERAGE`
 5. Re-run a quality batch to verify new thresholds before promotion.
 
-## 8) Common Failure Triage
+## 9) Real-Key Batch Defaults
+
+1. `npm run pilot:v2:quality` now defaults to:
+   - `generationProfile=quality`
+   - `adherenceMode=strict`
+   - unconstrained deck length
+2. Use `--deck-length 30|45|60` only when you intentionally want a soft-target batch.
+3. Use `--generation-profile pilot --adherence warn` only for resilience-first soak/harness runs.
+
+## 10) Common Failure Triage
+
+### Current Real-Key Timing Baseline (March 6, 2026)
+
+Use these as the current v2 quality-mode operator expectations from live runs on `Community-acquired pneumonia in adults`:
+
+1. Early-step reliability:
+   - `KB0` now clears in quality mode with compact retry support; observed completion was about `37s`.
+   - `A` and `B` now clear in quality mode with compact retry support and longer budgets.
+2. Step `C` long poles currently observed:
+   - `differentialCast`: about `40s`
+   - `clueArchitect`: about `92s`
+   - `microWorldMap`: about `303s`
+   - `dramaPlan`: about `83s`
+   - `setpiecePlan`: about `254s`
+   - `slideBlockAuthor`: observed blocks from about `73s` to `218s`
+3. Practical operator implication:
+   - Do not treat a `C` run as stuck merely because nothing visible happens in the first few minutes.
+   - The current expected hot spots are `microWorldMap`, `setpiecePlan`, and later slide-block calls.
+   - If you lower local watchdog/SLO settings below these observed ranges, you will create false alarms.
 
 1. Gate stuck in `request_changes`:
    - Submit `approve` or `regenerate`, then call resume.
@@ -118,7 +180,7 @@ After collecting pilot batch results, calibrate semantic defaults from observed 
    - Review `fallback_usage.json` and `agent_call_durations_C.json` for slow/failing agent calls.
    - If estimated length is above threshold, abort and restart with tighter constraints or narrower topic scope.
 
-## 9) Pilot Exit Criteria
+## 11) Pilot Exit Criteria
 
 1. Pre-pilot checklist green: `npm run pilot:checklist`.
 2. Real-key batch quality meets configured SLO thresholds.

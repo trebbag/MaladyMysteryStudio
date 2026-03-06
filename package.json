@@ -16,6 +16,8 @@
     "test:e2e:soak": "npm --workspace web run test:e2e:soak",
     "test:coverage": "npm --workspace server run test:coverage && npm --workspace web run test:coverage",
     "smoke:live": "node scripts/live_smoke_test.mjs",
+    "smoke:v2:quality": "node scripts/v2_quality_smoke_checklist.mjs",
+    "smoke:v2:quality:trend": "node scripts/build_v2_smoke_trend_report.mjs",
     "pilot:v2:quality": "node scripts/v2_pilot_quality_harness.mjs",
     "pilot:v2:quality:promotion": "node scripts/v2_pilot_quality_harness.mjs --phase promotion --enforce-slo",
     "pilot:v2:quality:fake": "node scripts/v2_pilot_quality_fake_batch.mjs",
@@ -29,7 +31,8 @@
     "v2:schemas:check": "node scripts/generate_v2_schemas.mjs --check",
     "v2:assets:lock": "node scripts/build_v2_asset_lock.mjs",
     "v2:assets:lock:check": "node scripts/build_v2_asset_lock.mjs --check",
-    "v2:assets:sync:check": "node scripts/check_v2_asset_sync.mjs"
+    "v2:assets:sync:check": "node scripts/check_v2_asset_sync.mjs",
+    "v2:drift:check": "npm run v2:assets:lock:check && npm run v2:assets:sync:check && npm run v2:schemas:check && git diff --exit-code -- server/src/pipeline/v2_micro_detectives/generated_schemas.ts server/src/pipeline/v2_micro_detectives/assets/PROMPT_LOCK.json"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

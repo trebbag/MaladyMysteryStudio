@@ -134,6 +134,61 @@ describe("RunViewer helpers", () => {
     expect(alignment.block_coverage[0]?.block_id).toBe("ACT1_B01");
     expect(alignment.beat_slide_map[0]?.matched_slide_id).toBe("S03");
     expect(alignment.required_markers.midpoint_false_theory_collapse).toBe(false);
+
+    const narrativeState = __runViewerTestables.normalizeV2NarrativeState({
+      block_id: "ACT2_B01",
+      current_false_theory: "Mimic lock-in",
+      relationship_state_detective_deputy: "Tense",
+      unresolved_emotional_thread: "Trust fracture",
+      active_clue_obligations: ["C1"],
+      active_motif_callback_lexicon: ["caseboard"],
+      pressure_channels: ["time"],
+      recent_slide_excerpts: ["S12 clue"],
+      active_differential_ordering: ["DX-1"],
+      delta_from_previous_block: "Shifted to fracture"
+    });
+    expect(narrativeState.block_id).toBe("ACT2_B01");
+    expect(narrativeState.active_clue_obligations).toEqual(["C1"]);
+
+    const manifest = __runViewerTestables.normalizeV2AuthoringContextManifest({
+      generated_at: "2026-02-09T00:00:00.000Z",
+      generation_profile: "pilot",
+      attempts: [
+        {
+          attempt_id: "a1",
+          prompt_variant: "primary",
+          context_mode: "compact",
+          reason: "retry",
+          result: "error",
+          details: "timeout"
+        },
+        {
+          attempt_id: "",
+          prompt_variant: "ignored",
+          context_mode: "full",
+          reason: "ignored",
+          result: "success"
+        }
+      ]
+    });
+    expect(manifest.generation_profile).toBe("pilot");
+    expect(manifest.attempts).toHaveLength(1);
+    expect(manifest.attempts[0]?.result).toBe("error");
+
+    const regen = __runViewerTestables.normalizeV2BlockRegenTrace({
+      loop: 2,
+      fix_count: 3,
+      fix_types: ["increase_story_turn"],
+      routes: ["regen_block"],
+      regenerated_blocks: ["ACT2_B01"],
+      warnings: ["warn"]
+    });
+    expect(regen.loop).toBe(2);
+    expect(regen.regenerated_blocks).toEqual(["ACT2_B01"]);
+
+    expect(__runViewerTestables.regenTraceLoopFromName("block_regen_trace_loop2.json")).toBe(2);
+    expect(__runViewerTestables.regenTraceLoopFromName("block_regen_trace_loopX.json")).toBe(-1);
+    expect(__runViewerTestables.regenTraceLoopFromName("not-a-trace.json")).toBe(-1);
   });
 
   it("formats values and badge classes across edge cases", () => {

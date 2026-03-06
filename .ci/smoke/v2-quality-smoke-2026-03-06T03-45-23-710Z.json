@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-03-06T03:45:23.710Z",
+  "baseUrl": "http://localhost:5050",
+  "topic": "Community-acquired pneumonia in adults",
+  "audienceLevel": "PHYSICIAN_LEVEL",
+  "runId": "community-acquired-pneumonia-in-adults-h6miel3c",
+  "pass": false,
+  "gateActions": [],
+  "gate3Regens": 0,
+  "missingArtifacts": [],
+  "markers": null,
+  "twist": null,
+  "provenance": null,
+  "artifactCount": 0,
+  "elapsedMs": 1051974,
+  "errorMessage": "Timed out after 240s waiting for completion"
+}

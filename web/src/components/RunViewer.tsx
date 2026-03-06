@@ -292,6 +292,43 @@ type V2StoryBeatsAlignmentPreview = {
   }>;
 };
 
+type V2NarrativeStatePreview = {
+  block_id: string;
+  current_false_theory: string;
+  relationship_state_detective_deputy: string;
+  unresolved_emotional_thread: string;
+  active_clue_obligations: string[];
+  active_motif_callback_lexicon: string[];
+  pressure_channels: string[];
+  recent_slide_excerpts: string[];
+  active_differential_ordering: string[];
+  delta_from_previous_block: string;
+};
+
+type V2AuthoringContextAttemptPreview = {
+  attempt_id: string;
+  prompt_variant: string;
+  context_mode: "full" | "compact";
+  reason: string;
+  result: "success" | "error" | "skipped";
+  details?: string;
+};
+
+type V2AuthoringContextManifestPreview = {
+  generated_at: string;
+  generation_profile: "quality" | "pilot";
+  attempts: V2AuthoringContextAttemptPreview[];
+};
+
+type V2BlockRegenTracePreview = {
+  loop: number;
+  fix_count: number;
+  fix_types: string[];
+  routes: string[];
+  regenerated_blocks: string[];
+  warnings: string[];
+};
+
 type V2InspectorTab = "world" | "drama" | "setpieces" | "templates" | "packaging";
 
 type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
@@ -718,6 +755,68 @@ function normalizeV2StoryBeatsAlignmentReport(value: unknown): V2StoryBeatsAlign
   };
 }
 
+function normalizeV2NarrativeState(value: unknown): V2NarrativeStatePreview {
+  const root = asRecord(value);
+  return {
+    block_id: typeof root.block_id === "string" ? root.block_id : "",
+    current_false_theory: typeof root.current_false_theory === "string" ? root.current_false_theory : "",
+    relationship_state_detective_deputy:
+      typeof root.relationship_state_detective_deputy === "string" ? root.relationship_state_detective_deputy : "",
+    unresolved_emotional_thread: typeof root.unresolved_emotional_thread === "string" ? root.unresolved_emotional_thread : "",
+    active_clue_obligations: asStringArray(root.active_clue_obligations),
+    active_motif_callback_lexicon: asStringArray(root.active_motif_callback_lexicon),
+    pressure_channels: asStringArray(root.pressure_channels),
+    recent_slide_excerpts: asStringArray(root.recent_slide_excerpts),
+    active_differential_ordering: asStringArray(root.active_differential_ordering),
+    delta_from_previous_block: typeof root.delta_from_previous_block === "string" ? root.delta_from_previous_block : ""
+  };
+}
+
+function normalizeV2AuthoringContextManifest(value: unknown): V2AuthoringContextManifestPreview {
+  const root = asRecord(value);
+  const attempts = Array.isArray(root.attempts)
+    ? root.attempts
+        .map((row) => {
+          const rec = asRecord(row);
+          const contextMode = rec.context_mode === "compact" ? "compact" : "full";
+          const result = rec.result === "error" ? "error" : rec.result === "skipped" ? "skipped" : "success";
+          return {
+            attempt_id: typeof rec.attempt_id === "string" ? rec.attempt_id : "",
+            prompt_variant: typeof rec.prompt_variant === "string" ? rec.prompt_variant : "",
+            context_mode: contextMode,
+            reason: typeof rec.reason === "string" ? rec.reason : "",
+            result,
+            details: typeof rec.details === "string" ? rec.details : undefined
+          } as V2AuthoringContextAttemptPreview;
+        })
+        .filter((row) => row.attempt_id.length > 0)
+    : [];
+  return {
+    generated_at: typeof root.generated_at === "string" ? root.generated_at : "",
+    generation_profile: root.generation_profile === "pilot" ? "pilot" : "quality",
+    attempts
+  };
+}
+
+function normalizeV2BlockRegenTrace(value: unknown): V2BlockRegenTracePreview {
+  const root = asRecord(value);
+  return {
+    loop: Number.isFinite(Number(root.loop)) ? Math.max(0, Math.round(Number(root.loop))) : 0,
+    fix_count: Number.isFinite(Number(root.fix_count)) ? Math.max(0, Math.round(Number(root.fix_count))) : 0,
+    fix_types: asStringArray(root.fix_types),
+    routes: asStringArray(root.routes),
+    regenerated_blocks: asStringArray(root.regenerated_blocks),
+    warnings: asStringArray(root.warnings)
+  };
+}
+
+function regenTraceLoopFromName(name: string): number {
+  const match = name.match(/block_regen_trace_loop(\d+)\.json$/i);
+  if (!match?.[1]) return -1;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : -1;
+}
+
 function extractKeyOrFallback(obj: unknown, key: string): unknown {
   if (obj && typeof obj === "object" && key in (obj as Record<string, unknown>)) {
     return (obj as Record<string, unknown>)[key];
@@ -810,6 +909,10 @@ export const __runViewerTestables = {
   normalizeV2QaReport,
   normalizeV2StageAuthoringProvenance,
   normalizeV2StoryBeatsAlignmentReport,
+  normalizeV2NarrativeState,
+  normalizeV2AuthoringContextManifest,
+  normalizeV2BlockRegenTrace,
+  regenTraceLoopFromName,
   extractKeyOrFallback,
   formatTime,
   parseIsoMs,
@@ -863,6 +966,10 @@ export default function RunViewer() {
   const [v2QaReportPreview, setV2QaReportPreview] = useState<V2QaReportPreview | null>(null);
   const [v2StageProvenancePreview, setV2StageProvenancePreview] = useState<V2StageAuthoringProvenancePreview | null>(null);
   const [v2StoryBeatsAlignmentPreview, setV2StoryBeatsAlignmentPreview] = useState<V2StoryBeatsAlignmentPreview | null>(null);
+  const [v2NarrativeStatePreview, setV2NarrativeStatePreview] = useState<V2NarrativeStatePreview | null>(null);
+  const [v2AuthoringContextManifestPreview, setV2AuthoringContextManifestPreview] = useState<V2AuthoringContextManifestPreview | null>(null);
+  const [v2BlockRegenTracePreview, setV2BlockRegenTracePreview] = useState<V2BlockRegenTracePreview | null>(null);
+  const [v2LatestRegenTraceName, setV2LatestRegenTraceName] = useState<string>("");
   const [v2InspectorTab, setV2InspectorTab] = useState<V2InspectorTab>("world");
   const [v2DrilldownBusy, setV2DrilldownBusy] = useState(false);
   const [v2DrilldownErr, setV2DrilldownErr] = useState<string | null>(null);
@@ -907,6 +1014,14 @@ export default function RunViewer() {
     const names = new Set(artifacts.map((a) => a.name));
     return v2PackagingNames.filter((name) => names.has(name)).length;
   }, [workflow, artifacts, v2PackagingNames]);
+  const v2RegenTraceNames = useMemo(
+    () =>
+      artifacts
+        .map((a) => a.name)
+        .filter((name) => /block_regen_trace_loop\d+\.json$/i.test(name))
+        .sort((a, b) => regenTraceLoopFromName(b) - regenTraceLoopFromName(a)),
+    [artifacts]
+  );
   const gateHistoryRows = gateHistory?.history ?? [];
   const gate3SemanticBlocked =
     run?.activeGate?.gateId === "GATE_3_STORYBOARD" && v2SemanticReportPreview !== null && !v2SemanticReportPreview.pass;
@@ -1131,6 +1246,12 @@ export default function RunViewer() {
     const hasQaReport = artifacts.some((a) => a.name === "qa_report.json");
     const hasStageProvenance = artifacts.some((a) => a.name === "v2_stage_authoring_provenance.json");
     const hasStoryBeatsAlignment = artifacts.some((a) => a.name === "story_beats_alignment_report.json");
+    const hasNarrativeState = artifacts.some((a) => a.name === "narrative_state_current.json");
+    const hasAuthoringContextManifest = artifacts.some((a) => a.name === "deck_authoring_context_manifest.json");
+    const latestRegenTraceName = artifacts
+      .map((a) => a.name)
+      .filter((name) => /block_regen_trace_loop\d+\.json$/i.test(name))
+      .sort((a, b) => regenTraceLoopFromName(b) - regenTraceLoopFromName(a))[0] ?? null;
 
     if (!safeRunId || workflow !== "v2_micro_detectives" || !hasDeckSpec) {
       setV2DeckSpecPreview(null);
@@ -1144,6 +1265,10 @@ export default function RunViewer() {
       setV2QaReportPreview(null);
       setV2StageProvenancePreview(null);
       setV2StoryBeatsAlignmentPreview(null);
+      setV2NarrativeStatePreview(null);
+      setV2AuthoringContextManifestPreview(null);
+      setV2BlockRegenTracePreview(null);
+      setV2LatestRegenTraceName("");
       setV2DrilldownErr(null);
       setV2DrilldownBusy(false);
       return;
@@ -1155,7 +1280,7 @@ export default function RunViewer() {
 
     void (async () => {
       try {
-        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw, qaRaw, stageProvenanceRaw, storyBeatsAlignmentRaw] = await Promise.all([
+        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw, qaRaw, stageProvenanceRaw, storyBeatsAlignmentRaw, narrativeStateRaw, authoringContextRaw, latestRegenTraceRaw] = await Promise.all([
           fetchArtifact(safeRunId, "deck_spec.json"),
           hasTemplateRegistry ? fetchArtifact(safeRunId, "v2_template_registry.json") : Promise.resolve(null),
           hasClueGraph ? fetchArtifact(safeRunId, "clue_graph.json") : Promise.resolve(null),
@@ -1173,7 +1298,10 @@ export default function RunViewer() {
           hasSemanticReport ? fetchArtifact(safeRunId, "semantic_acceptance_report.json") : Promise.resolve(null),
           hasQaReport ? fetchArtifact(safeRunId, "qa_report.json") : Promise.resolve(null),
           hasStageProvenance ? fetchArtifact(safeRunId, "v2_stage_authoring_provenance.json") : Promise.resolve(null),
-          hasStoryBeatsAlignment ? fetchArtifact(safeRunId, "story_beats_alignment_report.json") : Promise.resolve(null)
+          hasStoryBeatsAlignment ? fetchArtifact(safeRunId, "story_beats_alignment_report.json") : Promise.resolve(null),
+          hasNarrativeState ? fetchArtifact(safeRunId, "narrative_state_current.json") : Promise.resolve(null),
+          hasAuthoringContextManifest ? fetchArtifact(safeRunId, "deck_authoring_context_manifest.json") : Promise.resolve(null),
+          latestRegenTraceName ? fetchArtifact(safeRunId, latestRegenTraceName) : Promise.resolve(null)
         ]);
         if (cancelled) return;
 
@@ -1192,6 +1320,15 @@ export default function RunViewer() {
         const storyBeatsAlignmentParsed = storyBeatsAlignmentRaw
           ? normalizeV2StoryBeatsAlignmentReport(parseJsonOrThrow(storyBeatsAlignmentRaw.text))
           : null;
+        const narrativeStateParsed = narrativeStateRaw
+          ? normalizeV2NarrativeState(parseJsonOrThrow(narrativeStateRaw.text))
+          : null;
+        const authoringContextParsed = authoringContextRaw
+          ? normalizeV2AuthoringContextManifest(parseJsonOrThrow(authoringContextRaw.text))
+          : null;
+        const blockRegenTraceParsed = latestRegenTraceRaw
+          ? normalizeV2BlockRegenTrace(parseJsonOrThrow(latestRegenTraceRaw.text))
+          : null;
 
         setV2DeckSpecPreview(deckParsed);
         setV2TemplateRegistryPreview(templateParsed);
@@ -1204,6 +1341,10 @@ export default function RunViewer() {
         setV2QaReportPreview(qaParsed);
         setV2StageProvenancePreview(stageProvenanceParsed);
         setV2StoryBeatsAlignmentPreview(storyBeatsAlignmentParsed);
+        setV2NarrativeStatePreview(narrativeStateParsed);
+        setV2AuthoringContextManifestPreview(authoringContextParsed);
+        setV2BlockRegenTracePreview(blockRegenTraceParsed);
+        setV2LatestRegenTraceName(latestRegenTraceName ?? "");
         setV2DrilldownErr(null);
       } catch (e) {
         if (cancelled) return;
@@ -1218,6 +1359,10 @@ export default function RunViewer() {
         setV2QaReportPreview(null);
         setV2StageProvenancePreview(null);
         setV2StoryBeatsAlignmentPreview(null);
+        setV2NarrativeStatePreview(null);
+        setV2AuthoringContextManifestPreview(null);
+        setV2BlockRegenTracePreview(null);
+        setV2LatestRegenTraceName("");
         setV2DrilldownErr(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setV2DrilldownBusy(false);
@@ -1988,35 +2133,46 @@ export default function RunViewer() {
                 {!v2StageProvenancePreview && <div className="subtle">No v2_stage_authoring_provenance.json artifact yet.</div>}
                 {v2StageProvenancePreview && (
                   <div className="summaryCardList">
-                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                      <span className="badge">profile: {v2StageProvenancePreview.generation_profile}</span>
-                      <span
-                        className={
-                          [
+                    <div className="diagnosticPanelLead">Writer&apos;s-room source integrity for authored story-planning artifacts.</div>
+                    <div className="diagnosticOverviewGrid">
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">profile</div>
+                        <div className="diagnosticOverviewValue mono">{v2StageProvenancePreview.generation_profile}</div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">overall source</div>
+                        <div
+                          className={`diagnosticOverviewValue ${
+                            [
+                              v2StageProvenancePreview.stages.micro_world_map.source,
+                              v2StageProvenancePreview.stages.drama_plan.source,
+                              v2StageProvenancePreview.stages.setpiece_plan.source
+                            ].every((source) => source === "agent")
+                              ? "statusOk"
+                              : "statusWarn"
+                          }`}
+                        >
+                          {[
                             v2StageProvenancePreview.stages.micro_world_map.source,
                             v2StageProvenancePreview.stages.drama_plan.source,
                             v2StageProvenancePreview.stages.setpiece_plan.source
-                          ].every((source) => source === "agent")
-                            ? "badge badgeOk"
-                            : "badge badgeWarn"
-                        }
-                      >
-                        {[
-                          v2StageProvenancePreview.stages.micro_world_map.source,
-                          v2StageProvenancePreview.stages.drama_plan.source,
-                          v2StageProvenancePreview.stages.setpiece_plan.source
-                        ].filter((source) => source !== "agent").length === 0
-                          ? "agent-authored"
-                          : "fallback detected"}
-                      </span>
-                    </div>
-                    <div className="diagnosticKv">
-                      <div>micro world map</div>
-                      <div className="mono">{v2StageProvenancePreview.stages.micro_world_map.source}</div>
-                      <div>drama plan</div>
-                      <div className="mono">{v2StageProvenancePreview.stages.drama_plan.source}</div>
-                      <div>setpiece plan</div>
-                      <div className="mono">{v2StageProvenancePreview.stages.setpiece_plan.source}</div>
+                          ].filter((source) => source !== "agent").length === 0
+                            ? "agent-authored"
+                            : "fallback detected"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">micro world map</div>
+                        <div className="diagnosticOverviewValue mono">{v2StageProvenancePreview.stages.micro_world_map.source}</div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">drama plan</div>
+                        <div className="diagnosticOverviewValue mono">{v2StageProvenancePreview.stages.drama_plan.source}</div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">setpiece plan</div>
+                        <div className="diagnosticOverviewValue mono">{v2StageProvenancePreview.stages.setpiece_plan.source}</div>
+                      </div>
                     </div>
                     <details className="diagnosticDetails">
                       <summary>Fallback reasons</summary>
@@ -2041,45 +2197,66 @@ export default function RunViewer() {
                 {!v2StoryBeatsAlignmentPreview && <div className="subtle">No story_beats_alignment_report.json artifact yet.</div>}
                 {v2StoryBeatsAlignmentPreview && (
                   <div className="summaryCardList">
-                    <div className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                      <span
-                        className={
-                          v2StoryBeatsAlignmentPreview.lint_status === "fail"
-                            ? "badge badgeErr"
-                            : v2StoryBeatsAlignmentPreview.lint_status === "warn"
-                              ? "badge badgeWarn"
-                              : "badge badgeOk"
-                        }
-                      >
-                        {v2StoryBeatsAlignmentPreview.lint_status}
-                      </span>
-                      <span className="badge">
-                        beats: {v2StoryBeatsAlignmentPreview.story_beats_present ? "present" : "absent"} · outline:{" "}
-                        {v2StoryBeatsAlignmentPreview.chapter_outline_present ? "present" : "absent"}
-                      </span>
-                    </div>
-                    <div className="diagnosticKv">
-                      <div>mapped beats</div>
-                      <div className="mono">
-                        {v2StoryBeatsAlignmentPreview.coverage.mapped_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
-                        {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.mapped_ratio)})
+                    <div className="diagnosticPanelLead">Beat-workshop guidance coverage, contract markers, and block mapping health.</div>
+                    <div className="diagnosticOverviewGrid">
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">lint status</div>
+                        <div
+                          className={`diagnosticOverviewValue ${
+                            v2StoryBeatsAlignmentPreview.lint_status === "fail"
+                              ? "statusErr"
+                              : v2StoryBeatsAlignmentPreview.lint_status === "warn"
+                                ? "statusWarn"
+                                : "statusOk"
+                          }`}
+                        >
+                          {v2StoryBeatsAlignmentPreview.lint_status}
+                        </div>
                       </div>
-                      <div>block alignment</div>
-                      <div className="mono">
-                        {v2StoryBeatsAlignmentPreview.coverage.block_aligned_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
-                        {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.block_aligned_ratio)})
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">story inputs</div>
+                        <div className="diagnosticOverviewValue mono">
+                          beats: {v2StoryBeatsAlignmentPreview.story_beats_present ? "present" : "absent"} · outline:{" "}
+                          {v2StoryBeatsAlignmentPreview.chapter_outline_present ? "present" : "absent"}
+                        </div>
                       </div>
-                      <div>opener motif</div>
-                      <div className="mono">{v2StoryBeatsAlignmentPreview.required_markers.opener_motif ? "yes" : "no"}</div>
-                      <div>midpoint collapse</div>
-                      <div className="mono">
-                        {v2StoryBeatsAlignmentPreview.required_markers.midpoint_false_theory_collapse ? "yes" : "no"}
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">mapped beats</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.coverage.mapped_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
+                          {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.mapped_ratio)})
+                        </div>
                       </div>
-                      <div>ending callback</div>
-                      <div className="mono">{v2StoryBeatsAlignmentPreview.required_markers.ending_callback ? "yes" : "no"}</div>
-                      <div>rupture + repair</div>
-                      <div className="mono">
-                        {v2StoryBeatsAlignmentPreview.required_markers.detective_deputy_rupture_repair ? "yes" : "no"}
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">block alignment</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.coverage.block_aligned_beats}/{v2StoryBeatsAlignmentPreview.coverage.total_beats} (
+                          {formatRatioAsPercent(v2StoryBeatsAlignmentPreview.coverage.block_aligned_ratio)})
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">opener motif</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.required_markers.opener_motif ? "yes" : "no"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">midpoint collapse</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.required_markers.midpoint_false_theory_collapse ? "yes" : "no"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">ending callback</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.required_markers.ending_callback ? "yes" : "no"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">rupture + repair</div>
+                        <div className="diagnosticOverviewValue mono">
+                          {v2StoryBeatsAlignmentPreview.required_markers.detective_deputy_rupture_repair ? "yes" : "no"}
+                        </div>
                       </div>
                     </div>
                     <details className="diagnosticDetails">
@@ -2129,6 +2306,159 @@ export default function RunViewer() {
                         </ul>
                       )}
                     </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 block authoring diagnostics</div>
+              </div>
+              <div className="panelBody">
+                {!v2NarrativeStatePreview && !v2AuthoringContextManifestPreview && !v2BlockRegenTracePreview && (
+                  <div className="subtle">No NarrativeState/context/regen-trace diagnostics artifacts yet.</div>
+                )}
+                {(v2NarrativeStatePreview || v2AuthoringContextManifestPreview || v2BlockRegenTracePreview) && (
+                  <div className="summaryCardList">
+                    <div className="diagnosticPanelLead">Continuity memory, prompt-context selection, and structural rewrite traces for the current run.</div>
+                    <div className="diagnosticOverviewGrid">
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">narrative state</div>
+                        <div className={`diagnosticOverviewValue ${v2NarrativeStatePreview ? "statusOk" : "statusMuted"}`}>
+                          narrative_state_current: {v2NarrativeStatePreview ? "present" : "missing"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">context manifest</div>
+                        <div className={`diagnosticOverviewValue ${v2AuthoringContextManifestPreview ? "statusOk" : "statusMuted"}`}>
+                          authoring_context_manifest: {v2AuthoringContextManifestPreview ? "present" : "missing"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">regen trace</div>
+                        <div className={`diagnosticOverviewValue ${v2BlockRegenTracePreview ? "statusOk" : "statusMuted"}`}>
+                          regen_trace: {v2BlockRegenTracePreview ? "present" : "missing"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">regen traces total</div>
+                        <div className="diagnosticOverviewValue mono">{v2RegenTraceNames.length}</div>
+                      </div>
+                    </div>
+
+                    {v2NarrativeStatePreview && (
+                      <details className="diagnosticDetails" open>
+                        <summary>Narrative state ({v2NarrativeStatePreview.block_id || "unknown block"})</summary>
+                        <div className="diagnosticKv">
+                          <div>current false theory</div>
+                          <div className="mono">{v2NarrativeStatePreview.current_false_theory || "-"}</div>
+                          <div>relationship state</div>
+                          <div className="mono">{v2NarrativeStatePreview.relationship_state_detective_deputy || "-"}</div>
+                          <div>unresolved emotional thread</div>
+                          <div className="mono">{v2NarrativeStatePreview.unresolved_emotional_thread || "-"}</div>
+                          <div>clue obligations</div>
+                          <div className="mono">{v2NarrativeStatePreview.active_clue_obligations.length}</div>
+                          <div>pressure channels</div>
+                          <div className="mono">{v2NarrativeStatePreview.pressure_channels.length}</div>
+                          <div>active differentials</div>
+                          <div className="mono">{v2NarrativeStatePreview.active_differential_ordering.length}</div>
+                        </div>
+                        {v2NarrativeStatePreview.recent_slide_excerpts.length > 0 && (
+                          <details className="diagnosticDetails">
+                            <summary>Recent slide excerpts ({v2NarrativeStatePreview.recent_slide_excerpts.length})</summary>
+                            <ul className="diagnosticList">
+                              {v2NarrativeStatePreview.recent_slide_excerpts.map((excerpt, idx) => (
+                                <li key={`narrative-excerpt-${idx}`}>{excerpt}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </details>
+                    )}
+
+                    {v2AuthoringContextManifestPreview && (
+                      <details className="diagnosticDetails" open>
+                        <summary>Authoring context manifest</summary>
+                        <div className="diagnosticKv">
+                          <div>profile</div>
+                          <div className="mono">{v2AuthoringContextManifestPreview.generation_profile}</div>
+                          <div>generated at</div>
+                          <div className="mono">{formatTime(v2AuthoringContextManifestPreview.generated_at)}</div>
+                          <div>attempts</div>
+                          <div className="mono">{v2AuthoringContextManifestPreview.attempts.length}</div>
+                          <div>full-context attempts</div>
+                          <div className="mono">
+                            {v2AuthoringContextManifestPreview.attempts.filter((attempt) => attempt.context_mode === "full").length}
+                          </div>
+                          <div>compact-context attempts</div>
+                          <div className="mono">
+                            {v2AuthoringContextManifestPreview.attempts.filter((attempt) => attempt.context_mode === "compact").length}
+                          </div>
+                        </div>
+                        <details className="diagnosticDetails">
+                          <summary>Attempt log ({v2AuthoringContextManifestPreview.attempts.length})</summary>
+                          {v2AuthoringContextManifestPreview.attempts.length === 0 ? (
+                            <div className="subtle">No attempt log entries.</div>
+                          ) : (
+                            <ul className="diagnosticList">
+                              {v2AuthoringContextManifestPreview.attempts.slice(0, 12).map((attempt) => (
+                                <li key={attempt.attempt_id}>
+                                  {attempt.attempt_id}: {attempt.prompt_variant} · {attempt.context_mode} · {attempt.result}
+                                  {attempt.reason ? ` · ${attempt.reason}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </details>
+                      </details>
+                    )}
+
+                    {(v2BlockRegenTracePreview || v2RegenTraceNames.length > 0) && (
+                      <details className="diagnosticDetails" open={Boolean(v2BlockRegenTracePreview)}>
+                        <summary>Latest regen trace ({v2LatestRegenTraceName || "none"})</summary>
+                        {!v2BlockRegenTracePreview ? (
+                          <div className="subtle">No parsed regen trace payload for the latest loop artifact.</div>
+                        ) : (
+                          <>
+                            <div className="diagnosticKv">
+                              <div>loop</div>
+                              <div className="mono">{v2BlockRegenTracePreview.loop}</div>
+                              <div>fix count</div>
+                              <div className="mono">{v2BlockRegenTracePreview.fix_count}</div>
+                              <div>regenerated blocks</div>
+                              <div className="mono">{v2BlockRegenTracePreview.regenerated_blocks.length}</div>
+                              <div>warnings</div>
+                              <div className="mono">{v2BlockRegenTracePreview.warnings.length}</div>
+                            </div>
+                            <details className="diagnosticDetails">
+                              <summary>Fix types ({v2BlockRegenTracePreview.fix_types.length})</summary>
+                              {v2BlockRegenTracePreview.fix_types.length === 0 ? (
+                                <div className="subtle">none</div>
+                              ) : (
+                                <ul className="diagnosticList">
+                                  {v2BlockRegenTracePreview.fix_types.map((fixType) => (
+                                    <li key={`regen-fix-${fixType}`}>{fixType}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </details>
+                          </>
+                        )}
+                        {v2RegenTraceNames.length > 0 && (
+                          <details className="diagnosticDetails">
+                            <summary>Available regen traces ({v2RegenTraceNames.length})</summary>
+                            <ul className="diagnosticList">
+                              {v2RegenTraceNames.slice(0, 12).map((name) => (
+                                <li key={name}>{name}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </details>
+                    )}
                   </div>
                 )}
               </div>

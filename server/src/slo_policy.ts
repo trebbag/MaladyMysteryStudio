@@ -1,6 +1,7 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { STEP_ORDER, type StepName } from "./run_manager.js";
+import { STEP_ORDER, type RunSettings, type StepName } from "./run_manager.js";
 import { ensureDir, nowIso, outputRootAbs, tryReadJsonFile, writeJsonFile } from "./pipeline/utils.js";
 
 export const DEFAULT_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
@@ -24,6 +25,20 @@ export const DEFAULT_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
   P: 90_000
 };
 
+export const V2_QUALITY_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
+  ...DEFAULT_STEP_SLO_THRESHOLDS_MS,
+  KB0: 300_000,
+  A: 600_000,
+  B: 420_000,
+  C: 1_800_000
+};
+
+export const V2_PILOT_STEP_SLO_THRESHOLDS_MS: Record<StepName, number> = {
+  ...DEFAULT_STEP_SLO_THRESHOLDS_MS,
+  A: 180_000,
+  C: 720_000
+};
+
 export const STEP_SLO_MIN_MS = 5_000;
 export const STEP_SLO_MAX_MS = 30 * 60 * 1000;
 
@@ -45,11 +60,33 @@ export function stepSloPolicyPathAbs(): string {
   return path.join(outputRootAbs(), "slo_policy.json");
 }
 
+export async function hasPersistedStepSloPolicy(): Promise<boolean> {
+  try {
+    await fs.access(stepSloPolicyPathAbs());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function clearStepSloPolicy(): Promise<void> {
+  await fs.rm(stepSloPolicyPathAbs(), { force: true }).catch(() => undefined);
+}
+
 export function defaultStepSloPolicy(): StepSloPolicy {
   return {
     thresholdsMs: { ...DEFAULT_STEP_SLO_THRESHOLDS_MS },
     updatedAt: nowIso()
   };
+}
+
+export function defaultStepSloThresholdsForSettings(settings?: Pick<RunSettings, "workflow" | "generationProfile">): Record<StepName, number> {
+  if (settings?.workflow === "v2_micro_detectives") {
+    return settings.generationProfile === "pilot"
+      ? { ...V2_PILOT_STEP_SLO_THRESHOLDS_MS }
+      : { ...V2_QUALITY_STEP_SLO_THRESHOLDS_MS };
+  }
+  return { ...DEFAULT_STEP_SLO_THRESHOLDS_MS };
 }
 
 export async function loadStepSloPolicy(): Promise<StepSloPolicy> {
