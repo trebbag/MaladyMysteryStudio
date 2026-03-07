@@ -22,6 +22,28 @@ export const CitationRefSchema = z.object({
   claim: z.string().min(1)
 });
 
+export const BeatTypeValues = [
+  "cold_open",
+  "case_intake",
+  "first_dive",
+  "clue_discovery",
+  "suspect_intro",
+  "red_herring",
+  "setback",
+  "reversal",
+  "action_setpiece",
+  "theory_update",
+  "false_theory_lock_in",
+  "false_theory_collapse",
+  "twist",
+  "proof",
+  "showdown",
+  "aftermath",
+  "appendix"
+] as const;
+
+export const BeatTypeSchema = z.enum(BeatTypeValues);
+
 const OnSlideTextSchema = z
   .object({
     headline: z.string().min(1),
@@ -72,29 +94,21 @@ const SpeakerNotesSchema = z
   })
   .strict();
 
+const SpeakerNotesAgentOutputSchema = z
+  .object({
+    narrative_notes: z.string().min(1).optional(),
+    medical_reasoning: z.string().min(1).optional(),
+    what_this_slide_teaches: z.array(z.string().min(1)).optional(),
+    differential_update: DifferentialUpdateSchema.optional(),
+    citations: z.array(CitationRefSchema).optional()
+  })
+  .strict();
+
 const SlideSpecSchema = z
   .object({
     slide_id: z.string().min(1),
     act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4", "APPENDIX"]),
-    beat_type: z.enum([
-      "cold_open",
-      "case_intake",
-      "first_dive",
-      "clue_discovery",
-      "suspect_intro",
-      "red_herring",
-      "setback",
-      "reversal",
-      "action_setpiece",
-      "theory_update",
-      "false_theory_lock_in",
-      "false_theory_collapse",
-      "twist",
-      "proof",
-      "showdown",
-      "aftermath",
-      "appendix"
-    ]),
+    beat_type: BeatTypeSchema,
     template_id: z.enum([
       "T01_COLD_OPEN_MICRO_CRIME_SCENE",
       "T02_CASE_INTAKE_MACRO",
@@ -120,6 +134,40 @@ const SlideSpecSchema = z
     authoring_provenance: AuthoringProvenanceSchema.default("agent_authored"),
     appendix_links: z.array(z.string().min(1)).optional(),
     speaker_notes: SpeakerNotesSchema
+  })
+  .strict();
+
+const SlideSpecAgentOutputSchema = z
+  .object({
+    slide_id: z.string().min(1),
+    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4", "APPENDIX"]),
+    // Keep the persisted deck strict, but allow agent outputs to be normalized post-parse.
+    beat_type: z.string().min(1),
+    template_id: z.enum([
+      "T01_COLD_OPEN_MICRO_CRIME_SCENE",
+      "T02_CASE_INTAKE_MACRO",
+      "T03_SHRINK_DIVE_SEQUENCE",
+      "T04_CLUE_DISCOVERY",
+      "T05_INTERROGATION_CELL_ACTOR",
+      "T06_DIFFERENTIAL_BOARD_UPDATE",
+      "T07_RED_HERRING_REVERSAL",
+      "T08_ACTION_SET_PIECE_MICRO_HAZARD",
+      "T09_TWIST_RECONTEXTUALIZATION",
+      "T10_PROOF_TRAP",
+      "T11_AFTERCARE_AFTERMATH",
+      "T90_APPENDIX_DEEP_DIVE"
+    ]),
+    title: z.string().min(1).optional(),
+    on_slide_text: OnSlideTextSchema,
+    visual_description: z.string().min(1),
+    exhibit_ids: z.array(z.string().min(1)).optional(),
+    story_panel: StoryPanelSchema,
+    medical_payload: MedicalPayloadSchema,
+    pressure_channels_advanced: z.array(z.string().min(1)).optional(),
+    hook: z.string().min(1),
+    authoring_provenance: AuthoringProvenanceSchema.default("agent_authored"),
+    appendix_links: z.array(z.string().min(1)).optional(),
+    speaker_notes: SpeakerNotesAgentOutputSchema
   })
   .strict();
 
@@ -217,12 +265,43 @@ export const StoryBlueprintSchema = z
       .object({
         baseline_dynamic: z.string().min(1),
         rupture_beat: z.string().min(1),
-        repair_beat: z.string().min(1)
+        repair_beat: z.string().min(1),
+        named_recurring_tensions: z.array(z.string().min(1)).min(2),
+        relationship_change_by_act: z
+          .array(
+            z
+              .object({
+                act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+                change_due_to_case: z.string().min(1)
+              })
+              .strict()
+          )
+          .min(4)
       })
       .strict(),
     opener_motif: z.string().min(1),
+    opener_motif_vocabulary: z.array(z.string().min(1)).min(2),
     ending_callback: z.string().min(1),
+    ending_callback_vocabulary: z.array(z.string().min(1)).min(2),
     clue_obligations: z.array(z.string().min(1)).min(4),
+    false_theory_scene_obligations: z.array(z.string().min(1)).min(2),
+    emotionally_costly_clue: z
+      .object({
+        act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+        event: z.string().min(1),
+        cost: z.string().min(1)
+      })
+      .strict(),
+    act_debts: z
+      .array(
+        z
+          .object({
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            must_pay_by_end_of_act: z.array(z.string().min(1)).min(1)
+          })
+          .strict()
+      )
+      .min(4),
     unresolved_threads: z.array(z.string().min(1)).min(2)
   })
   .strict();
@@ -237,9 +316,14 @@ export const ActOutlineSchema = z
             act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
             act_goal: z.string().min(1),
             story_pressure: z.array(z.string().min(1)).min(2),
+            pressure_channels: z.array(z.string().min(1)).min(2),
             emotional_turn: z.string().min(1),
             clue_obligations: z.array(z.string().min(1)).min(1),
+            false_theory_scene_obligations: z.array(z.string().min(1)).min(1),
             setpiece_requirement: z.string().min(1),
+            relationship_change_due_to_case: z.string().min(1),
+            emotionally_costly_clue: z.string().min(1),
+            must_pay_by_end_of_act: z.array(z.string().min(1)).min(1),
             unresolved_threads_in: z.array(z.string().min(1)).optional(),
             unresolved_threads_out: z.array(z.string().min(1)).optional(),
             target_slide_span: z
@@ -282,6 +366,19 @@ export const SlideBlockOperationSchema = z
   })
   .strict();
 
+export const SlideBlockAgentOperationSchema = z
+  .object({
+    op: z.enum(["replace_slide", "insert_after", "split_slide", "drop_slide", "replace_window"]),
+    slide_id: z.string().min(1).optional(),
+    after_slide_id: z.string().min(1).optional(),
+    start_slide_id: z.string().min(1).optional(),
+    end_slide_id: z.string().min(1).optional(),
+    replacement_slide: SlideSpecAgentOutputSchema.optional(),
+    replacement_slides: z.array(SlideSpecAgentOutputSchema).optional(),
+    reason: z.string().min(1).optional()
+  })
+  .strict();
+
 export const SlideBlockSchema = z
   .object({
     schema_version: z.string().min(1),
@@ -313,18 +410,69 @@ export const SlideBlockSchema = z
   })
   .strict();
 
+export const SlideBlockAgentOutputSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    block_id: z.string().min(1),
+    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+    slide_range: z
+      .object({
+        start: z.number().int().min(1),
+        end: z.number().int().min(1)
+      })
+      .strict(),
+    prior_block_summary: z.string().optional(),
+    unresolved_threads_in: z.array(z.string().min(1)).optional(),
+    slide_overrides: z.array(SlideBlockOverrideSchema).optional(),
+    operations: z.array(SlideBlockAgentOperationSchema).optional(),
+    unresolved_threads_out: z.array(z.string().min(1)).optional(),
+    block_summary_out: z.string().min(1).optional(),
+    reason: z.string().min(1).optional()
+  })
+  .superRefine((value, ctx) => {
+    const hasOverrides = Array.isArray(value.slide_overrides) && value.slide_overrides.length > 0;
+    const hasOperations = Array.isArray(value.operations) && value.operations.length > 0;
+    if (!hasOverrides && !hasOperations) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operations"],
+        message: "SlideBlock requires at least one operation or slide_overrides entry."
+      });
+    }
+  })
+  .strict();
+
 export const NarrativeStateSchema = z
   .object({
     schema_version: z.string().min(1),
     block_id: z.string().min(1),
     current_false_theory: z.string().min(1),
+    current_best_theory: z.string().min(1),
+    runner_up_theory: z.string().min(1),
     relationship_state_detective_deputy: z.string().min(1),
     unresolved_emotional_thread: z.string().min(1),
     active_clue_obligations: z.array(z.string().min(1)).min(1),
+    unpaid_clue_payoff_debt: z.array(z.string().min(1)).min(1),
     active_motif_callback_lexicon: z.array(z.string().min(1)).min(1),
+    motif_callback_debt: z.array(z.string().min(1)).min(1),
     pressure_channels: z.array(z.string().min(1)).min(1),
+    pressure_status_by_channel: z
+      .array(
+        z
+          .object({
+            channel: z.string().min(1),
+            status: z.string().min(1)
+          })
+          .strict()
+      )
+      .min(1),
     recent_slide_excerpts: z.array(z.string().min(1)).min(2).max(4),
     active_differential_ordering: z.array(z.string().min(1)).min(1),
+    relationship_debt: z.array(z.string().min(1)).min(1),
+    last_rupture_or_repair_status: z.string().min(1),
+    outstanding_setpiece_debt: z.array(z.string().min(1)).min(1),
+    must_change_this_block: z.array(z.string().min(1)).min(1),
+    may_continue_this_block: z.array(z.string().min(1)).min(1),
     delta_from_previous_block: z.string().min(1),
     canonical_profile_excerpt: z.string().min(1),
     episode_memory_excerpt: z.string().min(1)
@@ -917,6 +1065,18 @@ export const MicroWorldMapSchema = z
   })
   .strict();
 
+const DramaPlanChapterOrActSetupSchema = z
+  .object({
+    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+    required_emotional_beats: z.array(z.string().min(1)),
+    required_choices: z.array(z.string().min(1)),
+    relationship_change_due_to_case: z.string().min(1),
+    act_specific_emotionally_costly_clue: z.string().min(1),
+    must_pay_by_end_of_act: z.array(z.string().min(1)).min(1),
+    notes: z.string().optional()
+  })
+  .strict();
+
 export const DramaPlanSchema = z
   .object({
     schema_version: z.string().min(1),
@@ -954,7 +1114,18 @@ export const DramaPlanSchema = z
             pair: z.enum(["detective_deputy", "aliens_patient", "aliens_clinicians", "detective_authority", "deputy_authority"]),
             starting_dynamic: z.string().min(1),
             friction_points: z.array(z.string().min(1)).optional(),
+            named_recurring_tensions: z.array(z.string().min(1)).min(2),
             repair_moments: z.array(z.string().min(1)).optional(),
+            relationship_change_by_act: z
+              .array(
+                z
+                  .object({
+                    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+                    change_due_to_case: z.string().min(1)
+                  })
+                  .strict()
+              )
+              .min(4),
             climax_resolution: z.string().min(1)
           })
           .strict()
@@ -969,19 +1140,26 @@ export const DramaPlanSchema = z
       })
       .strict(),
     chapter_or_act_setups: z
-      .array(
-        z
-          .object({
-            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
-            required_emotional_beats: z.array(z.string().min(1)),
-            required_choices: z.array(z.string().min(1)),
-            notes: z.string().optional()
-          })
-          .strict()
-      )
+      .array(DramaPlanChapterOrActSetupSchema)
       .optional()
   })
   .strict();
+
+const DramaPlanChapterOrActSetupAgentOutputSchema = z
+  .object({
+    act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+    required_emotional_beats: z.array(z.string().min(1)).default([]),
+    required_choices: z.array(z.string().min(1)).default([]),
+    relationship_change_due_to_case: z.string().min(1),
+    act_specific_emotionally_costly_clue: z.string().min(1),
+    must_pay_by_end_of_act: z.array(z.string().min(1)).optional().default([]),
+    notes: z.string().optional()
+  })
+  .strict();
+
+export const DramaPlanAgentOutputSchema = DramaPlanSchema.extend({
+  chapter_or_act_setups: z.array(DramaPlanChapterOrActSetupAgentOutputSchema).optional()
+});
 
 export const SetpiecePlanSchema = z
   .object({
@@ -1004,8 +1182,11 @@ export const SetpiecePlanSchema = z
             ]),
             location_zone_id: z.string().optional(),
             story_purpose: z.string().min(1),
+            clue_obligation_paid: z.string().min(1),
             medical_mechanism_anchor: z.string().min(1),
             visual_signature: z.string().min(1),
+            emotional_cost: z.string().min(1),
+            relationship_shift: z.string().min(1),
             constraints: z.array(z.string().min(1)).optional(),
             outcome_turn: z.string().min(1),
             citations: z.array(CitationRefSchema).min(1)
@@ -1021,7 +1202,17 @@ export const SetpiecePlanSchema = z
         act4_proof_or_showdown: z.boolean()
       })
       .strict(),
-    notes: z.array(z.string().min(1)).optional()
+    notes: z.array(z.string().min(1)).optional(),
+    act_debts: z
+      .array(
+        z
+          .object({
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            must_pay_by_end_of_act: z.array(z.string().min(1)).min(1)
+          })
+          .strict()
+      )
+      .min(4)
   })
   .strict();
 
@@ -1073,6 +1264,45 @@ export const ReaderSimReportSchema = z
     overall_clarity_score_0_to_5: z.number().min(0).max(5),
     biggest_strengths: z.array(z.string().min(1)).optional(),
     biggest_risks: z.array(z.string().min(1)).optional(),
+    per_act_worst_blocks: z
+      .array(
+        z
+          .object({
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            block_id: z.string().min(1),
+            severity_0_to_5: z.number().min(0).max(5),
+            dominant_issue: z.string().min(1),
+            slide_ids: z.array(z.string().min(1)).optional()
+          })
+          .strict()
+      )
+      .default([]),
+    block_notes: z
+      .array(
+        z
+          .object({
+            block_id: z.string().min(1),
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            issue_type: z.enum([
+              "too_texty",
+              "no_story_turn",
+              "medical_confusion",
+              "twist_setup_missing",
+              "pacing_slow",
+              "pacing_rushed",
+              "unclear_visual",
+              "tone_break",
+              "generic_language",
+              "story_dominance_weak",
+              "other"
+            ]),
+            note: z.string().min(1),
+            severity: z.enum(["must", "should", "nice"]),
+            slide_ids: z.array(z.string().min(1)).optional()
+          })
+          .strict()
+      )
+      .default([]),
     slide_notes: z.array(
       z
         .object({
@@ -1084,6 +1314,59 @@ export const ReaderSimReportSchema = z
         .strict()
     ),
     required_fixes: z.array(RequiredFixSchema)
+  })
+  .strict();
+
+export const QaBlockHeatmapSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    loop: z.number().int().min(1),
+    blocks: z
+      .array(
+        z
+          .object({
+            block_id: z.string().min(1),
+            act_id: z.enum(["ACT1", "ACT2", "ACT3", "ACT4"]),
+            severity_score: z.number().min(0),
+            repeated_template_density: z.number().min(0).max(1),
+            generic_language_rate: z.number().min(0).max(1),
+            story_forward_deficit_ratio: z.number().min(0).max(1),
+            hybrid_deficit_ratio: z.number().min(0).max(1),
+            clue_twist_debt_count: z.number().int().min(0)
+          })
+          .strict()
+      )
+      .min(1)
+  })
+  .strict();
+
+export const NarrativeIntensifierPassSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    global_intensity_findings: z.array(z.string().min(1)).min(1),
+    operations: z.array(SlideBlockOperationSchema).min(1),
+    narrative_rationale: z.array(z.string().min(1)).min(1),
+    target_block_ids: z.array(z.string().min(1)).min(1)
+  })
+  .strict();
+
+export const DiseaseResearchSourceReportSchema = z
+  .object({
+    schema_version: z.string().min(1),
+    topic: z.string().min(1),
+    sections: z
+      .array(
+        z
+          .object({
+            section: z.string().min(1),
+            curated_citations: z.number().int().min(0),
+            web_citations: z.number().int().min(0),
+            dominant_source: z.enum(["curated", "web", "mixed"]),
+            fallback_reason: z.string().min(1).optional()
+          })
+          .strict()
+      )
+      .min(1)
   })
   .strict();
 
@@ -1277,3 +1560,6 @@ export type V2QaReport = z.infer<typeof V2QaReportSchema>;
 export type V2SemanticAcceptanceReport = z.infer<typeof V2SemanticAcceptanceReportSchema>;
 export type V2StageAuthoringProvenance = z.infer<typeof V2StageAuthoringProvenanceSchema>;
 export type StoryBeatsAlignmentReport = z.infer<typeof StoryBeatsAlignmentReportSchema>;
+export type QaBlockHeatmap = z.infer<typeof QaBlockHeatmapSchema>;
+export type NarrativeIntensifierPass = z.infer<typeof NarrativeIntensifierPassSchema>;
+export type DiseaseResearchSourceReport = z.infer<typeof DiseaseResearchSourceReportSchema>;

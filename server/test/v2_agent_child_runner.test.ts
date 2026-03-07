@@ -49,6 +49,7 @@ describe("v2 agent child runner", () => {
       "actOutline",
       "slideBlockAuthor",
       "deckCohesionPass",
+      "narrativeIntensifier",
       "plotDirectorDeckSpec",
       "readerSim",
       "medFactcheck"

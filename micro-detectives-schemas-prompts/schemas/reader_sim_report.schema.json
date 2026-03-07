@@ -90,6 +90,67 @@
         "type": "string"
       }
     },
+    "per_act_worst_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["act_id", "block_id", "severity_0_to_5", "dominant_issue"],
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+          },
+          "block_id": { "type": "string", "minLength": 1 },
+          "severity_0_to_5": { "type": "number", "minimum": 0, "maximum": 5 },
+          "dominant_issue": { "type": "string", "minLength": 1 },
+          "slide_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "block_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "act_id", "issue_type", "note", "severity"],
+        "properties": {
+          "block_id": { "type": "string", "minLength": 1 },
+          "act_id": {
+            "type": "string",
+            "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+          },
+          "issue_type": {
+            "type": "string",
+            "enum": [
+              "too_texty",
+              "no_story_turn",
+              "medical_confusion",
+              "twist_setup_missing",
+              "pacing_slow",
+              "pacing_rushed",
+              "unclear_visual",
+              "tone_break",
+              "generic_language",
+              "story_dominance_weak",
+              "other"
+            ]
+          },
+          "note": { "type": "string", "minLength": 1 },
+          "severity": {
+            "type": "string",
+            "enum": ["must", "should", "nice"]
+          },
+          "slide_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
     "slide_notes": {
       "type": "array",
       "items": {
@@ -196,6 +257,8 @@
     "overall_story_dominance_score_0_to_5",
     "overall_twist_quality_score_0_to_5",
     "overall_clarity_score_0_to_5",
+    "per_act_worst_blocks",
+    "block_notes",
     "slide_notes",
     "required_fixes"
   ]

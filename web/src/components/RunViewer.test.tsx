@@ -2254,7 +2254,10 @@ describe("RunViewer", () => {
       { name: "narrative_state_current.json", size: 95, mtimeMs: 17, folder: "intermediate" },
       { name: "deck_authoring_context_manifest.json", size: 96, mtimeMs: 16, folder: "intermediate" },
       { name: "block_regen_trace_loop1.json", size: 97, mtimeMs: 15, folder: "intermediate" },
-      { name: "block_regen_trace_loop2.json", size: 98, mtimeMs: 14, folder: "intermediate" }
+      { name: "block_regen_trace_loop2.json", size: 98, mtimeMs: 14, folder: "intermediate" },
+      { name: "qa_block_heatmap_loop1.json", size: 99, mtimeMs: 13, folder: "intermediate" },
+      { name: "narrative_intensifier_pass.json", size: 100, mtimeMs: 12, folder: "intermediate" },
+      { name: "disease_research_source_report.json", size: 101, mtimeMs: 11, folder: "intermediate" }
     ]);
     vi.mocked(fetchArtifact).mockImplementation(async (_runId: string, name: string) => {
       if (name === "deck_spec.json") {
@@ -2392,6 +2395,53 @@ describe("RunViewer", () => {
           })
         };
       }
+      if (name === "qa_block_heatmap_loop1.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            loop: 1,
+            blocks: [
+              {
+                block_id: "ACT3_B02",
+                act_id: "ACT3",
+                severity_score: 0.91,
+                repeated_template_density: 0.22,
+                generic_language_rate: 0.18,
+                story_forward_deficit_ratio: 0.2,
+                hybrid_deficit_ratio: 0.17,
+                clue_twist_debt_count: 2
+              }
+            ]
+          })
+        };
+      }
+      if (name === "narrative_intensifier_pass.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            global_intensity_findings: ["Act III needs sharper callback payoffs."],
+            narrative_rationale: ["Strengthen motif reuse and emotional weight."],
+            target_block_ids: ["ACT3_B02"],
+            operations: [{ op: "replace_window", start_slide_id: "S31", end_slide_id: "S35", reason: "raise stakes" }]
+          })
+        };
+      }
+      if (name === "disease_research_source_report.json") {
+        return {
+          contentType: "application/json",
+          text: JSON.stringify({
+            topic: "Community-acquired pneumonia in adults",
+            sections: [
+              {
+                section: "diagnosis_workup",
+                curated_citations: 4,
+                web_citations: 1,
+                dominant_source: "curated"
+              }
+            ]
+          })
+        };
+      }
       return { contentType: "text/plain", text: "ok" };
     });
 
@@ -2415,6 +2465,10 @@ describe("RunViewer", () => {
     expect(await screen.findByText(/authoring_context_manifest: present/i)).toBeInTheDocument();
     expect(await screen.findByText(/Latest regen trace/i)).toBeInTheDocument();
     expect(await screen.findByText(/Latest regen trace \(block_regen_trace_loop2\.json\)/i)).toBeInTheDocument();
+    expect(await screen.findByText("V2 quality diagnostics")).toBeInTheDocument();
+    expect((await screen.findAllByText(/qa_block_heatmap_loop1\.json/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Act III needs sharper callback payoffs\./i)).toBeInTheDocument();
+    expect(await screen.findByText(/Community-acquired pneumonia in adults/i)).toBeInTheDocument();
   });
 
   it("renders v2 packaging inspector details and canonical source fallback values", async () => {

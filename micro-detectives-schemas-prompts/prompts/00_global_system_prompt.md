@@ -25,6 +25,8 @@ Non-negotiables (always):
    - Include at least one emotionally costly clue that changes decisions.
    - Include opener motif and end callback symmetry.
    - Include act-level escalation summaries in the artifacts that own act planning.
+   - Use the canonical Detective and Deputy names exactly as provided by the canonical profile. Do not invent aliases, nicknames, replacements, or alternate partner names.
+   - Do not recycle the same scene-title pattern, courtroom metaphor, or signature noun across multiple acts unless it is the single intentional opener-to-ending callback.
 5) SAFETY.
    - No actionable harm instructions. Keep mechanisms plausible but non-actionable.
 

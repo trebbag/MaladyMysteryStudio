@@ -169,6 +169,33 @@ export function generateReaderSimReport(deck: DeckSpec, truthModel: TruthModel, 
           severity: "should"
         }
       ];
+  const perActWorstBlocks = ["ACT1", "ACT2", "ACT3", "ACT4"].map((actId, index) => {
+    const actSlides = deck.slides.filter((slide) => slide.act_id === actId);
+    const fallbackSlides = actSlides.slice(0, Math.min(4, actSlides.length)).map((slide) => slide.slide_id);
+    return {
+      act_id: actId as "ACT1" | "ACT2" | "ACT3" | "ACT4",
+      block_id: `${actId}_B01`,
+      severity_0_to_5: actSlides.length > 0 ? 2.4 + (index * 0.2) : 0,
+      dominant_issue:
+        actId === "ACT1"
+          ? "False theory could lock more vividly."
+          : actId === "ACT2"
+            ? "Pressure escalation needs more consequence."
+            : actId === "ACT3"
+              ? "Midpoint collapse and receipts need stronger emotional weight."
+              : "Ending callback and proof cadence can sharpen.",
+      slide_ids: fallbackSlides
+    };
+  });
+  const blockNotes = perActWorstBlocks.map((block, index) => ({
+    block_id: block.block_id,
+    act_id: block.act_id,
+    issue_type:
+      index === 0 ? "story_dominance_weak" : index === 1 ? "pacing_slow" : index === 2 ? "generic_language" : "twist_setup_missing",
+    note: block.dominant_issue,
+    severity: index >= 2 ? "must" as const : "should" as const,
+    slide_ids: block.slide_ids
+  }));
 
   return ReaderSimReportSchema.parse({
     schema_version: "1.0.0",
@@ -211,6 +238,8 @@ export function generateReaderSimReport(deck: DeckSpec, truthModel: TruthModel, 
     overall_clarity_score_0_to_5: 4.0,
     biggest_strengths: ["Consistent clue payoffs", "Twist supported by receipts"],
     biggest_risks: notes.length > 0 ? ["Pacing pressure in shorter decks"] : [],
+    per_act_worst_blocks: perActWorstBlocks,
+    block_notes: blockNotes,
     slide_notes: notes,
     required_fixes: notes.length > 0
       ? [

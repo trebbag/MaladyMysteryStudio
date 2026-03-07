@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StoryBlueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "episode_logline",
+    "core_mystery_arc",
+    "detective_deputy_arc",
+    "opener_motif",
+    "opener_motif_vocabulary",
+    "ending_callback",
+    "ending_callback_vocabulary",
+    "clue_obligations",
+    "false_theory_scene_obligations",
+    "emotionally_costly_clue",
+    "act_debts",
+    "unresolved_threads"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "episode_logline": { "type": "string", "minLength": 1 },
+    "core_mystery_arc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inciting_case",
+        "false_theory_lock_in",
+        "midpoint_fracture",
+        "twist_reveal",
+        "final_proof"
+      ],
+      "properties": {
+        "inciting_case": { "type": "string", "minLength": 1 },
+        "false_theory_lock_in": { "type": "string", "minLength": 1 },
+        "midpoint_fracture": { "type": "string", "minLength": 1 },
+        "twist_reveal": { "type": "string", "minLength": 1 },
+        "final_proof": { "type": "string", "minLength": 1 }
+      }
+    },
+    "detective_deputy_arc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_dynamic",
+        "rupture_beat",
+        "repair_beat",
+        "named_recurring_tensions",
+        "relationship_change_by_act"
+      ],
+      "properties": {
+        "baseline_dynamic": { "type": "string", "minLength": 1 },
+        "rupture_beat": { "type": "string", "minLength": 1 },
+        "repair_beat": { "type": "string", "minLength": 1 },
+        "named_recurring_tensions": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "relationship_change_by_act": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["act_id", "change_due_to_case"],
+            "properties": {
+              "act_id": {
+                "type": "string",
+                "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+              },
+              "change_due_to_case": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "opener_motif": { "type": "string", "minLength": 1 },
+    "opener_motif_vocabulary": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "ending_callback": { "type": "string", "minLength": 1 },
+    "ending_callback_vocabulary": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "clue_obligations": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "false_theory_scene_obligations": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "emotionally_costly_clue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["act_id", "event", "cost"],
+      "properties": {
+        "act_id": {
+          "type": "string",
+          "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+        },
+        "event": { "type": "string", "minLength": 1 },
+        "cost": { "type": "string", "minLength": 1 }
+      }
+    },
+    "act_debts": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["act_id", "must_pay_by_end_of_act"],
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+          },
+          "must_pay_by_end_of_act": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "unresolved_threads": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

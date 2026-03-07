@@ -146,7 +146,7 @@ After collecting pilot batch results, calibrate semantic defaults from observed 
 
 ## 10) Common Failure Triage
 
-### Current Real-Key Timing Baseline (March 6, 2026)
+### Current Real-Key Timing Baseline (March 7, 2026)
 
 Use these as the current v2 quality-mode operator expectations from live runs on `Community-acquired pneumonia in adults`:
 
@@ -155,14 +155,22 @@ Use these as the current v2 quality-mode operator expectations from live runs on
    - `A` and `B` now clear in quality mode with compact retry support and longer budgets.
 2. Step `C` long poles currently observed:
    - `differentialCast`: about `40s`
-   - `clueArchitect`: about `92s`
-   - `microWorldMap`: about `303s`
-   - `dramaPlan`: about `83s`
-   - `setpiecePlan`: about `254s`
-   - `slideBlockAuthor`: observed blocks from about `73s` to `218s`
+   - `clueArchitect`: about `83s`
+   - `microWorldMap`: about `83s`
+   - `dramaPlan`: about `124s` after the act-debt normalization fix
+   - `setpiecePlan`: about `70s`
+   - `slideBlockAuthor`: observed blocks from about `58s` to `221s`
+   - `deckCohesionPass`: about `93s`
+   - `narrativeIntensifier`: about `194s`
+   - `readerSim`: about `63s`
+   - `medFactcheck`: about `67s`
+3. Late-stage quality implication from the March 7, 2026 CAP run:
+   - A `55`-slide unconstrained quality run reached `qa_report_loop1.json`, `semantic_acceptance_report_loop1.json`, `qa_block_heatmap_loop1.json`, and structural regeneration artifacts before the smoke watchdog aborted at `45m`.
+   - Step `C` is therefore capable of full authoring + QA on real-key runs, but a quality run that enters regeneration should currently be budgeted closer to `60m` than `45m`.
+   - Until Step `C` throughput is reduced, do not use the smoke timeout as a semantic pass/fail proxy.
 3. Practical operator implication:
    - Do not treat a `C` run as stuck merely because nothing visible happens in the first few minutes.
-   - The current expected hot spots are `microWorldMap`, `setpiecePlan`, and later slide-block calls.
+   - The current expected hot spots are late slide-block calls, the narrative intensifier, and regeneration loops after loop-1 QA.
    - If you lower local watchdog/SLO settings below these observed ranges, you will create false alarms.
 
 1. Gate stuck in `request_changes`:

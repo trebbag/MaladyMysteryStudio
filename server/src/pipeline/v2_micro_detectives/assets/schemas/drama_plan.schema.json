@@ -127,11 +127,35 @@
               "description": "Conflicts that will occur."
             }
           },
+          "named_recurring_tensions": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "string",
+              "description": "Named recurring tensions that should echo across multiple acts."
+            }
+          },
           "repair_moments": {
             "type": "array",
             "items": {
               "type": "string",
               "description": "Moments of trust-building."
+            }
+          },
+          "relationship_change_by_act": {
+            "type": "array",
+            "minItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["act_id", "change_due_to_case"],
+              "properties": {
+                "act_id": {
+                  "type": "string",
+                  "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+                },
+                "change_due_to_case": { "type": "string", "minLength": 1 }
+              }
             }
           },
           "climax_resolution": {
@@ -143,6 +167,8 @@
         "required": [
           "pair",
           "starting_dynamic",
+          "named_recurring_tensions",
+          "relationship_change_by_act",
           "climax_resolution"
         ],
         "title": "RelationshipArc"
@@ -216,6 +242,22 @@
               "description": "Key decisions."
             }
           },
+          "relationship_change_due_to_case": {
+            "type": "string",
+            "description": "How the relationship dynamic must visibly change because of the case in this act."
+          },
+          "act_specific_emotionally_costly_clue": {
+            "type": "string",
+            "description": "The clue beat that should cost the characters something in this act."
+          },
+          "must_pay_by_end_of_act": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "Debts that must be paid before this act closes."
+            }
+          },
           "notes": {
             "type": "string"
           }
@@ -224,7 +266,10 @@
         "required": [
           "act_id",
           "required_emotional_beats",
-          "required_choices"
+          "required_choices",
+          "relationship_change_due_to_case",
+          "act_specific_emotionally_costly_clue",
+          "must_pay_by_end_of_act"
         ]
       }
     }

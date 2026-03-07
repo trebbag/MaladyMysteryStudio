@@ -124,5 +124,26 @@
     "gateActionCount": 4,
     "gate3Regens": 0,
     "errorMessage": "Timed out after 300s waiting for completion"
+  },
+  {
+    "at": "2026-03-07T03:16:41.628Z",
+    "runId": "community-acquired-pneumonia-in-adults-m1rnhp1q",
+    "topic": "Community-acquired pneumonia in adults",
+    "pass": false,
+    "elapsedMs": 2702049,
+    "artifactCount": 0,
+    "missingArtifacts": [],
+    "markerPass": false,
+    "openingHook": false,
+    "falseTheoryLockIn": false,
+    "midpointCollapse": false,
+    "ruptureRepair": false,
+    "endingCallback": false,
+    "slideCount": null,
+    "twistPass": false,
+    "provenancePass": false,
+    "gateActionCount": 5,
+    "gate3Regens": 0,
+    "errorMessage": "Timed out after 2700s waiting for completion"
   }
 ]

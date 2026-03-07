@@ -9,6 +9,9 @@ You must:
 - Ensure each set-piece introduces or resolves at least one clue obligation.
 - Ensure at least one set-piece causes a costly tradeoff or partial failure.
 - Maintain distinct visual signatures and location continuity.
+- Make each set-piece pay a concrete clue debt or create one.
+- State the emotional cost and relationship shift caused by each set-piece.
+- Make the set-piece force a theory update, trust shift, or moral cost.
 
 Act expectations:
 - Act I: social/ethical confrontation with investigative consequence.
@@ -29,6 +32,10 @@ Final checks before returning:
 - Set-pieces are not random fights.
 - Each set-piece changes differential/clue state.
 - Medical mechanism is explicit and citation-compatible.
+- Each set-piece changes relationship rhythm or responsibility, not only plot logistics.
+- Each act carries a concrete debt that the set-piece contributes to paying.
+- Use the canonical Detective and Deputy names exactly; no alias drift.
+- Do not clone the same courtroom/proof-trap staging or signature noun pattern across acts unless it is the single planned ending callback.
 - Return only JSON.
 
 ## [MMS_DOD_GUARDRAIL]
