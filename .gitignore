@@ -12,6 +12,11 @@ web/dist/
 output/
 .ci/pilot/
 .ci/pilot-report/
+.ci/smoke/*.json
+.ci/smoke/*.md
+!.ci/smoke/v2-quality-smoke-latest.json
+!.ci/smoke/v2-quality-smoke-latest.md
+!.ci/smoke/v2-quality-smoke-trend-history.json
 
 # misc
 .DS_Store

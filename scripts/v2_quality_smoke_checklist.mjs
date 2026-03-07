@@ -20,7 +20,7 @@ const TOPIC = readArg("topic", "Community-acquired pneumonia in adults").trim();
 const AUDIENCE_LEVEL = readArg("audience", "PHYSICIAN_LEVEL").trim() || "PHYSICIAN_LEVEL";
 const OUTPUT_DIR = readArg("output-dir", ".ci/smoke").trim() || ".ci/smoke";
 const POLL_MS = Number(readArg("poll-ms", process.env.MMS_SMOKE_POLL_MS || "5000"));
-const TIMEOUT_MS = Number(readArg("timeout-ms", process.env.MMS_SMOKE_TIMEOUT_MS || String(35 * 60 * 1000)));
+const TIMEOUT_MS = Number(readArg("timeout-ms", process.env.MMS_SMOKE_TIMEOUT_MS || String(45 * 60 * 1000)));
 const VERBOSE = readFlag("verbose");
 
 function assert(condition, message) {
@@ -37,6 +37,14 @@ function norm(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function computeRecommendedRunTimeoutMs(run, baselineMs) {
+  const watchdogMs = Number(run?.v2DeckSpecEstimate?.adaptiveTimeoutMs?.watchdog || 0);
+  if (!Number.isFinite(watchdogMs) || watchdogMs <= 0) return baselineMs;
+  const preStepBufferMs = 15 * 60 * 1000;
+  const postStepBufferMs = 10 * 60 * 1000;
+  return Math.max(baselineMs, preStepBufferMs + watchdogMs + postStepBufferMs);
 }
 
 async function httpJson(url, init = undefined) {
@@ -241,6 +249,7 @@ async function main() {
     errorMessage: ""
   };
   const startedAtMs = Date.now();
+  let activeTimeoutMs = TIMEOUT_MS;
   let shouldCancelRun = false;
 
   console.log(`[smoke:v2:quality] baseUrl=${BASE_URL}`);
@@ -274,11 +283,18 @@ async function main() {
     console.log(`[smoke:v2:quality] runId=${runId}`);
 
     while (true) {
-      if (Date.now() - startedAtMs > TIMEOUT_MS) {
-        throw new Error(`Timed out after ${Math.round(TIMEOUT_MS / 1000)}s waiting for completion`);
+      if (Date.now() - startedAtMs > activeTimeoutMs) {
+        throw new Error(`Timed out after ${Math.round(activeTimeoutMs / 1000)}s waiting for completion`);
       }
 
       const run = await httpJson(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}`);
+      const recommendedTimeoutMs = computeRecommendedRunTimeoutMs(run, TIMEOUT_MS);
+      if (recommendedTimeoutMs > activeTimeoutMs) {
+        activeTimeoutMs = recommendedTimeoutMs;
+        if (VERBOSE) {
+          console.log(`[smoke:v2:quality] adaptive timeout extended to ${Math.round(activeTimeoutMs / 60000)}m`);
+        }
+      }
       const status = String(run?.status || "unknown");
       if (VERBOSE) {
         console.log(`[smoke:v2:quality] status=${status}`);

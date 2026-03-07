@@ -330,7 +330,7 @@ function buildAdaptiveStepCTimeoutPlan(input: {
     input.generationProfile === "quality"
       ? 1 + qaLoopBudget * 0.42
       : 1 + Math.min(1, qaLoopBudget) * 0.2;
-  const narrativeTailScale = input.generationProfile === "quality" ? 1.2 : 1.05;
+  const narrativeTailScale = input.generationProfile === "quality" ? 1.35 : 1.05;
   const watchdogScale = (1 + growthUnits * 0.8) * loopScale * narrativeTailScale;
 
   return {
@@ -2532,11 +2532,27 @@ function classifyCitationSource(citation: { citation_id?: string; locator?: stri
     locator.includes("kb_context") ||
     locator.includes("canonical") ||
     locator.includes("vector") ||
-    chunkId.includes("file_search")
+    chunkId.includes("file_search") ||
+    /^turn\d+file\d+$/i.test(chunkId) ||
+    locator.includes("robbins") ||
+    locator.includes("davidson") ||
+    locator.includes("harrison") ||
+    locator.includes("goodman") ||
+    locator.includes("bates")
   ) {
     return "curated";
   }
   return "web";
+}
+
+function webDominantDiseaseResearchSections(
+  sourceReport: ReturnType<typeof DiseaseResearchSourceReportSchema.parse> | null,
+  curatedEvidenceAvailable: boolean
+) {
+  if (!sourceReport || !curatedEvidenceAvailable) return [];
+  return sourceReport.sections.filter(
+    (section) => section.dominant_source === "web" && section.curated_citations === 0 && Boolean(section.fallback_reason)
+  );
 }
 
 function buildDiseaseResearchSourceReport(input: {
@@ -3136,9 +3152,54 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             dossier,
             curatedEvidenceAvailable: kbContext.trim().length > 0
           });
-          const webDominantSections = diseaseResearchSourceReport.sections.filter(
-            (section) => section.dominant_source === "web" && section.curated_citations === 0 && kbContext.trim().length > 0
-          );
+          let webDominantSections = webDominantDiseaseResearchSections(diseaseResearchSourceReport, kbContext.trim().length > 0);
+          if (webDominantSections.length > 0 && generationProfile === "quality") {
+            runs.log(
+              runId,
+              `Disease research grounding retry: regrounding ${webDominantSections.length} web-dominant section(s) against curated/vector evidence.`,
+              "A"
+            );
+            const groundingRepairPrompt =
+              `${diseasePrompt}\n\n` +
+              `CURATED GROUNDING REPAIR REQUIRED:\n` +
+              `The following sections were web-dominant despite curated/vector evidence being available:\n` +
+              `${webDominantSections.map((section) => `- ${section.section}`).join("\n")}\n\n` +
+              `Return the full dossier again. For each listed section, add curated/vector-backed citations when available and do not rely on web-only grounding if curated evidence exists. Keep legitimate web citations only as secondary support.`;
+            const groundingRepairCompactPrompt =
+              `${diseaseCompactPrompt}\n\n` +
+              `CURATED GROUNDING REPAIR REQUIRED FOR:\n${webDominantSections.map((section) => `- ${section.section}`).join("\n")}\n\n` +
+              `Return the full dossier with curated/vector citations present in those sections whenever KB evidence exists.`;
+            try {
+              dossier = normalizeDossierCitationIds(
+                DiseaseDossierSchema.parse(
+                  await runIsolatedAgentWithCompactRetry({
+                    step: "A",
+                    agentKey: "diseaseResearch",
+                    agent: diseaseResearchAgent,
+                    prompt: groundingRepairPrompt,
+                    compactPrompt: groundingRepairCompactPrompt,
+                    maxTurns: 10,
+                    timeoutMs: Math.max(abTimeoutMs, 240_000),
+                    retryLabel: "DiseaseResearch grounding repair"
+                  })
+                ),
+                topic
+              );
+              diseaseResearchSourceReport = buildDiseaseResearchSourceReport({
+                topic,
+                dossier,
+                curatedEvidenceAvailable: kbContext.trim().length > 0
+              });
+              webDominantSections = webDominantDiseaseResearchSections(diseaseResearchSourceReport, kbContext.trim().length > 0);
+            } catch (repairErr) {
+              if (shouldAbortOnError(repairErr)) throw repairErr;
+              const repairMsg = repairErr instanceof Error ? repairErr.message : String(repairErr);
+              if (adherenceMode === "strict") {
+                throw new Error(`Disease research curated-grounding repair failed: ${repairMsg}`);
+              }
+              runs.log(runId, `Disease research grounding repair failed; continuing with current dossier (${repairMsg}).`, "A");
+            }
+          }
           if (webDominantSections.length > 0) {
             runs.log(
               runId,

@@ -187,6 +187,28 @@ describe("v2 pipeline helpers", () => {
     expect(report.sections[1]?.fallback_reason).toMatch(/curated evidence was available/i);
   });
 
+  it("classifies vector-store file-search citations as curated evidence", () => {
+    const fixture = buildFixture("Vector grounded research");
+    fixture.dossier.sections[0]!.citations = [
+      {
+        citation_id: "CIT-DAV-RISK",
+        claim: "Curated textbook evidence",
+        locator: "Davidson's 21e, risk factors",
+        chunk_id: "turn0file13"
+      }
+    ];
+
+    const report = __testOnlyBuildDiseaseResearchSourceReport({
+      topic: "Vector grounded research",
+      dossier: fixture.dossier,
+      curatedEvidenceAvailable: true
+    });
+
+    expect(report.sections[0]?.curated_citations).toBe(1);
+    expect(report.sections[0]?.web_citations).toBe(0);
+    expect(report.sections[0]?.dominant_source).toBe("curated");
+  });
+
   it("promotes web-dominant research sections into med-factcheck issues for QA", () => {
     const fixture = buildFixture("Grounding QA");
     fixture.dossier.sections[0]!.citations = [{ citation_id: "WEB-ONLY-001", claim: "Web heavy", locator: "web:review" }];

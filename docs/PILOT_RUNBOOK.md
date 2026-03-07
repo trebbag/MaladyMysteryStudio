@@ -111,6 +111,7 @@ Use this when you need one deterministic operator check (not a full harness batc
    - success/fail summary in terminal with per-check diagnostics
    - `.ci/smoke/v2-quality-smoke-latest.json`
    - `.ci/smoke/v2-quality-smoke-latest.md`
+   - timestamped smoke snapshots are now treated as local diagnostics and ignored by git; only `latest` and trend-history artifacts are intended to stay in source control
 5. Refresh smoke trend history after repeated checks:
    - `npm run smoke:v2:quality:trend`
 6. Smoke trend outputs:
@@ -143,6 +144,9 @@ After collecting pilot batch results, calibrate semantic defaults from observed 
    - unconstrained deck length
 2. Use `--deck-length 30|45|60` only when you intentionally want a soft-target batch.
 3. Use `--generation-profile pilot --adherence warn` only for resilience-first soak/harness runs.
+4. Promotion semantics:
+   - `--phase promotion` treats timeout runs as diagnostic-only and bases go/no-go on completed runs
+   - `--phase pilot` still counts timeouts in the batch SLO report because it is intended for resilience diagnostics
 
 ## 10) Common Failure Triage
 
@@ -166,8 +170,11 @@ Use these as the current v2 quality-mode operator expectations from live runs on
    - `medFactcheck`: about `67s`
 3. Late-stage quality implication from the March 7, 2026 CAP run:
    - A `55`-slide unconstrained quality run reached `qa_report_loop1.json`, `semantic_acceptance_report_loop1.json`, `qa_block_heatmap_loop1.json`, and structural regeneration artifacts before the smoke watchdog aborted at `45m`.
-   - Step `C` is therefore capable of full authoring + QA on real-key runs, but a quality run that enters regeneration should currently be budgeted closer to `60m` than `45m`.
+   - Step `C` is therefore capable of full authoring + QA on real-key runs, but a quality run that enters regeneration should currently be budgeted closer to `60m+` than `45m`.
    - Until Step `C` throughput is reduced, do not use the smoke timeout as a semantic pass/fail proxy.
+4. Operator timeout policy:
+   - `npm run smoke:v2:quality` now extends its timeout dynamically from `v2DeckSpecEstimate.adaptiveTimeoutMs.watchdog` once step `C` publishes the estimate.
+   - Promotion batches should use the same adaptive budget logic rather than a fixed pre-step `C` wall clock.
 3. Practical operator implication:
    - Do not treat a `C` run as stuck merely because nothing visible happens in the first few minutes.
    - The current expected hot spots are late slide-block calls, the narrative intensifier, and regeneration loops after loop-1 QA.

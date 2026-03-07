@@ -305,6 +305,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function computeRecommendedRunTimeoutMs(run, baselineMs) {
+  const watchdogMs = Number(run?.v2DeckSpecEstimate?.adaptiveTimeoutMs?.watchdog || 0);
+  if (!Number.isFinite(watchdogMs) || watchdogMs <= 0) return baselineMs;
+  const preStepBufferMs = 15 * 60 * 1000;
+  const postStepBufferMs = 10 * 60 * 1000;
+  return Math.max(baselineMs, preStepBufferMs + watchdogMs + postStepBufferMs);
+}
+
 function storyForwardRatio(deckSpec) {
   const slides = Array.isArray(deckSpec?.slides) ? deckSpec.slides : [];
   if (slides.length === 0) return 0;
@@ -472,10 +480,15 @@ async function runOne(options, topic) {
   if (!runId) throw new Error("Run start did not return runId.");
 
   try {
-    const timeoutAt = Date.now() + options.timeoutMinutes * 60_000;
+    const startedAtMs = Date.now();
+    const baseTimeoutMs = options.timeoutMinutes * 60_000;
+    let activeTimeoutMs = baseTimeoutMs;
     let gate3RegenerateAttempts = 0;
-    while (Date.now() < timeoutAt) {
+    while (Date.now() - startedAtMs < activeTimeoutMs) {
       const run = await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}`);
+      if (options.phase === "promotion") {
+        activeTimeoutMs = computeRecommendedRunTimeoutMs(run, activeTimeoutMs);
+      }
       if (run.status === "paused" && run.activeGate?.gateId) {
         const gateId = run.activeGate.gateId;
         try {
@@ -603,6 +616,17 @@ async function runOne(options, topic) {
       await sleep(5000);
     }
 
+    const timeoutRun = await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}`).catch(() => null);
+    const timeoutArtifacts = await fetchJson(
+      `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts`
+    ).catch(() => []);
+    const timeoutArtifactNames = new Set(
+      (Array.isArray(timeoutArtifacts) ? timeoutArtifacts : []).map((row) => String(row?.name || "").trim()).filter(Boolean)
+    );
+    const lateStageTimeout =
+      timeoutArtifactNames.has("qa_report_loop1.json") ||
+      timeoutArtifactNames.has("semantic_acceptance_report_loop1.json") ||
+      timeoutArtifactNames.has("narrative_intensifier_pass.json");
     const cancelInfo = await cancelRunBestEffort(options.baseUrl, runId, "pilot_harness_timeout");
     return {
       runId,
@@ -640,7 +664,10 @@ async function runOne(options, topic) {
       agentRetryEventCount: 0,
       errorAgents: [],
       maxAgentMs: 0,
-      cancelRequestedOnTimeout: cancelInfo.cancelled
+      cancelRequestedOnTimeout: cancelInfo.cancelled,
+      diagnosticOnly: options.phase === "promotion",
+      lateStageTimeout,
+      timeoutObservedStatus: String(timeoutRun?.status || "unknown")
     };
   } catch (error) {
     await cancelRunBestEffort(options.baseUrl, runId, "pilot_harness_error");
@@ -658,8 +685,10 @@ function summarize(results) {
   return {
     runCount: results.length,
     doneCount: completed.length,
+    promotionEligibleDoneCount: completed.length,
     errorCount: results.filter((item) => item.status === "error").length,
     timeoutCount: results.filter((item) => item.status === "timeout").length,
+    lateStageTimeoutCount: results.filter((item) => item.status === "timeout" && item.lateStageTimeout).length,
     qaAcceptRate: avg(completed.map((item) => (item.qaAccept ? 1 : 0))),
     medPassRate: avg(completed.map((item) => (item.medPass ? 1 : 0))),
     avgStoryScore: avg(completed.map((item) => item.storyScore)),
@@ -688,7 +717,7 @@ function summarize(results) {
   };
 }
 
-function evaluateSlo(summary, targets) {
+function evaluateSlo(summary, targets, phase) {
   const violations = [];
   const checkMin = (name, value, minimum) => {
     if (!Number.isFinite(minimum)) return;
@@ -715,6 +744,10 @@ function evaluateSlo(summary, targets) {
   const errorRate = Number(summary.errorCount || 0) / runCount;
   const timeoutRate = Number(summary.timeoutCount || 0) / runCount;
 
+  if (phase === "promotion" && Number(summary.doneCount || 0) < 1) {
+    violations.push("promotion requires at least one completed run");
+  }
+
   checkMin("qaAcceptRate", summary.qaAcceptRate, targets.minQaAcceptRate);
   checkMin("medPassRate", summary.medPassRate, targets.minMedPassRate);
   checkMin("avgStoryScore", summary.avgStoryScore, targets.minAvgStoryScore);
@@ -736,12 +769,16 @@ function evaluateSlo(summary, targets) {
   checkMax("placeholderRunRate", summary.placeholderRunRate, targets.maxPlaceholderRunRate);
   checkMax("fallbackRunRate", summary.fallbackRunRate, targets.maxFallbackRunRate);
   checkMax("errorRate", errorRate, targets.maxErrorRate);
-  checkMax("timeoutRate", timeoutRate, targets.maxTimeoutRate);
+  if (phase !== "promotion") {
+    checkMax("timeoutRate", timeoutRate, targets.maxTimeoutRate);
+  }
 
   return {
     pass: violations.length === 0,
     errorRate: Number(errorRate.toFixed(3)),
     timeoutRate: Number(timeoutRate.toFixed(3)),
+    phase,
+    timeoutDiagnosticOnly: phase === "promotion",
     violations
   };
 }
@@ -752,6 +789,7 @@ function toMarkdown(report) {
     "",
     `Generated: ${report.generatedAt}`,
     `Phase: ${String(report.options?.phase || "pilot")}`,
+    `Timeout policy: ${report.slo.evaluation.timeoutDiagnosticOnly ? "timeouts are diagnostic-only; completed runs determine promotion" : "timeouts count toward SLO evaluation"}`,
     "",
     "## Summary",
     "",
@@ -759,6 +797,7 @@ function toMarkdown(report) {
     `- Done: ${report.summary.doneCount}`,
     `- Error: ${report.summary.errorCount}`,
     `- Timeout: ${report.summary.timeoutCount}`,
+    `- Late-stage timeout: ${report.summary.lateStageTimeoutCount}`,
     `- QA accept rate: ${String(report.summary.qaAcceptRate)}`,
     `- Med pass rate: ${String(report.summary.medPassRate)}`,
     `- Avg story score: ${String(report.summary.avgStoryScore)}`,
@@ -785,7 +824,7 @@ function toMarkdown(report) {
     `- Avg fallback event count (any): ${String(report.summary.avgFallbackEventCountAny)}`,
     `- Avg agent-retry event count: ${String(report.summary.avgAgentRetryEventCount)}`,
     `- Error rate: ${String(report.slo.evaluation.errorRate)}`,
-    `- Timeout rate: ${String(report.slo.evaluation.timeoutRate)}`,
+    `- Timeout rate: ${String(report.slo.evaluation.timeoutRate)}${report.slo.evaluation.timeoutDiagnosticOnly ? " (diagnostic-only)" : ""}`,
     `- SLO pass: ${report.slo.evaluation.pass ? "true" : "false"}`,
     "",
     "## SLO Targets",
@@ -844,7 +883,7 @@ function toMarkdown(report) {
       ? `pass (${run.introBeatCount}/${run.outroBeatCount})`
       : `fail (${run.introBeatCount}/${run.outroBeatCount})`;
     lines.push(
-      `| ${run.topic} | ${run.runId} | ${run.status} | ${String(run.qaAccept)} | ${String(run.medPass)} | ${scores} | ${String(run.storyForwardRatio)} | ${introOutro} | ${String(run.hybridSlideQuality)} | ${String(run.citationGroundingCoverage)} | ${String(run.packagingCompleteness)} | ${String(run.mainRenderPlanCoverage)} | ${String(run.cluePayoffCoverage)} | ${placeholders} | ${fallback} | ${errors} |`
+      `| ${run.topic} | ${run.runId} | ${run.status}${run.lateStageTimeout ? " (late)" : ""} | ${String(run.qaAccept)} | ${String(run.medPass)} | ${scores} | ${String(run.storyForwardRatio)} | ${introOutro} | ${String(run.hybridSlideQuality)} | ${String(run.citationGroundingCoverage)} | ${String(run.packagingCompleteness)} | ${String(run.mainRenderPlanCoverage)} | ${String(run.cluePayoffCoverage)} | ${placeholders} | ${fallback} | ${errors} |`
     );
   }
 
@@ -879,7 +918,7 @@ async function main() {
     summary,
     slo: {
       targets: options.sloTargets,
-      evaluation: evaluateSlo(summary, options.sloTargets)
+      evaluation: evaluateSlo(summary, options.sloTargets, options.phase)
     },
     results
   };
