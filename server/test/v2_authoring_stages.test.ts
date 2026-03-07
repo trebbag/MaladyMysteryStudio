@@ -7,7 +7,79 @@ import {
   normalizeSlideBlockOperations,
   planSlideBlocksFromOutline
 } from "../src/pipeline/v2_micro_detectives/authoring_stages.js";
+import type { ActOutline, StoryBlueprint } from "../src/pipeline/v2_micro_detectives/schemas.js";
 import { SlideBlockSchema } from "../src/pipeline/v2_micro_detectives/schemas.js";
+
+function makeStoryBlueprint(overrides?: Partial<StoryBlueprint>): StoryBlueprint {
+  return {
+    schema_version: "1.0.0",
+    episode_logline: "A medical case becomes a micro-mystery.",
+    core_mystery_arc: {
+      inciting_case: "case",
+      false_theory_lock_in: "false theory",
+      midpoint_fracture: "fracture",
+      twist_reveal: "twist",
+      final_proof: "proof"
+    },
+    detective_deputy_arc: {
+      baseline_dynamic: "baseline tension",
+      rupture_beat: "rupture",
+      repair_beat: "repair",
+      named_recurring_tensions: ["speed versus rigor", "intuition versus proof"],
+      relationship_change_by_act: [
+        { act_id: "ACT1", change_due_to_case: "They start aligned but strain under the first clue." },
+        { act_id: "ACT2", change_due_to_case: "The deputy distrusts the detective's shortcut." },
+        { act_id: "ACT3", change_due_to_case: "They rupture over the false theory collapse." },
+        { act_id: "ACT4", change_due_to_case: "They repair through the final proof." }
+      ]
+    },
+    opener_motif: "motif",
+    opener_motif_vocabulary: ["motif", "coffee rings", "evidence pinboard"],
+    ending_callback: "callback",
+    ending_callback_vocabulary: ["callback", "coffee rings", "closed case"],
+    clue_obligations: ["c1", "c2", "c3", "c4"],
+    false_theory_scene_obligations: ["lock the wrong theory", "collapse the wrong theory publicly"],
+    emotionally_costly_clue: {
+      act_id: "ACT2",
+      event: "The best clue implicates an ally.",
+      cost: "The deputy loses faith in the detective."
+    },
+    act_debts: [
+      { act_id: "ACT1", must_pay_by_end_of_act: ["introduce the false theory"] },
+      { act_id: "ACT2", must_pay_by_end_of_act: ["raise the emotional stakes"] },
+      { act_id: "ACT3", must_pay_by_end_of_act: ["fracture the partnership"] },
+      { act_id: "ACT4", must_pay_by_end_of_act: ["pay off the opener motif"] }
+    ],
+    unresolved_threads: ["thread-1", "thread-2"],
+    ...overrides
+  };
+}
+
+function makeActOutline(spans?: Array<{ act_id: "ACT1" | "ACT2" | "ACT3" | "ACT4"; start: number; end: number }>): ActOutline {
+  const defaults = spans ?? [
+    { act_id: "ACT1", start: 1, end: 8 },
+    { act_id: "ACT2", start: 9, end: 16 },
+    { act_id: "ACT3", start: 17, end: 24 },
+    { act_id: "ACT4", start: 25, end: 30 }
+  ];
+  return {
+    schema_version: "1.0.0",
+    acts: defaults.map((span, index) => ({
+      act_id: span.act_id,
+      act_goal: `goal-${index + 1}`,
+      story_pressure: [`pressure-${index + 1}-a`, `pressure-${index + 1}-b`],
+      pressure_channels: ["physical", "relational"],
+      emotional_turn: `emotion-${index + 1}`,
+      clue_obligations: [`clue-${index + 1}`],
+      false_theory_scene_obligations: [`false-theory-${index + 1}`],
+      setpiece_requirement: `setpiece-${index + 1}`,
+      relationship_change_due_to_case: `relationship-change-${index + 1}`,
+      emotionally_costly_clue: `costly-clue-${index + 1}`,
+      must_pay_by_end_of_act: [`debt-${index + 1}`],
+      target_slide_span: { start: span.start, end: span.end }
+    }))
+  };
+}
 
 describe("v2 authoring stages", () => {
   it("applies operation-based block authoring with insert/split/drop and reindexes slide ids", () => {
@@ -213,35 +285,8 @@ describe("v2 authoring stages", () => {
     });
     const state = buildNarrativeStateForBlock({
       blockId: "ACT2_B01",
-      storyBlueprint: {
-        schema_version: "1.0.0",
-        episode_logline: "x",
-        core_mystery_arc: {
-          inciting_case: "case",
-          false_theory_lock_in: "false theory",
-          midpoint_fracture: "fracture",
-          twist_reveal: "twist",
-          final_proof: "proof"
-        },
-        detective_deputy_arc: {
-          baseline_dynamic: "baseline",
-          rupture_beat: "rupture",
-          repair_beat: "repair"
-        },
-        opener_motif: "opener",
-        ending_callback: "callback",
-        clue_obligations: ["clue-1", "clue-2", "clue-3", "clue-4"],
-        unresolved_threads: ["thread-1", "thread-2"]
-      },
-      actOutline: {
-        schema_version: "1.0.0",
-        acts: [
-          { act_id: "ACT1", act_goal: "g1", story_pressure: ["p1", "p2"], emotional_turn: "e1", clue_obligations: ["c1"], setpiece_requirement: "s1", target_slide_span: { start: 1, end: 8 } },
-          { act_id: "ACT2", act_goal: "g2", story_pressure: ["p3", "p4"], emotional_turn: "e2", clue_obligations: ["c2"], setpiece_requirement: "s2", target_slide_span: { start: 9, end: 16 } },
-          { act_id: "ACT3", act_goal: "g3", story_pressure: ["p5", "p6"], emotional_turn: "e3", clue_obligations: ["c3"], setpiece_requirement: "s3", target_slide_span: { start: 17, end: 24 } },
-          { act_id: "ACT4", act_goal: "g4", story_pressure: ["p7", "p8"], emotional_turn: "e4", clue_obligations: ["c4"], setpiece_requirement: "s4", target_slide_span: { start: 25, end: 30 } }
-        ]
-      },
+      storyBlueprint: makeStoryBlueprint({ episode_logline: "x" }),
+      actOutline: makeActOutline(),
       unresolvedThreads: ["thread-1"],
       priorBlockSummary: "last block changed the suspect ordering",
       recentSlideExcerpts: deck.slides.slice(0, 3).map((slide) => `${slide.slide_id} ${slide.title}`),
@@ -257,15 +302,12 @@ describe("v2 authoring stages", () => {
   });
 
   it("plans smaller quality blocks and injects anti-scaffold rules into block prompt context", () => {
-    const outline = {
-      schema_version: "1.0.0",
-      acts: [
-        { act_id: "ACT1", act_goal: "g1", story_pressure: ["p1"], emotional_turn: "e1", clue_obligations: ["c1"], setpiece_requirement: "s1", target_slide_span: { start: 1, end: 21 } },
-        { act_id: "ACT2", act_goal: "g2", story_pressure: ["p2"], emotional_turn: "e2", clue_obligations: ["c2"], setpiece_requirement: "s2", target_slide_span: { start: 22, end: 41 } },
-        { act_id: "ACT3", act_goal: "g3", story_pressure: ["p3"], emotional_turn: "e3", clue_obligations: ["c3"], setpiece_requirement: "s3", target_slide_span: { start: 42, end: 62 } },
-        { act_id: "ACT4", act_goal: "g4", story_pressure: ["p4"], emotional_turn: "e4", clue_obligations: ["c4"], setpiece_requirement: "s4", target_slide_span: { start: 63, end: 82 } }
-      ]
-    } as const;
+    const outline = makeActOutline([
+      { act_id: "ACT1", start: 1, end: 21 },
+      { act_id: "ACT2", start: 22, end: 41 },
+      { act_id: "ACT3", start: 42, end: 62 },
+      { act_id: "ACT4", start: 63, end: 82 }
+    ]);
 
     const plans = planSlideBlocksFromOutline(outline as never, 12);
     expect(Math.max(...plans.map((plan) => plan.end - plan.start + 1))).toBeLessThanOrEqual(12);
@@ -273,49 +315,11 @@ describe("v2 authoring stages", () => {
     const context = buildBlockPromptContext({
       topic: "CAP",
       plan: plans[0]!,
-      storyBlueprint: {
-        schema_version: "1.0.0",
-        episode_logline: "logline",
-        core_mystery_arc: {
-          inciting_case: "case",
-          false_theory_lock_in: "false",
-          midpoint_fracture: "fracture",
-          twist_reveal: "twist",
-          final_proof: "proof"
-        },
-        detective_deputy_arc: {
-          baseline_dynamic: "baseline",
-          rupture_beat: "rupture",
-          repair_beat: "repair"
-        },
-        opener_motif: "motif",
-        ending_callback: "callback",
-        clue_obligations: ["c1"],
-        unresolved_threads: ["u1"]
-      },
+      storyBlueprint: makeStoryBlueprint({ clue_obligations: ["c1", "c2", "c3", "c4"], unresolved_threads: ["u1", "u2"] }),
       actOutline: outline as never,
       narrativeState: buildNarrativeStateForBlock({
         blockId: plans[0]!.blockId,
-        storyBlueprint: {
-          schema_version: "1.0.0",
-          episode_logline: "logline",
-          core_mystery_arc: {
-            inciting_case: "case",
-            false_theory_lock_in: "false",
-            midpoint_fracture: "fracture",
-            twist_reveal: "twist",
-            final_proof: "proof"
-          },
-          detective_deputy_arc: {
-            baseline_dynamic: "baseline",
-            rupture_beat: "rupture",
-            repair_beat: "repair"
-          },
-          opener_motif: "motif",
-          ending_callback: "callback",
-          clue_obligations: ["c1"],
-          unresolved_threads: ["u1"]
-        },
+        storyBlueprint: makeStoryBlueprint({ clue_obligations: ["c1", "c2", "c3", "c4"], unresolved_threads: ["u1", "u2"] }),
         actOutline: outline as never,
         unresolvedThreads: ["u1"],
         priorBlockSummary: "summary",
@@ -341,40 +345,52 @@ describe("v2 authoring stages", () => {
     expect(context).toContain("Avoid note_only in the main deck");
   });
 
+  it("preserves smaller quality blocks while trimming narrative state carryover for block prompts", () => {
+    const outline = makeActOutline([
+      { act_id: "ACT1", start: 1, end: 28 },
+      { act_id: "ACT2", start: 29, end: 56 },
+      { act_id: "ACT3", start: 57, end: 84 },
+      { act_id: "ACT4", start: 85, end: 112 }
+    ]);
+    outline.acts[0]!.story_pressure = ["p1", "p2", "p3"];
+    outline.acts[0]!.clue_obligations = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+    outline.acts[1]!.story_pressure = ["p4", "p5"];
+
+    const plans = planSlideBlocksFromOutline(outline as never, 6);
+    expect(Math.max(...plans.map((plan) => plan.end - plan.start + 1))).toBeLessThanOrEqual(8);
+
+    const narrativeState = buildNarrativeStateForBlock({
+      blockId: plans[0]!.blockId,
+      storyBlueprint: makeStoryBlueprint({
+        clue_obligations: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+        unresolved_threads: ["u1", "u2", "u3", "u4", "u5", "u6", "u7"]
+      }),
+      actOutline: outline as never,
+      unresolvedThreads: ["u1", "u2", "u3", "u4", "u5", "u6", "u7"],
+      priorBlockSummary: "Prior block changed the active suspect list and forced a new proof route.",
+      recentSlideExcerpts: ["S01 clue", "S02 reversal", "S03 pursuit", "S04 fallout", "S05 proof"],
+      activeDifferentialOrdering: ["DX-1", "DX-2", "DX-3", "DX-4", "DX-5", "DX-6"],
+      canonicalProfileExcerpt: "canon ".repeat(400),
+      episodeMemoryExcerpt: "memory ".repeat(250)
+    });
+
+    expect(narrativeState.recent_slide_excerpts).toHaveLength(4);
+    expect(narrativeState.active_clue_obligations).toHaveLength(6);
+    expect(narrativeState.active_differential_ordering).toHaveLength(5);
+  });
+
   it("builds a compact retry block prompt that keeps narrative state but trims payload volume", () => {
-    const outline = {
-      schema_version: "1.0.0",
-      acts: [
-        { act_id: "ACT1", act_goal: "g1", story_pressure: ["p1"], emotional_turn: "e1", clue_obligations: ["c1"], setpiece_requirement: "s1", target_slide_span: { start: 1, end: 12 } },
-        { act_id: "ACT2", act_goal: "g2", story_pressure: ["p2"], emotional_turn: "e2", clue_obligations: ["c2"], setpiece_requirement: "s2", target_slide_span: { start: 13, end: 24 } },
-        { act_id: "ACT3", act_goal: "g3", story_pressure: ["p3"], emotional_turn: "e3", clue_obligations: ["c3"], setpiece_requirement: "s3", target_slide_span: { start: 25, end: 36 } },
-        { act_id: "ACT4", act_goal: "g4", story_pressure: ["p4"], emotional_turn: "e4", clue_obligations: ["c4"], setpiece_requirement: "s4", target_slide_span: { start: 37, end: 48 } }
-      ]
-    } as const;
+    const outline = makeActOutline([
+      { act_id: "ACT1", start: 1, end: 12 },
+      { act_id: "ACT2", start: 13, end: 24 },
+      { act_id: "ACT3", start: 25, end: 36 },
+      { act_id: "ACT4", start: 37, end: 48 }
+    ]);
 
     const plan = planSlideBlocksFromOutline(outline as never, 12)[0]!;
     const narrativeState = buildNarrativeStateForBlock({
       blockId: plan.blockId,
-      storyBlueprint: {
-        schema_version: "1.0.0",
-        episode_logline: "logline",
-        core_mystery_arc: {
-          inciting_case: "case",
-          false_theory_lock_in: "false theory",
-          midpoint_fracture: "fracture",
-          twist_reveal: "twist",
-          final_proof: "proof"
-        },
-        detective_deputy_arc: {
-          baseline_dynamic: "baseline tension",
-          rupture_beat: "rupture",
-          repair_beat: "repair"
-        },
-        opener_motif: "motif",
-        ending_callback: "callback",
-        clue_obligations: ["c1", "c2", "c3"],
-        unresolved_threads: ["u1", "u2"]
-      },
+      storyBlueprint: makeStoryBlueprint({ clue_obligations: ["c1", "c2", "c3", "c4"], unresolved_threads: ["u1", "u2"] }),
       actOutline: outline as never,
       unresolvedThreads: ["u1", "u2"],
       priorBlockSummary: "prior summary with continuity change",
@@ -386,26 +402,7 @@ describe("v2 authoring stages", () => {
     const primary = buildBlockPromptContext({
       topic: "CAP",
       plan,
-      storyBlueprint: {
-        schema_version: "1.0.0",
-        episode_logline: "logline",
-        core_mystery_arc: {
-          inciting_case: "case",
-          false_theory_lock_in: "false theory",
-          midpoint_fracture: "fracture",
-          twist_reveal: "twist",
-          final_proof: "proof"
-        },
-        detective_deputy_arc: {
-          baseline_dynamic: "baseline tension",
-          rupture_beat: "rupture",
-          repair_beat: "repair"
-        },
-        opener_motif: "motif",
-        ending_callback: "callback",
-        clue_obligations: ["c1", "c2", "c3"],
-        unresolved_threads: ["u1", "u2"]
-      },
+      storyBlueprint: makeStoryBlueprint({ clue_obligations: ["c1", "c2", "c3", "c4"], unresolved_threads: ["u1", "u2"] }),
       actOutline: outline as never,
       narrativeState,
       medicalSlice: {
@@ -421,26 +418,7 @@ describe("v2 authoring stages", () => {
     const compact = buildBlockPromptContext({
       topic: "CAP",
       plan,
-      storyBlueprint: {
-        schema_version: "1.0.0",
-        episode_logline: "logline",
-        core_mystery_arc: {
-          inciting_case: "case",
-          false_theory_lock_in: "false theory",
-          midpoint_fracture: "fracture",
-          twist_reveal: "twist",
-          final_proof: "proof"
-        },
-        detective_deputy_arc: {
-          baseline_dynamic: "baseline tension",
-          rupture_beat: "rupture",
-          repair_beat: "repair"
-        },
-        opener_motif: "motif",
-        ending_callback: "callback",
-        clue_obligations: ["c1", "c2", "c3"],
-        unresolved_threads: ["u1", "u2"]
-      },
+      storyBlueprint: makeStoryBlueprint({ clue_obligations: ["c1", "c2", "c3", "c4"], unresolved_threads: ["u1", "u2"] }),
       actOutline: outline as never,
       narrativeState,
       medicalSlice: {

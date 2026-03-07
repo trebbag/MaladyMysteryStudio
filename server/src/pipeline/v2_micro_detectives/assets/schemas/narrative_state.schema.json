@@ -7,13 +7,23 @@
     "schema_version",
     "block_id",
     "current_false_theory",
+    "current_best_theory",
+    "runner_up_theory",
     "relationship_state_detective_deputy",
     "unresolved_emotional_thread",
     "active_clue_obligations",
+    "unpaid_clue_payoff_debt",
     "active_motif_callback_lexicon",
+    "motif_callback_debt",
     "pressure_channels",
+    "pressure_status_by_channel",
     "recent_slide_excerpts",
     "active_differential_ordering",
+    "relationship_debt",
+    "last_rupture_or_repair_status",
+    "outstanding_setpiece_debt",
+    "must_change_this_block",
+    "may_continue_this_block",
     "delta_from_previous_block",
     "canonical_profile_excerpt",
     "episode_memory_excerpt"
@@ -22,9 +32,16 @@
     "schema_version": { "type": "string", "minLength": 1 },
     "block_id": { "type": "string", "minLength": 1 },
     "current_false_theory": { "type": "string", "minLength": 1 },
+    "current_best_theory": { "type": "string", "minLength": 1 },
+    "runner_up_theory": { "type": "string", "minLength": 1 },
     "relationship_state_detective_deputy": { "type": "string", "minLength": 1 },
     "unresolved_emotional_thread": { "type": "string", "minLength": 1 },
     "active_clue_obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "unpaid_clue_payoff_debt": {
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
@@ -34,10 +51,28 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
     },
+    "motif_callback_debt": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "pressure_channels": {
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
+    },
+    "pressure_status_by_channel": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channel", "status"],
+        "properties": {
+          "channel": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "minLength": 1 }
+        }
+      }
     },
     "recent_slide_excerpts": {
       "type": "array",
@@ -46,6 +81,27 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "active_differential_ordering": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "relationship_debt": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "last_rupture_or_repair_status": { "type": "string", "minLength": 1 },
+    "outstanding_setpiece_debt": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "must_change_this_block": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "may_continue_this_block": {
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }

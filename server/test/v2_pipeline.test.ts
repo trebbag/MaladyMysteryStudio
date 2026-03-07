@@ -68,7 +68,11 @@ import { generateDiseaseDossier, generateEpisodePitch, generateMedFactcheckRepor
 import { generateClueGraph, generateDifferentialCast, generateReaderSimReport } from "../src/pipeline/v2_micro_detectives/phase3_generator.js";
 import { generateDramaPlan, generateMicroWorldMap, generateSetpiecePlan } from "../src/pipeline/v2_micro_detectives/phase4_generator.js";
 import { buildActOutlineFallback, buildStoryBlueprintFallback } from "../src/pipeline/v2_micro_detectives/authoring_stages.js";
-import { __testOnlyNormalizeMedFactcheckReport, runMicroDetectivesPipeline } from "../src/pipeline/v2_micro_detectives/pipeline.js";
+import {
+  __testOnlyNormalizeMedFactcheckReport,
+  __testOnlyNormalizeSlideBlockAuthorOutput,
+  runMicroDetectivesPipeline
+} from "../src/pipeline/v2_micro_detectives/pipeline.js";
 import { appendHumanReview } from "../src/pipeline/v2_micro_detectives/reviews.js";
 import { runFinalDirAbs, runIntermediateDirAbs } from "../src/pipeline/utils.js";
 
@@ -184,6 +188,28 @@ function makeSlideBlockForTest(plan: BlockPlan, mode: "note_only" | "clue", mark
   };
 }
 
+function makeNarrativeIntensifierPass(deck: ReturnType<typeof generateV2DeckSpec>, targetBlockId = "ACT1_B01") {
+  const firstSlide = deck.slides[0]!;
+  return {
+    schema_version: "1.0.0",
+    global_intensity_findings: ["Sharpen opener specificity and maintain callback debt."],
+    operations: [
+      {
+        op: "replace_slide" as const,
+        slide_id: firstSlide.slide_id,
+        replacement_slide: {
+          ...firstSlide,
+          title: `${firstSlide.title} Intensified`,
+          hook: `${firstSlide.hook} Intensified`
+        },
+        reason: "Bounded narrative intensification for test coverage."
+      }
+    ],
+    narrative_rationale: ["Tighten the opener language without changing the deck shape."],
+    target_block_ids: [targetBlockId]
+  };
+}
+
 beforeEach(async () => {
   tmpOut = await fs.mkdtemp(path.join(os.tmpdir(), "mms-v2-real-"));
   process.env.MMS_OUTPUT_DIR = tmpOut;
@@ -219,6 +245,14 @@ beforeEach(async () => {
     const microWorld = generateMicroWorldMap(deck, dossier, truth);
     const dramaPlan = generateDramaPlan(deck, truth);
     const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+    const storyBlueprint = buildStoryBlueprintFallback({
+      topic,
+      clueObligations: clueGraph.clues.slice(0, 6).map((clue) => clue.clue_id)
+    });
+    const actOutline = buildActOutlineFallback({
+      deck,
+      storyBlueprint
+    });
 
     const name = agent?.name ?? "";
     if (name === "KB Compiler") {
@@ -236,6 +270,12 @@ beforeEach(async () => {
     if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
     if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
     if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+    if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+    if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+    if (name === "V2 Slide Block Author") {
+      const plan = parseBlockPlan(prompt);
+      return { finalOutput: makeSlideBlockForTest(plan, "clue", "REGEN") };
+    }
     if (name === "V2 Deck Cohesion Pass") {
       return {
         finalOutput: {
@@ -247,6 +287,7 @@ beforeEach(async () => {
         }
       };
     }
+    if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(deck) };
     if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
     if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
     if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -291,6 +332,7 @@ describe("v2 real pipeline", () => {
 
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "kb_context.md"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "disease_dossier.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "disease_research_source_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "episode_pitch.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "GATE_1_PITCH_REQUIRED.json"))).resolves.toBeTruthy();
 
@@ -942,6 +984,144 @@ describe("v2 real pipeline", () => {
     ).toBe(true);
   });
 
+  it("backfills missing DramaPlan act debts before persisting the authored artifact", async () => {
+    (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
+      const topic = parseTopic(prompt);
+      const deckLengthMain = parseDeckLength(prompt);
+      const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
+      const audienceLevel = parseAudience(prompt);
+      const base = {
+        topic,
+        audienceLevel,
+        deckLengthMain,
+        deckLengthConstraintEnabled,
+        kbContext: "## Medical / Clinical KB\n- deterministic test context"
+      } as const;
+      const dossier = generateDiseaseDossier(base);
+      const pitch = generateEpisodePitch(base, dossier);
+      const truth = generateTruthModel(base, dossier, pitch);
+      const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
+      const differential = generateDifferentialCast(deck, dossier, truth);
+      const clueGraph = generateClueGraph(deck, dossier, differential);
+      const microWorld = generateMicroWorldMap(deck, dossier, truth);
+      const dramaPlan = generateDramaPlan(deck, truth);
+      const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+      const storyBlueprint = buildStoryBlueprintFallback({ topic, clueObligations: clueGraph.clues.map((clue) => clue.clue_id) });
+      const actOutline = buildActOutlineFallback({ deck, storyBlueprint });
+
+      const name = agent?.name ?? "";
+      if (name === "KB Compiler") {
+        return {
+          finalOutput: {
+            kb_context: "## Medical / Clinical KB\n- deterministic test context\n\n## Characters & Story Constraints\n- keep continuity\n\n## Visual Style / Shot Constraints\n- cinematic"
+          }
+        };
+      }
+      if (name === "V2 Disease Research Desk") return { finalOutput: dossier };
+      if (name === "V2 Episode Pitch Builder") return { finalOutput: pitch };
+      if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
+      if (name === "V2 Differential Cast Director") return { finalOutput: differential };
+      if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+      if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+      if (name === "V2 Drama Architect") {
+        return {
+          finalOutput: {
+            ...dramaPlan,
+            chapter_or_act_setups: (dramaPlan.chapter_or_act_setups ?? []).map((setup) => {
+              const { must_pay_by_end_of_act: _unusedMustPay, ...rest } = setup;
+              return rest;
+            })
+          }
+        };
+      }
+      if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+      if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+      if (name === "V2 Slide Block Author") {
+        const plan = parseBlockPlan(prompt);
+        return { finalOutput: makeSlideBlockForTest(plan, "clue", "REGEN") };
+      }
+      if (name === "V2 Narrative Intensifier") {
+        return {
+          finalOutput: {
+            schema_version: "1.0.0",
+            rationale: ["Tighten callbacks without changing act obligations."],
+            operations: []
+          }
+        };
+      }
+      if (name === "V2 Deck Cohesion Pass") {
+        return {
+          finalOutput: {
+            schema_version: "1.0.0",
+            global_continuity_findings: ["Continuity pass completed."],
+            act_obligation_gaps: [],
+            must_fix_operations: [],
+            narrative_risk_flags: []
+          }
+        };
+      }
+      if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
+      if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
+      if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
+      return { finalOutput: { kb_context: "## Medical / Clinical KB\n- fallback" } };
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("Drama debt repair", {
+      workflow: "v2_micro_detectives",
+      generationProfile: "quality",
+      adherenceMode: "strict",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      deckLengthConstraintEnabled: false
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await runMicroDetectivesPipeline(
+      { runId: run.runId, topic: run.topic, settings: run.settings },
+      runs,
+      { signal: new AbortController().signal, startFrom: "C" }
+    ).catch(() => undefined);
+
+    const dramaArtifact = JSON.parse(
+      await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "drama_plan.json"), "utf8")
+    ) as { chapter_or_act_setups?: Array<{ must_pay_by_end_of_act?: string[] }> };
+    expect(dramaArtifact.chapter_or_act_setups?.every((setup) => (setup.must_pay_by_end_of_act ?? []).length > 0)).toBe(true);
+  });
+
   it("retries the first slide block once with a compact prompt after a timeout-like failure in quality mode", async () => {
     let blockCalls = 0;
     (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
@@ -1344,6 +1524,7 @@ describe("v2 real pipeline", () => {
           }
         };
       }
+      if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(deck) };
       if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
       if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
       if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -1508,6 +1689,7 @@ describe("v2 real pipeline", () => {
           }
         };
       }
+      if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(deck) };
       if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
       if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
       if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
@@ -1626,6 +1808,8 @@ describe("v2 real pipeline", () => {
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "med_factcheck_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "semantic_acceptance_report.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "qa_block_heatmap_loop1.json"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "narrative_intensifier_pass.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "v2_stage_authoring_provenance.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "story_beats_alignment_report.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(runIntermediateDirAbs(run.runId), "citation_traceability.json"))).resolves.toBeTruthy();
@@ -1756,6 +1940,119 @@ describe("v2 real pipeline", () => {
 
     expect(normalized.issues.length).toBeGreaterThan(0);
     expect(normalized.issues.every((issue) => issue.supporting_citations.length > 0)).toBe(true);
+  });
+
+  it("backfills missing slide-block differential updates before strict parsing", () => {
+    const deck = generateV2DeckSpec({
+      topic: "Community acquired pneumonia",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
+    });
+    const baseSlide = deck.slides[0]!;
+
+    const normalized = __testOnlyNormalizeSlideBlockAuthorOutput(
+      {
+        schema_version: "1.0.0",
+        block_id: "ACT1_B01",
+        act_id: "ACT1",
+        slide_range: { start: 1, end: 1 },
+        operations: [
+          {
+            op: "replace_slide",
+            slide_id: baseSlide.slide_id,
+            replacement_slide: {
+              ...baseSlide,
+              title: "Reauthored title",
+              speaker_notes: {
+                narrative_notes: "Updated narrative notes.",
+                medical_reasoning: baseSlide.speaker_notes.medical_reasoning,
+                citations: baseSlide.speaker_notes.citations
+              }
+            }
+          }
+        ],
+        block_summary_out: "Updated block"
+      },
+      deck
+    );
+
+    expect(normalized.operations?.[0]?.replacement_slide?.speaker_notes.differential_update.top_dx_ids.length).toBeGreaterThan(0);
+    expect(normalized.operations?.[0]?.replacement_slide?.speaker_notes.differential_update.why).toBeTruthy();
+  });
+
+  it("normalizes invalid slide-block beat types before strict parsing", () => {
+    const deck = generateV2DeckSpec({
+      topic: "Community acquired pneumonia",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
+    });
+    const baseSlide = deck.slides[5]!;
+
+    const normalized = __testOnlyNormalizeSlideBlockAuthorOutput(
+      {
+        schema_version: "1.0.0",
+        block_id: "ACT1_B01",
+        act_id: "ACT1",
+        slide_range: { start: 1, end: 1 },
+        operations: [
+          {
+            op: "replace_slide",
+            slide_id: baseSlide.slide_id,
+            replacement_slide: {
+              ...baseSlide,
+              beat_type: "bureaucratic_detour",
+              title: "Reauthored title",
+              speaker_notes: {
+                ...baseSlide.speaker_notes
+              }
+            }
+          }
+        ],
+        block_summary_out: "Updated block"
+      },
+      deck
+    );
+
+    expect(normalized.operations?.[0]?.replacement_slide?.beat_type).toBe(baseSlide.beat_type);
+  });
+
+  it("ignores non-canonical root keys on slide-block agent output before strict parsing", () => {
+    const deck = generateV2DeckSpec({
+      topic: "Community acquired pneumonia",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "PHYSICIAN_LEVEL"
+    });
+    const baseSlide = deck.slides[0]!;
+
+    const normalized = __testOnlyNormalizeSlideBlockAuthorOutput(
+      {
+        schema_version: "1.0.0",
+        block_id: "ACT1_B01",
+        act_id: "ACT1",
+        slide_range: { start: 1, end: 1 },
+        reason: "extra commentary from the model",
+        operations: [
+          {
+            op: "replace_slide",
+            slide_id: baseSlide.slide_id,
+            replacement_slide: {
+              ...baseSlide,
+              speaker_notes: {
+                ...baseSlide.speaker_notes
+              }
+            }
+          }
+        ],
+        block_summary_out: "Updated block"
+      },
+      deck
+    );
+
+    expect(normalized.block_id).toBe("ACT1_B01");
+    expect(normalized.operations?.[0]?.replacement_slide?.slide_id).toBe(baseSlide.slide_id);
   });
 
   it("fails phase-4 packaging in quality mode when authored micro/drama/setpiece artifacts are missing", async () => {
@@ -2049,6 +2346,7 @@ describe("v2 real pipeline", () => {
             }
           };
         }
+        if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(degradedDeck) };
         if (name === "V2 Plot Director DeckSpec") return { finalOutput: degradedDeck };
         if (name === "V2 Reader Simulator") return { finalOutput: generateReaderSimReport(degradedDeck, truth, clueGraph) };
         if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(degradedDeck, dossier) };

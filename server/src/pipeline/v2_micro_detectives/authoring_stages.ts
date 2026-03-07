@@ -6,10 +6,14 @@ import {
   SlideBlockSchema,
   StoryBlueprintSchema,
   type ActOutline,
+  type ClueGraph,
   type DeckAssemblyReport,
   type DeckSlideSpec,
   type DeckSpec,
+  type DifferentialCast,
+  type DramaPlan,
   type NarrativeState,
+  type SetpiecePlan,
   type SlideBlock,
   type SlideBlockOperation,
   type StoryBlueprint
@@ -58,6 +62,19 @@ function clampPromptText(value: string, maxChars: number): string {
 
 function compactPromptJson<T>(value: T, maxChars = 2_000): string {
   return clampPromptText(JSON.stringify(value, null, 2), maxChars);
+}
+
+function uniqueStrings(values: Array<string | undefined | null>, maxItems?: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = String(value ?? "").trim();
+    if (normalized.length === 0 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+    if (typeof maxItems === "number" && out.length >= maxItems) break;
+  }
+  return out;
 }
 
 function chunkSlides(start: number, end: number, preferred = 16): Array<{ start: number; end: number }> {
@@ -294,11 +311,35 @@ export function buildStoryBlueprintFallback(input: StoryBlueprintInput): StoryBl
     detective_deputy_arc: {
       baseline_dynamic: "Detective leads with pattern certainty while Deputy pressure-tests assumptions.",
       rupture_beat: "A rushed call creates conflict after an avoidable setback.",
-      repair_beat: "They repair trust by co-owning the proof path and final decision."
+      repair_beat: "They repair trust by co-owning the proof path and final decision.",
+      named_recurring_tensions: ["certainty vs skepticism", "speed vs verification"],
+      relationship_change_by_act: [
+        { act_id: "ACT1", change_due_to_case: "Deputy starts pushing back on Detective's early certainty." },
+        { act_id: "ACT2", change_due_to_case: "Conflicting clue pressure makes the partnership openly strained." },
+        { act_id: "ACT3", change_due_to_case: "Midpoint collapse forces them to admit what each was missing." },
+        { act_id: "ACT4", change_due_to_case: "They repair trust by proving the case together under pressure." }
+      ]
     },
     opener_motif: "Detective office banter interrupted by urgent case intake.",
+    opener_motif_vocabulary: ["caseboard", "office banter", "urgent intake"],
     ending_callback: "Return to office with a callback that closes the opener motif.",
+    ending_callback_vocabulary: ["back at the office", "caseboard callback", "earned banter"],
     clue_obligations: clueObligations,
+    false_theory_scene_obligations: [
+      "Lock the team into a tempting wrong diagnosis using fair evidence.",
+      "Fracture that theory with an emotionally costly contradiction at midpoint."
+    ],
+    emotionally_costly_clue: {
+      act_id: "ACT3",
+      event: "A contradiction reveals that the team misread a clue that put the patient at greater risk.",
+      cost: "Detective and Deputy lose confidence in each other until proof is rebuilt."
+    },
+    act_debts: [
+      { act_id: "ACT1", must_pay_by_end_of_act: ["Case acquisition", "Initial false-theory lock-in"] },
+      { act_id: "ACT2", must_pay_by_end_of_act: ["Escalating clue pressure", "Relationship rupture"] },
+      { act_id: "ACT3", must_pay_by_end_of_act: ["False-theory collapse", "Emotionally costly clue"] },
+      { act_id: "ACT4", must_pay_by_end_of_act: ["Final proof", "Ending callback"] }
+    ],
     unresolved_threads: ["Why initial pattern was misleading", "What single proof seals diagnosis"]
   });
 }
@@ -323,12 +364,31 @@ export function buildActOutlineFallback(input: ActOutlineInput): ActOutline {
           : idx === 2
             ? "Doubt to conviction"
             : "Conviction to closure",
+      pressure_channels: idx === 0
+        ? ["institutional", "relational"]
+        : idx === 1
+          ? ["physical", "uncertainty"]
+          : idx === 2
+            ? ["moral", "relational"]
+            : ["physical", "institutional"],
       clue_obligations: (() => {
         const window = input.storyBlueprint.clue_obligations.slice(Math.max(0, idx * 2), Math.max(0, idx * 2) + 3);
         if (window.length > 0) return window;
         return [fallbackActClues[idx % fallbackActClues.length]!];
       })(),
+      false_theory_scene_obligations: idx === 2
+        ? ["Show the false theory collapsing under a contradiction."]
+        : [input.storyBlueprint.false_theory_scene_obligations[idx % input.storyBlueprint.false_theory_scene_obligations.length] ?? "Carry false-theory debt visibly."],
       setpiece_requirement: idx === 1 ? "Micro-action hazard setpiece required" : idx === 3 ? "Proof/showdown setpiece required" : "At least one consequential movement beat",
+      relationship_change_due_to_case:
+        input.storyBlueprint.detective_deputy_arc.relationship_change_by_act[idx]?.change_due_to_case ??
+        "Case pressure alters detective/deputy trust.",
+      emotionally_costly_clue:
+        idx === 2
+          ? input.storyBlueprint.emotionally_costly_clue.event
+          : `Act ${idx + 1} clue should cost certainty or trust.`,
+      must_pay_by_end_of_act:
+        input.storyBlueprint.act_debts[idx]?.must_pay_by_end_of_act ?? ["Fallback act debt"],
       unresolved_threads_in: idx === 0 ? input.storyBlueprint.unresolved_threads : undefined,
       unresolved_threads_out: idx === 3 ? [] : input.storyBlueprint.unresolved_threads.slice(0, 2),
       target_slide_span: {
@@ -342,9 +402,14 @@ export function buildActOutlineFallback(input: ActOutlineInput): ActOutline {
       act_id: `ACT${acts.length + 1}` as "ACT1" | "ACT2" | "ACT3" | "ACT4",
       act_goal: "Fallback act goal",
       story_pressure: ["Fallback pressure", "Fallback opposition"],
+      pressure_channels: ["uncertainty", "relational"],
       emotional_turn: "Fallback emotional turn",
       clue_obligations: ["Fallback clue obligation"],
+      false_theory_scene_obligations: ["Fallback false-theory scene obligation"],
       setpiece_requirement: "Fallback setpiece requirement",
+      relationship_change_due_to_case: "Fallback relationship shift",
+      emotionally_costly_clue: "Fallback costly clue",
+      must_pay_by_end_of_act: ["Fallback debt"],
       unresolved_threads_in: undefined,
       unresolved_threads_out: [],
       target_slide_span: {
@@ -505,6 +570,7 @@ export function assembleDeckFromSlideBlocks(input: ApplyBlocksInput): { deck: De
 
 export function buildNarrativeStateForBlock(input: {
   blockId: string;
+  actId?: "ACT1" | "ACT2" | "ACT3" | "ACT4";
   storyBlueprint: StoryBlueprint;
   actOutline: ActOutline;
   unresolvedThreads: string[];
@@ -513,31 +579,150 @@ export function buildNarrativeStateForBlock(input: {
   activeDifferentialOrdering: string[];
   canonicalProfileExcerpt: string;
   episodeMemoryExcerpt: string;
+  differentialCast?: DifferentialCast;
+  clueGraph?: ClueGraph;
+  dramaPlan?: DramaPlan;
+  setpiecePlan?: SetpiecePlan;
+  storyBeatHints?: string[];
   previousState?: NarrativeState;
 }): NarrativeState {
-  const act = input.actOutline.acts.find((item) => item.act_id === input.blockId.split("_")[0]);
-  const motifLexicon = [
-    input.storyBlueprint.opener_motif,
-    input.storyBlueprint.ending_callback,
-    ...(input.storyBlueprint.clue_obligations ?? [])
-  ]
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-    .slice(0, 8);
-  const pressure = [...(act?.story_pressure ?? []), ...(input.previousState?.pressure_channels ?? [])]
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-    .slice(0, 8);
+  const actId = input.actId ?? (input.blockId.split("_")[0] as "ACT1" | "ACT2" | "ACT3" | "ACT4");
+  const act = input.actOutline.acts.find((item) => item.act_id === actId);
+  const blueprintActDebt = input.storyBlueprint.act_debts.find((item) => item.act_id === actId);
+  const relationshipActChange = input.storyBlueprint.detective_deputy_arc.relationship_change_by_act.find(
+    (item) => item.act_id === actId
+  );
+  const dramaRelationship = input.dramaPlan?.relationship_arcs.find((arc) => arc.pair === "detective_deputy");
+  const dramaActSetup = input.dramaPlan?.chapter_or_act_setups?.find((setup) => setup.act_id === actId);
+  const setpieceActDebt = input.setpiecePlan?.act_debts.find((item) => item.act_id === actId);
+  const setpiecesForAct = (input.setpiecePlan?.setpieces ?? []).filter((item) => item.act_id === actId);
+  const actRotation =
+    actId === "ACT1"
+      ? input.differentialCast?.rotation_plan.act1_focus_dx_ids
+      : actId === "ACT2"
+        ? input.differentialCast?.rotation_plan.act2_expansion_dx_ids
+        : actId === "ACT3"
+          ? input.differentialCast?.rotation_plan.act3_collapse_dx_ids
+          : input.differentialCast?.rotation_plan.act4_final_dx_id
+            ? [input.differentialCast.rotation_plan.act4_final_dx_id]
+            : [];
+  const bestTheory = uniqueStrings(
+    [
+      input.previousState?.current_best_theory,
+      ...(actRotation ?? []),
+      ...input.activeDifferentialOrdering
+    ],
+    2
+  );
+  const motifLexicon = uniqueStrings(
+    [
+      input.storyBlueprint.opener_motif,
+      ...input.storyBlueprint.opener_motif_vocabulary,
+      input.storyBlueprint.ending_callback,
+      ...input.storyBlueprint.ending_callback_vocabulary,
+      ...(input.storyBeatHints ?? []),
+      ...input.storyBlueprint.clue_obligations
+    ],
+    8
+  );
+  const pressureStatusByChannel = uniqueStrings(
+    [
+      ...(act?.pressure_channels ?? []),
+      ...(input.previousState?.pressure_status_by_channel ?? []).map((item) => `${item.channel}: ${item.status}`)
+    ],
+    6
+  ).map((value) => {
+    const [channel, ...rest] = value.split(":");
+    const status = rest.join(":").trim();
+    return {
+      channel: channel.trim(),
+      status: status.length > 0 ? status : `Escalates in ${actId}`
+    };
+  });
+  const pressure = uniqueStrings(
+    [
+      ...(act?.pressure_channels ?? []),
+      ...(act?.story_pressure ?? []),
+      ...(input.previousState?.pressure_channels ?? [])
+    ],
+    6
+  );
   const excerpts = input.recentSlideExcerpts
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
     .slice(0, 4);
   while (excerpts.length < 2) excerpts.push(input.priorBlockSummary?.trim() || "Continuity carryover from previous authored block.");
+  const clueDebt = uniqueStrings(
+    [
+      ...(act?.clue_obligations ?? []),
+      ...(act?.false_theory_scene_obligations ?? []),
+      ...(input.storyBlueprint.false_theory_scene_obligations ?? []),
+      ...(input.unresolvedThreads ?? []),
+      ...(input.previousState?.unpaid_clue_payoff_debt ?? [])
+    ],
+    8
+  );
+  const relationshipDebt = uniqueStrings(
+    [
+      relationshipActChange?.change_due_to_case,
+      dramaActSetup?.relationship_change_due_to_case,
+      ...(dramaRelationship?.named_recurring_tensions ?? []),
+      ...(input.previousState?.relationship_debt ?? [])
+    ],
+    6
+  );
+  const motifDebt = uniqueStrings(
+    [
+      ...(blueprintActDebt?.must_pay_by_end_of_act ?? []),
+      ...(setpieceActDebt?.must_pay_by_end_of_act ?? []),
+      ...input.storyBlueprint.ending_callback_vocabulary,
+      ...(input.previousState?.motif_callback_debt ?? [])
+    ],
+    6
+  );
+  const setpieceDebt = uniqueStrings(
+    [
+      act?.setpiece_requirement,
+      ...setpiecesForAct.map((item) => item.story_purpose),
+      ...setpiecesForAct.map((item) => item.clue_obligation_paid),
+      ...(input.previousState?.outstanding_setpiece_debt ?? [])
+    ],
+    6
+  );
+  const mustChangeThisBlock = uniqueStrings(
+    [
+      ...(act?.must_pay_by_end_of_act ?? []),
+      act?.emotionally_costly_clue,
+      relationshipActChange?.change_due_to_case,
+      ...setpiecesForAct.map((item) => item.relationship_shift),
+      ...setpiecesForAct.map((item) => item.emotional_cost)
+    ],
+    8
+  );
+  const mayContinueThisBlock = uniqueStrings(
+    [
+      ...(act?.unresolved_threads_out ?? []),
+      ...input.unresolvedThreads,
+      ...(input.previousState?.may_continue_this_block ?? [])
+    ],
+    8
+  );
+  const lastRuptureOrRepairStatus =
+    input.previousState?.last_rupture_or_repair_status ??
+    (actId === "ACT1"
+      ? "Baseline tension established; rupture not yet paid."
+      : actId === "ACT2"
+        ? "Rupture pressure rising; trust debt is active."
+        : actId === "ACT3"
+          ? "Relationship is unstable and awaiting repair through proof."
+          : "Repair must land alongside proof closure.");
 
   return NarrativeStateSchema.parse({
     schema_version: "1.0.0",
     block_id: input.blockId,
     current_false_theory: input.storyBlueprint.core_mystery_arc.false_theory_lock_in,
+    current_best_theory: bestTheory[0] ?? input.storyBlueprint.core_mystery_arc.final_proof,
+    runner_up_theory: bestTheory[1] ?? input.storyBlueprint.core_mystery_arc.false_theory_lock_in,
     relationship_state_detective_deputy:
       input.previousState?.relationship_state_detective_deputy ??
       input.storyBlueprint.detective_deputy_arc.baseline_dynamic,
@@ -550,12 +735,26 @@ export function buildNarrativeStateForBlock(input: {
     )
       .map((item) => item.trim())
       .filter((item) => item.length > 0)
-      .slice(0, 8),
+      .slice(0, 6),
+    unpaid_clue_payoff_debt: clueDebt.length > 0 ? clueDebt : ["A seeded clue still needs an emotionally meaningful payoff."],
     active_motif_callback_lexicon: motifLexicon.length > 0 ? motifLexicon : ["caseboard", "forensic motif"],
+    motif_callback_debt: motifDebt.length > 0 ? motifDebt : ["Return to the opener vocabulary in the ending callback."],
     pressure_channels: pressure.length > 0 ? pressure : ["physical risk", "institutional urgency"],
+    pressure_status_by_channel:
+      pressureStatusByChannel.length > 0
+        ? pressureStatusByChannel
+        : [
+            { channel: "physical", status: "Escalating hazard pressure" },
+            { channel: "relational", status: "Trust strain remains unresolved" }
+          ],
     recent_slide_excerpts: excerpts,
     active_differential_ordering:
-      input.activeDifferentialOrdering.length > 0 ? input.activeDifferentialOrdering.slice(0, 6) : ["DX-UNKNOWN"],
+      input.activeDifferentialOrdering.length > 0 ? input.activeDifferentialOrdering.slice(0, 5) : ["DX-UNKNOWN"],
+    relationship_debt: relationshipDebt.length > 0 ? relationshipDebt : ["Detective and Deputy must earn alignment under pressure."],
+    last_rupture_or_repair_status: lastRuptureOrRepairStatus,
+    outstanding_setpiece_debt: setpieceDebt.length > 0 ? setpieceDebt : ["A consequential set-piece must change the investigation state."],
+    must_change_this_block: mustChangeThisBlock.length > 0 ? mustChangeThisBlock : ["This block must visibly change theory, trust, or clue debt."],
+    may_continue_this_block: mayContinueThisBlock.length > 0 ? mayContinueThisBlock : ["Some clue debt may continue if it actively escalates."],
     delta_from_previous_block:
       input.priorBlockSummary?.trim().length
         ? input.priorBlockSummary.trim()
@@ -592,16 +791,26 @@ export function buildBlockPromptContext(input: {
     mode === "retry_compact"
       ? {
           current_false_theory: input.narrativeState.current_false_theory,
+          current_best_theory: input.narrativeState.current_best_theory,
+          runner_up_theory: input.narrativeState.runner_up_theory,
           relationship_state_detective_deputy: input.narrativeState.relationship_state_detective_deputy,
           unresolved_emotional_thread: input.narrativeState.unresolved_emotional_thread,
-          active_clue_obligations: input.narrativeState.active_clue_obligations.slice(0, 5),
-          active_motif_callback_lexicon: input.narrativeState.active_motif_callback_lexicon.slice(0, 5),
-          pressure_channels: input.narrativeState.pressure_channels.slice(0, 5),
+          active_clue_obligations: input.narrativeState.active_clue_obligations.slice(0, 4),
+          unpaid_clue_payoff_debt: input.narrativeState.unpaid_clue_payoff_debt.slice(0, 4),
+          active_motif_callback_lexicon: input.narrativeState.active_motif_callback_lexicon.slice(0, 4),
+          motif_callback_debt: input.narrativeState.motif_callback_debt.slice(0, 4),
+          pressure_channels: input.narrativeState.pressure_channels.slice(0, 4),
+          pressure_status_by_channel: input.narrativeState.pressure_status_by_channel.slice(0, 4),
           recent_slide_excerpts: input.narrativeState.recent_slide_excerpts.slice(0, 2),
           active_differential_ordering: input.narrativeState.active_differential_ordering.slice(0, 4),
+          relationship_debt: input.narrativeState.relationship_debt.slice(0, 4),
+          last_rupture_or_repair_status: input.narrativeState.last_rupture_or_repair_status,
+          outstanding_setpiece_debt: input.narrativeState.outstanding_setpiece_debt.slice(0, 4),
+          must_change_this_block: input.narrativeState.must_change_this_block.slice(0, 4),
+          may_continue_this_block: input.narrativeState.may_continue_this_block.slice(0, 4),
           delta_from_previous_block: input.narrativeState.delta_from_previous_block,
-          canonical_profile_excerpt: clampPromptText(input.narrativeState.canonical_profile_excerpt, 600),
-          episode_memory_excerpt: clampPromptText(input.narrativeState.episode_memory_excerpt, 420)
+          canonical_profile_excerpt: clampPromptText(input.narrativeState.canonical_profile_excerpt, 360),
+          episode_memory_excerpt: clampPromptText(input.narrativeState.episode_memory_excerpt, 240)
         }
       : input.narrativeState;
   const medicalSlice =
@@ -624,14 +833,19 @@ export function buildBlockPromptContext(input: {
     `STORY BLUEPRINT DIGEST (json):\n${JSON.stringify(
       {
         opener_motif: input.storyBlueprint.opener_motif,
+        opener_motif_vocabulary: input.storyBlueprint.opener_motif_vocabulary.slice(0, 6),
         ending_callback: input.storyBlueprint.ending_callback,
+        ending_callback_vocabulary: input.storyBlueprint.ending_callback_vocabulary.slice(0, 6),
+        false_theory_scene_obligations: input.storyBlueprint.false_theory_scene_obligations.slice(0, 6),
+        emotionally_costly_clue: input.storyBlueprint.emotionally_costly_clue,
+        act_debts: input.storyBlueprint.act_debts.slice(0, 4),
         unresolved_threads: input.storyBlueprint.unresolved_threads.slice(0, 8),
-        clue_obligations: input.storyBlueprint.clue_obligations.slice(0, 10)
+        clue_obligations: input.storyBlueprint.clue_obligations.slice(0, 8)
       },
       null,
       2
     )}`,
-    `NARRATIVE STATE (json):\n${mode === "retry_compact" ? compactPromptJson(narrativeState, 2_200) : compactPromptJson(narrativeState, 3_600)}`,
-    `COMPACT MEDICAL CONTEXT (json):\n${mode === "retry_compact" ? compactPromptJson(medicalSlice, 2_800) : compactPromptJson(medicalSlice, 3_800)}`
+    `NARRATIVE STATE (json):\n${mode === "retry_compact" ? compactPromptJson(narrativeState, 1_500) : compactPromptJson(narrativeState, 2_300)}`,
+    `COMPACT MEDICAL CONTEXT (json):\n${mode === "retry_compact" ? compactPromptJson(medicalSlice, 1_800) : compactPromptJson(medicalSlice, 2_600)}`
   ].join("\n\n");
 }

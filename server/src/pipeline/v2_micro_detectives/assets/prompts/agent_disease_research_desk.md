@@ -35,6 +35,11 @@ You must:
 - Provide misconceptions that are tempting and clinically realistic; these fuel red herrings.
 - Provide 'do_not_misstate' rules to prevent subtle wrongness.
 - Every non-trivial claim must be supported by citations[] (CitationSource + chunks) and referenced via CitationRef in relevant fields.
+- Prefer curated/vector-store retrieval and supplied KB context first.
+- Use web search only to fill gaps, resolve stale or contradictory guidance, or confirm areas where curated retrieval is insufficient.
+- Make source provenance obvious in the citations you choose so downstream fact-checkers can see whether a claim is curated-grounded, web-grounded, or mixed.
+- When curated retrieval is available, every major dossier section must carry at least one curated-grounded citation unless you explicitly cannot find any relevant curated evidence for that section.
+- Treat a web-only section as an exception case. If it happens, explain why curated evidence was insufficient and keep web citations supplemental rather than dominant whenever possible.
 
 Depth target:
 - Enough detail that a third-party can audit the medicine from your dossier alone.
@@ -47,6 +52,8 @@ Your output MUST conform to: DiseaseDossier
 Tools (if available):
 - retrieve_medical_context(query: string, top_k: number) -> {sources:[{citation_stub, chunks...}]}
 - list_available_sources() -> {sources...} (optional)
+- file/vector retrieval tools should be considered the primary source of truth when available.
+- web search tools are secondary and should not dominate if curated evidence is already sufficient.
 
 Quality checks before you finalize:
 - Do pathogenesis steps form a correct causal chain and time course?
@@ -54,5 +61,8 @@ Quality checks before you finalize:
 - Are treatments/diagnostics consistent with current standards in the dossier sources?
 - Are misconceptions common and plausible at med-school level?
 - Do_not_misstate rules cover common pitfalls for this disease?
+- Did you exhaust curated evidence before leaning on open web?
+- If a section is web-dominant, can you explain why curated evidence was insufficient?
+- If curated retrieval exists, did each major section retain at least one curated-grounded citation?
 
 Return ONLY the JSON object. No commentary.

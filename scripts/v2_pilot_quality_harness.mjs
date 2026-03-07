@@ -282,6 +282,25 @@ async function fetchJson(url, init = {}) {
   }
 }
 
+async function cancelRunBestEffort(baseUrl, runId, reason = "") {
+  if (!runId) return { attempted: false, cancelled: false, reason: "" };
+  try {
+    await fetchJson(`${baseUrl}/api/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason })
+    });
+    return { attempted: true, cancelled: true, reason };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/run not cancellable|404|409/i.test(message)) {
+      return { attempted: true, cancelled: false, reason: message };
+    }
+    console.warn(`Best-effort cancel failed for ${runId}: ${message}`);
+    return { attempted: true, cancelled: false, reason: message };
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -452,176 +471,181 @@ async function runOne(options, topic) {
   const runId = String(started?.runId || "");
   if (!runId) throw new Error("Run start did not return runId.");
 
-  const timeoutAt = Date.now() + options.timeoutMinutes * 60_000;
-  let gate3RegenerateAttempts = 0;
-  while (Date.now() < timeoutAt) {
-    const run = await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}`);
-    if (run.status === "paused" && run.activeGate?.gateId) {
-      const gateId = run.activeGate.gateId;
-      try {
-        await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            status: "approve",
-            notes: "Auto-approved by v2 pilot harness",
-            requested_changes: []
-          })
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (gateId === "GATE_3_STORYBOARD" && /semantic acceptance gate failed/i.test(message) && gate3RegenerateAttempts < 1) {
-          gate3RegenerateAttempts += 1;
+  try {
+    const timeoutAt = Date.now() + options.timeoutMinutes * 60_000;
+    let gate3RegenerateAttempts = 0;
+    while (Date.now() < timeoutAt) {
+      const run = await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}`);
+      if (run.status === "paused" && run.activeGate?.gateId) {
+        const gateId = run.activeGate.gateId;
+        try {
           await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              status: "regenerate",
-              notes: "Auto-regenerate once for semantic acceptance recovery",
+              status: "approve",
+              notes: "Auto-approved by v2 pilot harness",
               requested_changes: []
             })
           });
-        } else {
-          throw error;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (gateId === "GATE_3_STORYBOARD" && /semantic acceptance gate failed/i.test(message) && gate3RegenerateAttempts < 1) {
+            gate3RegenerateAttempts += 1;
+            await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/gates/${encodeURIComponent(gateId)}/submit`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                status: "regenerate",
+                notes: "Auto-regenerate once for semantic acceptance recovery",
+                requested_changes: []
+              })
+            });
+          } else {
+            throw error;
+          }
         }
+        await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
+        await sleep(1000);
+        continue;
       }
-      await fetchJson(`${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
-      await sleep(1000);
-      continue;
-    }
-    if (run.status === "done" || run.status === "error") {
-      const artifacts = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts`
-      ).catch(() => []);
-      const artifactNames = new Set(
-        (Array.isArray(artifacts) ? artifacts : [])
-          .map((row) => String(row?.name || "").trim())
-          .filter((name) => name.length > 0)
-      );
-      const deckSpec = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/deck_spec.json`
-      ).catch(() => null);
-      const qaReport = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/qa_report.json`
-      ).catch(() => null);
-      const medFactcheck = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/med_factcheck_report.json`
-      ).catch(() => null);
-      const readerSim = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/reader_sim_report.json`
-      ).catch(() => null);
-      const clueGraph = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/clue_graph.json`
-      ).catch(() => null);
-      const durations = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/agent_call_durations.json`
-      ).catch(() => null);
-      const fallbackUsage = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/fallback_usage.json`
-      ).catch(() => null);
-      const mainRenderPlanRaw = await fetchJson(
-        `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/V2_MAIN_DECK_RENDER_PLAN.md`
-      ).catch(() => null);
-      const mainRenderPlanText = typeof mainRenderPlanRaw?.raw === "string" ? mainRenderPlanRaw.raw : "";
+      if (run.status === "done" || run.status === "error") {
+        const artifacts = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts`
+        ).catch(() => []);
+        const artifactNames = new Set(
+          (Array.isArray(artifacts) ? artifacts : [])
+            .map((row) => String(row?.name || "").trim())
+            .filter((name) => name.length > 0)
+        );
+        const deckSpec = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/deck_spec.json`
+        ).catch(() => null);
+        const qaReport = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/qa_report.json`
+        ).catch(() => null);
+        const medFactcheck = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/med_factcheck_report.json`
+        ).catch(() => null);
+        const readerSim = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/reader_sim_report.json`
+        ).catch(() => null);
+        const clueGraph = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/clue_graph.json`
+        ).catch(() => null);
+        const durations = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/agent_call_durations.json`
+        ).catch(() => null);
+        const fallbackUsage = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/fallback_usage.json`
+        ).catch(() => null);
+        const mainRenderPlanRaw = await fetchJson(
+          `${options.baseUrl}/api/runs/${encodeURIComponent(runId)}/artifacts/V2_MAIN_DECK_RENDER_PLAN.md`
+        ).catch(() => null);
+        const mainRenderPlanText = typeof mainRenderPlanRaw?.raw === "string" ? mainRenderPlanRaw.raw : "";
 
-      const placeholder = placeholderSignals(deckSpec);
-      const packagingCompleteness = Number(packagingCompletenessRatio(artifactNames).toFixed(3));
-      const renderCoverage = mainRenderPlanCoverage(deckSpec, mainRenderPlanText);
-      const clueCoverage = cluePayoffCoverage(clueGraph);
-      const introOutro = introOutroContract(deckSpec);
-      const hybridQuality = Number(hybridSlideQuality(deckSpec).toFixed(3));
-      const groundingCoverage = Number(citationGroundingCoverage(deckSpec).toFixed(3));
-      const deterministicFallbackUsed = Boolean(fallbackUsage?.deterministic_fallback_used ?? fallbackUsage?.used);
-      const fallbackUsedAny = Boolean(fallbackUsage?.used);
-      const retryOnlyFallbackUsed = fallbackUsedAny && !deterministicFallbackUsed;
-      const deterministicFallbackEventCount = Number(
-        (fallbackUsage?.deterministic_fallback_event_count ?? fallbackUsage?.fallback_event_count) || 0
-      );
-      const fallbackEventCountAny = Number(fallbackUsage?.fallback_event_count || 0);
-      const agentRetryEventCount = Number(fallbackUsage?.agent_retry_event_count || 0);
+        const placeholder = placeholderSignals(deckSpec);
+        const packagingCompleteness = Number(packagingCompletenessRatio(artifactNames).toFixed(3));
+        const renderCoverage = mainRenderPlanCoverage(deckSpec, mainRenderPlanText);
+        const clueCoverage = cluePayoffCoverage(clueGraph);
+        const introOutro = introOutroContract(deckSpec);
+        const hybridQuality = Number(hybridSlideQuality(deckSpec).toFixed(3));
+        const groundingCoverage = Number(citationGroundingCoverage(deckSpec).toFixed(3));
+        const deterministicFallbackUsed = Boolean(fallbackUsage?.deterministic_fallback_used ?? fallbackUsage?.used);
+        const fallbackUsedAny = Boolean(fallbackUsage?.used);
+        const retryOnlyFallbackUsed = fallbackUsedAny && !deterministicFallbackUsed;
+        const deterministicFallbackEventCount = Number(
+          (fallbackUsage?.deterministic_fallback_event_count ?? fallbackUsage?.fallback_event_count) || 0
+        );
+        const fallbackEventCountAny = Number(fallbackUsage?.fallback_event_count || 0);
+        const agentRetryEventCount = Number(fallbackUsage?.agent_retry_event_count || 0);
 
-      return {
-        runId,
-        topic,
-        status: run.status,
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-        qaAccept: qaReport?.accept ?? null,
-        medPass: medFactcheck?.pass ?? null,
-        storyScore: readerSim?.overall_story_dominance_score_0_to_5 ?? null,
-        twistScore: readerSim?.overall_twist_quality_score_0_to_5 ?? null,
-        clarityScore: readerSim?.overall_clarity_score_0_to_5 ?? null,
-        actEscalationScore: graderScore(qaReport, "ActEscalation"),
-        falseTheoryArcScore: graderScore(qaReport, "FalseTheoryArc"),
-        callbackClosureScore: graderScore(qaReport, "CallbackClosure"),
-        detectiveDeputyArcScore: graderScore(qaReport, "DetectiveDeputyArc"),
-        genericLanguageScore: graderScore(qaReport, "GenericLanguageRate"),
-        requiredFixes: Array.isArray(qaReport?.required_fixes) ? qaReport.required_fixes.length : null,
-        storyForwardRatio: Number(storyForwardRatio(deckSpec).toFixed(3)),
-        introOutroPass: introOutro.pass,
-        introBeatCount: introOutro.introCount,
-        outroBeatCount: introOutro.outroCount,
-        hybridSlideQuality: hybridQuality,
-        citationGroundingCoverage: groundingCoverage,
-        packagingCompleteness,
-        mainRenderPlanCoverage: renderCoverage === null ? null : Number(renderCoverage.toFixed(3)),
-        cluePayoffCoverage: Number(clueCoverage.toFixed(3)),
-        renderPlanMarkerPass: renderPlanMarkerPass(mainRenderPlanText),
-        placeholderSignals: placeholder,
-        // `fallbackUsed` is the deterministic-fallback signal used by summary/SLO metrics.
-        // keep explicit *_Any fields to expose retry-only recoveries without conflating metrics.
-        fallbackUsed: deterministicFallbackUsed,
-        fallbackUsedAny,
-        retryOnlyFallbackUsed,
-        fallbackEventCount: deterministicFallbackEventCount,
-        fallbackEventCountAny,
-        deterministicFallbackUsed,
-        deterministicFallbackEventCount,
-        agentRetryEventCount,
-        errorAgents: errorAgents(durations),
-        maxAgentMs: maxAgentMs(durations)
-      };
+        return {
+          runId,
+          topic,
+          status: run.status,
+          startedAt: run.startedAt,
+          finishedAt: run.finishedAt,
+          qaAccept: qaReport?.accept ?? null,
+          medPass: medFactcheck?.pass ?? null,
+          storyScore: readerSim?.overall_story_dominance_score_0_to_5 ?? null,
+          twistScore: readerSim?.overall_twist_quality_score_0_to_5 ?? null,
+          clarityScore: readerSim?.overall_clarity_score_0_to_5 ?? null,
+          actEscalationScore: graderScore(qaReport, "ActEscalation"),
+          falseTheoryArcScore: graderScore(qaReport, "FalseTheoryArc"),
+          callbackClosureScore: graderScore(qaReport, "CallbackClosure"),
+          detectiveDeputyArcScore: graderScore(qaReport, "DetectiveDeputyArc"),
+          genericLanguageScore: graderScore(qaReport, "GenericLanguageRate"),
+          requiredFixes: Array.isArray(qaReport?.required_fixes) ? qaReport.required_fixes.length : null,
+          storyForwardRatio: Number(storyForwardRatio(deckSpec).toFixed(3)),
+          introOutroPass: introOutro.pass,
+          introBeatCount: introOutro.introCount,
+          outroBeatCount: introOutro.outroCount,
+          hybridSlideQuality: hybridQuality,
+          citationGroundingCoverage: groundingCoverage,
+          packagingCompleteness,
+          mainRenderPlanCoverage: renderCoverage === null ? null : Number(renderCoverage.toFixed(3)),
+          cluePayoffCoverage: Number(clueCoverage.toFixed(3)),
+          renderPlanMarkerPass: renderPlanMarkerPass(mainRenderPlanText),
+          placeholderSignals: placeholder,
+          fallbackUsed: deterministicFallbackUsed,
+          fallbackUsedAny,
+          retryOnlyFallbackUsed,
+          fallbackEventCount: deterministicFallbackEventCount,
+          fallbackEventCountAny,
+          deterministicFallbackUsed,
+          deterministicFallbackEventCount,
+          agentRetryEventCount,
+          errorAgents: errorAgents(durations),
+          maxAgentMs: maxAgentMs(durations)
+        };
+      }
+      await sleep(5000);
     }
-    await sleep(5000);
+
+    const cancelInfo = await cancelRunBestEffort(options.baseUrl, runId, "pilot_harness_timeout");
+    return {
+      runId,
+      topic,
+      status: "timeout",
+      qaAccept: null,
+      medPass: null,
+      storyScore: null,
+      twistScore: null,
+      clarityScore: null,
+      actEscalationScore: null,
+      falseTheoryArcScore: null,
+      callbackClosureScore: null,
+      detectiveDeputyArcScore: null,
+      genericLanguageScore: null,
+      requiredFixes: null,
+      storyForwardRatio: 0,
+      introOutroPass: false,
+      introBeatCount: 0,
+      outroBeatCount: 0,
+      hybridSlideQuality: 0,
+      citationGroundingCoverage: 0,
+      packagingCompleteness: 0,
+      mainRenderPlanCoverage: null,
+      cluePayoffCoverage: null,
+      renderPlanMarkerPass: false,
+      placeholderSignals: ["timeout"],
+      fallbackUsed: false,
+      fallbackUsedAny: false,
+      retryOnlyFallbackUsed: false,
+      fallbackEventCount: 0,
+      fallbackEventCountAny: 0,
+      deterministicFallbackUsed: false,
+      deterministicFallbackEventCount: 0,
+      agentRetryEventCount: 0,
+      errorAgents: [],
+      maxAgentMs: 0,
+      cancelRequestedOnTimeout: cancelInfo.cancelled
+    };
+  } catch (error) {
+    await cancelRunBestEffort(options.baseUrl, runId, "pilot_harness_error");
+    throw error;
   }
-
-  return {
-    runId,
-    topic,
-    status: "timeout",
-    qaAccept: null,
-    medPass: null,
-    storyScore: null,
-    twistScore: null,
-    clarityScore: null,
-    actEscalationScore: null,
-    falseTheoryArcScore: null,
-    callbackClosureScore: null,
-    detectiveDeputyArcScore: null,
-    genericLanguageScore: null,
-    requiredFixes: null,
-    storyForwardRatio: 0,
-    introOutroPass: false,
-    introBeatCount: 0,
-    outroBeatCount: 0,
-    hybridSlideQuality: 0,
-    citationGroundingCoverage: 0,
-    packagingCompleteness: 0,
-    mainRenderPlanCoverage: null,
-    cluePayoffCoverage: null,
-    renderPlanMarkerPass: false,
-    placeholderSignals: ["timeout"],
-    fallbackUsed: false,
-    fallbackUsedAny: false,
-    retryOnlyFallbackUsed: false,
-    fallbackEventCount: 0,
-    fallbackEventCountAny: 0,
-    deterministicFallbackUsed: false,
-    deterministicFallbackEventCount: 0,
-    agentRetryEventCount: 0,
-    errorAgents: [],
-    maxAgentMs: 0
-  };
 }
 
 function summarize(results) {

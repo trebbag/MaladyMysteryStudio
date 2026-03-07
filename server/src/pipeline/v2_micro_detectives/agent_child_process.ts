@@ -12,6 +12,7 @@ import {
   makeV2EpisodePitchAgent,
   makeV2MedFactcheckAgent,
   makeV2MicroWorldMapAgent,
+  makeV2NarrativeIntensifierAgent,
   makeV2PlotDirectorDeckSpecAgent,
   makeV2ReaderSimAgent,
   makeV2SetpiecePlanAgent,
@@ -78,6 +79,7 @@ export async function runChildRequest(req: AgentChildRequest): Promise<unknown> 
     if (req.agentKey === "actOutline") return makeV2ActOutlineAgent(assets);
     if (req.agentKey === "slideBlockAuthor") return makeV2SlideBlockAuthorAgent(assets);
     if (req.agentKey === "deckCohesionPass") return makeV2DeckCohesionPassAgent(assets);
+    if (req.agentKey === "narrativeIntensifier") return makeV2NarrativeIntensifierAgent(assets);
     if (req.agentKey === "plotDirectorDeckSpec") return makeV2PlotDirectorDeckSpecAgent(assets);
     if (req.agentKey === "readerSim") return makeV2ReaderSimAgent(assets);
     if (req.agentKey === "medFactcheck") return makeV2MedFactcheckAgent(assets);

@@ -4,44 +4,195 @@
  */
 
 export const V2CanonicalSchemaFiles = [
+  "act_outline.schema.json",
   "clue_graph.schema.json",
   "deck_cohesion_pass.schema.json",
   "deck_spec.schema.json",
   "differential_cast.schema.json",
   "disease_dossier.schema.json",
+  "disease_research_source_report.schema.json",
   "drama_plan.schema.json",
   "episode_pitch.schema.json",
   "human_review.schema.json",
   "med_factcheck_report.schema.json",
   "micro_world_map.schema.json",
+  "narrative_intensifier_pass.schema.json",
   "narrative_state.schema.json",
+  "qa_block_heatmap.schema.json",
   "qa_report.schema.json",
   "reader_sim_report.schema.json",
   "setpiece_plan.schema.json",
   "slide_block.schema.json",
+  "story_blueprint.schema.json",
   "truth_model.schema.json"
 ] as const;
 
 export const V2CanonicalSchemaHashes = {
+  "act_outline.schema.json": "ba26d9487d28f98bbaba92b400bd39c6e037c2fb041aa644507b1819810202b1",
   "clue_graph.schema.json": "9bfef9b2ce5eb527815b1a0b120a7e7e33caf6ce020b3665931667c203188627",
   "deck_cohesion_pass.schema.json": "07afdb214172dffc94d8c9c549c576f2a72bfe2c5fc75df30e6b9aeff164167d",
   "deck_spec.schema.json": "844d13f0c31e6819435601288b80b5e9fb23be79a51dcf9f3ebc00e55095d2e3",
   "differential_cast.schema.json": "bfe2185c9cb8cbbafbce69edea1dc8efdb151616f95f2030710c04784d3a47bd",
   "disease_dossier.schema.json": "de476862b0241e0892dcd080ae50b6d554a8faad141ed26cd0b2b46bca8dff36",
-  "drama_plan.schema.json": "127ed37fce3f542c914d2c537bc52d27882699d47fb03f5c401f1f373abf92a9",
+  "disease_research_source_report.schema.json": "f465679ba79abff987822d99e5f688c6384205f754d355d827e49abd0a8ab58e",
+  "drama_plan.schema.json": "a7aa180cf05d2e44db09149e2deaf36d7eb77f5482dc9da9db9963f5ee95c0d5",
   "episode_pitch.schema.json": "e2387f3239d6d8cda3f1c560afb24d410fa606ffdf89c85a57fa7477b236e940",
   "human_review.schema.json": "70fc101a3ca770743a0f355f05c304e18e2c6e8376ee3dd91160f33f22ae20ba",
   "med_factcheck_report.schema.json": "b0cc7c9391d385f2d9f0f5f40f94b145685f0a3ab51d431afcf94a08125b9ab9",
   "micro_world_map.schema.json": "8dd84b2a010de524cf261803c0193445fa06a0bded472669ce98fe991da48c6f",
-  "narrative_state.schema.json": "86229431d42b6a74a2cefe1cec1a9c7894f65bdcf3445dadee3b486faa0e5abb",
+  "narrative_intensifier_pass.schema.json": "2346cb939303666c67b1f4f032b08b7359338ea047eebf8cf45c82ddfc4fe448",
+  "narrative_state.schema.json": "e55a47df94bb9cfa8149de6457c41e1af3d7fa79c2fde477fcd8f6872aae5213",
+  "qa_block_heatmap.schema.json": "82a6f29aaabb4d8e9108561f28ce1747537db6a4c808149208d25b46b4d992a5",
   "qa_report.schema.json": "d0e372d88543777c7386d939f9f99ac03a16f110fe12c4c3feb2588713dfd6b0",
-  "reader_sim_report.schema.json": "88d0c4c29ed0bc920f162346b4dcbceb02f53e44536a5a20ec1ef2a99170315c",
-  "setpiece_plan.schema.json": "d47f24d4af9ef745df7c79fc937b340d7caf436724a5ead50627ddb9043d8c80",
+  "reader_sim_report.schema.json": "db6f98c7a0da6c13f73661e86e1677434364017221b295d6b2c53cd3db833398",
+  "setpiece_plan.schema.json": "ed13fcd6f6d1cb40e4d73549f2cccd85d75ba62e9d0ecdcab305b79ac0fc0149",
   "slide_block.schema.json": "766d55568217b50e27e36624ee51f56c498c4256e5aa0f9ee0b5613e0847c331",
+  "story_blueprint.schema.json": "2d25e8e3bdf77b3268316dc1f9b5bc453d4ff3a2691e0e65df9c149850fc33eb",
   "truth_model.schema.json": "193a89566bed9b9fb2b08a89816d1970e054008ea0f5b32e593f7fc10cfa10e2"
 } as const;
 
 export const V2CanonicalSchemas = {
+  "act_outline.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ActOutline",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "acts"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "acts": {
+        "type": "array",
+        "minItems": 4,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "act_id",
+            "act_goal",
+            "story_pressure",
+            "pressure_channels",
+            "emotional_turn",
+            "clue_obligations",
+            "false_theory_scene_obligations",
+            "setpiece_requirement",
+            "relationship_change_due_to_case",
+            "emotionally_costly_clue",
+            "must_pay_by_end_of_act",
+            "target_slide_span"
+          ],
+          "properties": {
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "act_goal": {
+              "type": "string",
+              "minLength": 1
+            },
+            "story_pressure": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "pressure_channels": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "emotional_turn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "clue_obligations": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "false_theory_scene_obligations": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "setpiece_requirement": {
+              "type": "string",
+              "minLength": 1
+            },
+            "relationship_change_due_to_case": {
+              "type": "string",
+              "minLength": 1
+            },
+            "emotionally_costly_clue": {
+              "type": "string",
+              "minLength": 1
+            },
+            "must_pay_by_end_of_act": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "unresolved_threads_in": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "unresolved_threads_out": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "target_slide_span": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "clue_graph.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "ClueGraph",
@@ -3107,6 +3258,67 @@ export const V2CanonicalSchemas = {
       "citations"
     ]
   },
+  "disease_research_source_report.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "DiseaseResearchSourceReport",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "topic",
+      "sections"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "topic": {
+        "type": "string",
+        "minLength": 1
+      },
+      "sections": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section",
+            "curated_citations",
+            "web_citations",
+            "dominant_source"
+          ],
+          "properties": {
+            "section": {
+              "type": "string",
+              "minLength": 1
+            },
+            "curated_citations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "web_citations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dominant_source": {
+              "type": "string",
+              "enum": [
+                "curated",
+                "web",
+                "mixed"
+              ]
+            },
+            "fallback_reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
   "drama_plan.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "DramaPlan",
@@ -3236,11 +3448,46 @@ export const V2CanonicalSchemas = {
                 "description": "Conflicts that will occur."
               }
             },
+            "named_recurring_tensions": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "string",
+                "description": "Named recurring tensions that should echo across multiple acts."
+              }
+            },
             "repair_moments": {
               "type": "array",
               "items": {
                 "type": "string",
                 "description": "Moments of trust-building."
+              }
+            },
+            "relationship_change_by_act": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "act_id",
+                  "change_due_to_case"
+                ],
+                "properties": {
+                  "act_id": {
+                    "type": "string",
+                    "enum": [
+                      "ACT1",
+                      "ACT2",
+                      "ACT3",
+                      "ACT4"
+                    ]
+                  },
+                  "change_due_to_case": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             },
             "climax_resolution": {
@@ -3252,6 +3499,8 @@ export const V2CanonicalSchemas = {
           "required": [
             "pair",
             "starting_dynamic",
+            "named_recurring_tensions",
+            "relationship_change_by_act",
             "climax_resolution"
           ],
           "title": "RelationshipArc"
@@ -3325,6 +3574,22 @@ export const V2CanonicalSchemas = {
                 "description": "Key decisions."
               }
             },
+            "relationship_change_due_to_case": {
+              "type": "string",
+              "description": "How the relationship dynamic must visibly change because of the case in this act."
+            },
+            "act_specific_emotionally_costly_clue": {
+              "type": "string",
+              "description": "The clue beat that should cost the characters something in this act."
+            },
+            "must_pay_by_end_of_act": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "description": "Debts that must be paid before this act closes."
+              }
+            },
             "notes": {
               "type": "string"
             }
@@ -3333,7 +3598,10 @@ export const V2CanonicalSchemas = {
           "required": [
             "act_id",
             "required_emotional_beats",
-            "required_choices"
+            "required_choices",
+            "relationship_change_due_to_case",
+            "act_specific_emotionally_costly_clue",
+            "must_pay_by_end_of_act"
           ]
         }
       }
@@ -4222,6 +4490,101 @@ export const V2CanonicalSchemas = {
       "visual_style_guide"
     ]
   },
+  "narrative_intensifier_pass.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "NarrativeIntensifierPass",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "global_intensity_findings",
+      "operations",
+      "narrative_rationale",
+      "target_block_ids"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "global_intensity_findings": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "operations": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "replace_slide",
+                "insert_after",
+                "split_slide",
+                "drop_slide",
+                "replace_window"
+              ]
+            },
+            "slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "after_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "start_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "end_slide_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "replacement_slide": {
+              "type": "object"
+            },
+            "replacement_slides": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "narrative_rationale": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "target_block_ids": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
   "narrative_state.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "NarrativeState",
@@ -4231,13 +4594,23 @@ export const V2CanonicalSchemas = {
       "schema_version",
       "block_id",
       "current_false_theory",
+      "current_best_theory",
+      "runner_up_theory",
       "relationship_state_detective_deputy",
       "unresolved_emotional_thread",
       "active_clue_obligations",
+      "unpaid_clue_payoff_debt",
       "active_motif_callback_lexicon",
+      "motif_callback_debt",
       "pressure_channels",
+      "pressure_status_by_channel",
       "recent_slide_excerpts",
       "active_differential_ordering",
+      "relationship_debt",
+      "last_rupture_or_repair_status",
+      "outstanding_setpiece_debt",
+      "must_change_this_block",
+      "may_continue_this_block",
       "delta_from_previous_block",
       "canonical_profile_excerpt",
       "episode_memory_excerpt"
@@ -4252,6 +4625,14 @@ export const V2CanonicalSchemas = {
         "minLength": 1
       },
       "current_false_theory": {
+        "type": "string",
+        "minLength": 1
+      },
+      "current_best_theory": {
+        "type": "string",
+        "minLength": 1
+      },
+      "runner_up_theory": {
         "type": "string",
         "minLength": 1
       },
@@ -4271,7 +4652,23 @@ export const V2CanonicalSchemas = {
           "minLength": 1
         }
       },
+      "unpaid_clue_payoff_debt": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
       "active_motif_callback_lexicon": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "motif_callback_debt": {
         "type": "array",
         "minItems": 1,
         "items": {
@@ -4285,6 +4682,28 @@ export const V2CanonicalSchemas = {
         "items": {
           "type": "string",
           "minLength": 1
+        }
+      },
+      "pressure_status_by_channel": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "channel",
+            "status"
+          ],
+          "properties": {
+            "channel": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       },
       "recent_slide_excerpts": {
@@ -4304,6 +4723,42 @@ export const V2CanonicalSchemas = {
           "minLength": 1
         }
       },
+      "relationship_debt": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "last_rupture_or_repair_status": {
+        "type": "string",
+        "minLength": 1
+      },
+      "outstanding_setpiece_debt": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "must_change_this_block": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "may_continue_this_block": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
       "delta_from_previous_block": {
         "type": "string",
         "minLength": 1
@@ -4315,6 +4770,88 @@ export const V2CanonicalSchemas = {
       "episode_memory_excerpt": {
         "type": "string",
         "minLength": 1
+      }
+    }
+  },
+  "qa_block_heatmap.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "QaBlockHeatmap",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "loop",
+      "blocks"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "loop": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "blocks": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "block_id",
+            "act_id",
+            "severity_score",
+            "repeated_template_density",
+            "generic_language_rate",
+            "story_forward_deficit_ratio",
+            "hybrid_deficit_ratio",
+            "clue_twist_debt_count"
+          ],
+          "properties": {
+            "block_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "severity_score": {
+              "type": "number",
+              "minimum": 0
+            },
+            "repeated_template_density": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "generic_language_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "story_forward_deficit_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "hybrid_deficit_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "clue_twist_debt_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
       }
     }
   },
@@ -4606,6 +5143,114 @@ export const V2CanonicalSchemas = {
           "type": "string"
         }
       },
+      "per_act_worst_blocks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "act_id",
+            "block_id",
+            "severity_0_to_5",
+            "dominant_issue"
+          ],
+          "properties": {
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "block_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "severity_0_to_5": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "dominant_issue": {
+              "type": "string",
+              "minLength": 1
+            },
+            "slide_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "block_notes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "block_id",
+            "act_id",
+            "issue_type",
+            "note",
+            "severity"
+          ],
+          "properties": {
+            "block_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "issue_type": {
+              "type": "string",
+              "enum": [
+                "too_texty",
+                "no_story_turn",
+                "medical_confusion",
+                "twist_setup_missing",
+                "pacing_slow",
+                "pacing_rushed",
+                "unclear_visual",
+                "tone_break",
+                "generic_language",
+                "story_dominance_weak",
+                "other"
+              ]
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "must",
+                "should",
+                "nice"
+              ]
+            },
+            "slide_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
       "slide_notes": {
         "type": "array",
         "items": {
@@ -4712,6 +5357,8 @@ export const V2CanonicalSchemas = {
       "overall_story_dominance_score_0_to_5",
       "overall_twist_quality_score_0_to_5",
       "overall_clarity_score_0_to_5",
+      "per_act_worst_blocks",
+      "block_notes",
       "slide_notes",
       "required_fixes"
     ]
@@ -4766,6 +5413,10 @@ export const V2CanonicalSchemas = {
               "type": "string",
               "description": "What it does for plot/characters."
             },
+            "clue_obligation_paid": {
+              "type": "string",
+              "description": "Which clue or clue debt this set-piece must create, escalate, or resolve."
+            },
             "medical_mechanism_anchor": {
               "type": "string",
               "description": "Which pathophysiology makes it happen."
@@ -4773,6 +5424,14 @@ export const V2CanonicalSchemas = {
             "visual_signature": {
               "type": "string",
               "description": "How it will look on slides."
+            },
+            "emotional_cost": {
+              "type": "string",
+              "description": "What the set-piece costs emotionally or relationally."
+            },
+            "relationship_shift": {
+              "type": "string",
+              "description": "How detective/deputy trust or friction changes because of this set-piece."
             },
             "constraints": {
               "type": "array",
@@ -4822,8 +5481,11 @@ export const V2CanonicalSchemas = {
             "act_id",
             "type",
             "story_purpose",
+            "clue_obligation_paid",
             "medical_mechanism_anchor",
             "visual_signature",
+            "emotional_cost",
+            "relationship_shift",
             "outcome_turn",
             "citations"
           ],
@@ -4860,12 +5522,44 @@ export const V2CanonicalSchemas = {
           "type": "string",
           "description": "Optional notes."
         }
+      },
+      "act_debts": {
+        "type": "array",
+        "minItems": 4,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "act_id",
+            "must_pay_by_end_of_act"
+          ],
+          "properties": {
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "must_pay_by_end_of_act": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
       }
     },
     "required": [
       "schema_version",
       "setpieces",
-      "quotas"
+      "quotas",
+      "act_debts"
     ]
   },
   "slide_block.schema.json": {
@@ -5059,6 +5753,237 @@ export const V2CanonicalSchemas = {
         }
       }
     ]
+  },
+  "story_blueprint.schema.json": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "StoryBlueprint",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "episode_logline",
+      "core_mystery_arc",
+      "detective_deputy_arc",
+      "opener_motif",
+      "opener_motif_vocabulary",
+      "ending_callback",
+      "ending_callback_vocabulary",
+      "clue_obligations",
+      "false_theory_scene_obligations",
+      "emotionally_costly_clue",
+      "act_debts",
+      "unresolved_threads"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "string",
+        "minLength": 1
+      },
+      "episode_logline": {
+        "type": "string",
+        "minLength": 1
+      },
+      "core_mystery_arc": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "inciting_case",
+          "false_theory_lock_in",
+          "midpoint_fracture",
+          "twist_reveal",
+          "final_proof"
+        ],
+        "properties": {
+          "inciting_case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "false_theory_lock_in": {
+            "type": "string",
+            "minLength": 1
+          },
+          "midpoint_fracture": {
+            "type": "string",
+            "minLength": 1
+          },
+          "twist_reveal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "final_proof": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "detective_deputy_arc": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseline_dynamic",
+          "rupture_beat",
+          "repair_beat",
+          "named_recurring_tensions",
+          "relationship_change_by_act"
+        ],
+        "properties": {
+          "baseline_dynamic": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rupture_beat": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repair_beat": {
+            "type": "string",
+            "minLength": 1
+          },
+          "named_recurring_tensions": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "relationship_change_by_act": {
+            "type": "array",
+            "minItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "act_id",
+                "change_due_to_case"
+              ],
+              "properties": {
+                "act_id": {
+                  "type": "string",
+                  "enum": [
+                    "ACT1",
+                    "ACT2",
+                    "ACT3",
+                    "ACT4"
+                  ]
+                },
+                "change_due_to_case": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "opener_motif": {
+        "type": "string",
+        "minLength": 1
+      },
+      "opener_motif_vocabulary": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "ending_callback": {
+        "type": "string",
+        "minLength": 1
+      },
+      "ending_callback_vocabulary": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "clue_obligations": {
+        "type": "array",
+        "minItems": 4,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "false_theory_scene_obligations": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "emotionally_costly_clue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "act_id",
+          "event",
+          "cost"
+        ],
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": [
+              "ACT1",
+              "ACT2",
+              "ACT3",
+              "ACT4"
+            ]
+          },
+          "event": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cost": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "act_debts": {
+        "type": "array",
+        "minItems": 4,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "act_id",
+            "must_pay_by_end_of_act"
+          ],
+          "properties": {
+            "act_id": {
+              "type": "string",
+              "enum": [
+                "ACT1",
+                "ACT2",
+                "ACT3",
+                "ACT4"
+              ]
+            },
+            "must_pay_by_end_of_act": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "unresolved_threads": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
   },
   "truth_model.schema.json": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

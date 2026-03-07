@@ -48,6 +48,10 @@
             "type": "string",
             "description": "What it does for plot/characters."
           },
+          "clue_obligation_paid": {
+            "type": "string",
+            "description": "Which clue or clue debt this set-piece must create, escalate, or resolve."
+          },
           "medical_mechanism_anchor": {
             "type": "string",
             "description": "Which pathophysiology makes it happen."
@@ -55,6 +59,14 @@
           "visual_signature": {
             "type": "string",
             "description": "How it will look on slides."
+          },
+          "emotional_cost": {
+            "type": "string",
+            "description": "What the set-piece costs emotionally or relationally."
+          },
+          "relationship_shift": {
+            "type": "string",
+            "description": "How detective/deputy trust or friction changes because of this set-piece."
           },
           "constraints": {
             "type": "array",
@@ -104,8 +116,11 @@
           "act_id",
           "type",
           "story_purpose",
+          "clue_obligation_paid",
           "medical_mechanism_anchor",
           "visual_signature",
+          "emotional_cost",
+          "relationship_shift",
           "outcome_turn",
           "citations"
         ],
@@ -142,11 +157,35 @@
         "type": "string",
         "description": "Optional notes."
       }
+    },
+    "act_debts": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["act_id", "must_pay_by_end_of_act"],
+        "properties": {
+          "act_id": {
+            "type": "string",
+            "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+          },
+          "must_pay_by_end_of_act": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     }
   },
   "required": [
     "schema_version",
     "setpieces",
-    "quotas"
+    "quotas",
+    "act_debts"
   ]
 }

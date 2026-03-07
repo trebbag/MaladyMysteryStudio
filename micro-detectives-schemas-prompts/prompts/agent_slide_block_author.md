@@ -19,6 +19,8 @@ Requirements:
 - Avoid `note_only` in the main deck. Reserve it for appendix or exceptional bridge beats; even then, preserve a concrete decision and consequence.
 - When quality fixes call for stronger story turns, convert passive recap/summary beats into active investigation beats rather than rephrasing the recap.
 - If several neighboring slides feel flat, use `replace_window` or `split_slide` instead of preserving weak pacing.
+- Use the canonical Detective and Deputy names exactly. Never drift into alternate aliases or substitute partner names.
+- Within a block, titles and hooks must be unique. Do not reuse the same courtroom/proof/lightbox phrasing or signature noun pattern unless this block contains the single planned callback beat.
 
 Quality requirements:
 - Avoid repeated phrase templates across the block.

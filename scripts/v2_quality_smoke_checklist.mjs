@@ -48,6 +48,23 @@ async function httpJson(url, init = undefined) {
   return await res.json();
 }
 
+async function cancelRunBestEffort(runId, reason = "") {
+  if (!runId) return false;
+  try {
+    await httpJson(`${BASE_URL}/api/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    });
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/run not cancellable|404|409/i.test(message)) return false;
+    console.warn(`[smoke:v2:quality] best-effort cancel failed for ${runId}: ${message}`);
+    return false;
+  }
+}
+
 async function fetchArtifactText(runId, name) {
   const encodedRunId = encodeURIComponent(runId);
   const encodedName = encodeURIComponent(name);
@@ -224,6 +241,7 @@ async function main() {
     errorMessage: ""
   };
   const startedAtMs = Date.now();
+  let shouldCancelRun = false;
 
   console.log(`[smoke:v2:quality] baseUrl=${BASE_URL}`);
   console.log(`[smoke:v2:quality] topic=${TOPIC}`);
@@ -252,6 +270,7 @@ async function main() {
     const runId = String(runStart?.runId || "").trim();
     assert(runId.length > 0, "Run creation failed: missing runId");
     report.runId = runId;
+    shouldCancelRun = true;
     console.log(`[smoke:v2:quality] runId=${runId}`);
 
     while (true) {
@@ -267,9 +286,11 @@ async function main() {
 
       if (status === "done") {
         console.log("[smoke:v2:quality] run completed");
+        shouldCancelRun = false;
         break;
       }
       if (status === "error") {
+        shouldCancelRun = false;
         throw new Error("Run ended with status=error");
       }
 
@@ -355,6 +376,12 @@ async function main() {
     console.log(`[smoke:v2:quality] markerDetails=${JSON.stringify(report.markers.details)}`);
   } catch (err) {
     report.errorMessage = err instanceof Error ? err.message : String(err);
+    if (shouldCancelRun && report.runId) {
+      const cancelled = await cancelRunBestEffort(report.runId, "smoke_timeout_or_error");
+      if (cancelled) {
+        report.gateActions.push("timeout:auto_cancel");
+      }
+    }
     throw err;
   } finally {
     report.generatedAt = new Date().toISOString();

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NarrativeIntensifierPass",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "global_intensity_findings",
+    "operations",
+    "narrative_rationale",
+    "target_block_ids"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "global_intensity_findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op"],
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": ["replace_slide", "insert_after", "split_slide", "drop_slide", "replace_window"]
+          },
+          "slide_id": { "type": "string", "minLength": 1 },
+          "after_slide_id": { "type": "string", "minLength": 1 },
+          "start_slide_id": { "type": "string", "minLength": 1 },
+          "end_slide_id": { "type": "string", "minLength": 1 },
+          "replacement_slide": { "type": "object" },
+          "replacement_slides": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "narrative_rationale": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "target_block_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

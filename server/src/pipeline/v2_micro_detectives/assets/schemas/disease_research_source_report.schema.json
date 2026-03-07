@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiseaseResearchSourceReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "topic", "sections"],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "topic": { "type": "string", "minLength": 1 },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "curated_citations", "web_citations", "dominant_source"],
+        "properties": {
+          "section": { "type": "string", "minLength": 1 },
+          "curated_citations": { "type": "integer", "minimum": 0 },
+          "web_citations": { "type": "integer", "minimum": 0 },
+          "dominant_source": {
+            "type": "string",
+            "enum": ["curated", "web", "mixed"]
+          },
+          "fallback_reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QaBlockHeatmap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "loop", "blocks"],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "loop": { "type": "integer", "minimum": 1 },
+    "blocks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_id",
+          "act_id",
+          "severity_score",
+          "repeated_template_density",
+          "generic_language_rate",
+          "story_forward_deficit_ratio",
+          "hybrid_deficit_ratio",
+          "clue_twist_debt_count"
+        ],
+        "properties": {
+          "block_id": { "type": "string", "minLength": 1 },
+          "act_id": {
+            "type": "string",
+            "enum": ["ACT1", "ACT2", "ACT3", "ACT4"]
+          },
+          "severity_score": { "type": "number", "minimum": 0 },
+          "repeated_template_density": { "type": "number", "minimum": 0, "maximum": 1 },
+          "generic_language_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "story_forward_deficit_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+          "hybrid_deficit_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+          "clue_twist_debt_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

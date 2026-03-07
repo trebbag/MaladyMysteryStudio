@@ -18,6 +18,7 @@ export type V2AgentKey =
   | "actOutline"
   | "slideBlockAuthor"
   | "deckCohesionPass"
+  | "narrativeIntensifier"
   | "plotDirectorDeckSpec"
   | "readerSim"
   | "medFactcheck";

@@ -329,6 +329,45 @@ type V2BlockRegenTracePreview = {
   warnings: string[];
 };
 
+type V2QaBlockHeatmapPreview = {
+  loop: number;
+  blocks: Array<{
+    block_id: string;
+    act_id: string;
+    severity_score: number;
+    repeated_template_density: number;
+    generic_language_rate: number;
+    story_forward_deficit_ratio: number;
+    hybrid_deficit_ratio: number;
+    clue_twist_debt_count: number;
+  }>;
+};
+
+type V2NarrativeIntensifierPassPreview = {
+  global_intensity_findings: string[];
+  narrative_rationale: string[];
+  target_block_ids: string[];
+  operations: Array<{
+    op: string;
+    reason?: string;
+    slide_id?: string;
+    after_slide_id?: string;
+    start_slide_id?: string;
+    end_slide_id?: string;
+  }>;
+};
+
+type V2DiseaseResearchSourceReportPreview = {
+  topic: string;
+  sections: Array<{
+    section: string;
+    curated_citations: number;
+    web_citations: number;
+    dominant_source: "curated" | "web" | "mixed";
+    fallback_reason?: string;
+  }>;
+};
+
 type V2InspectorTab = "world" | "drama" | "setpieces" | "templates" | "packaging";
 
 type DiffTargetStep = "KB0" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P";
@@ -810,8 +849,93 @@ function normalizeV2BlockRegenTrace(value: unknown): V2BlockRegenTracePreview {
   };
 }
 
+function normalizeV2QaBlockHeatmap(value: unknown): V2QaBlockHeatmapPreview {
+  const root = asRecord(value);
+  const blocks = Array.isArray(root.blocks)
+    ? root.blocks
+        .map((entry) => {
+          const row = asRecord(entry);
+          return {
+            block_id: typeof row.block_id === "string" ? row.block_id : "",
+            act_id: typeof row.act_id === "string" ? row.act_id : "",
+            severity_score: Number.isFinite(Number(row.severity_score)) ? Number(row.severity_score) : 0,
+            repeated_template_density:
+              Number.isFinite(Number(row.repeated_template_density)) ? Number(row.repeated_template_density) : 0,
+            generic_language_rate: Number.isFinite(Number(row.generic_language_rate)) ? Number(row.generic_language_rate) : 0,
+            story_forward_deficit_ratio:
+              Number.isFinite(Number(row.story_forward_deficit_ratio)) ? Number(row.story_forward_deficit_ratio) : 0,
+            hybrid_deficit_ratio: Number.isFinite(Number(row.hybrid_deficit_ratio)) ? Number(row.hybrid_deficit_ratio) : 0,
+            clue_twist_debt_count: Number.isFinite(Number(row.clue_twist_debt_count))
+              ? Math.max(0, Math.round(Number(row.clue_twist_debt_count)))
+              : 0
+          };
+        })
+        .filter((row) => row.block_id.length > 0)
+    : [];
+  return {
+    loop: Number.isFinite(Number(root.loop)) ? Math.max(0, Math.round(Number(root.loop))) : 0,
+    blocks
+  };
+}
+
+function normalizeV2NarrativeIntensifierPass(value: unknown): V2NarrativeIntensifierPassPreview {
+  const root = asRecord(value);
+  const operations = Array.isArray(root.operations)
+    ? root.operations
+        .map((entry) => {
+          const row = asRecord(entry);
+          return {
+            op: typeof row.op === "string" ? row.op : "",
+            reason: typeof row.reason === "string" ? row.reason : undefined,
+            slide_id: typeof row.slide_id === "string" ? row.slide_id : undefined,
+            after_slide_id: typeof row.after_slide_id === "string" ? row.after_slide_id : undefined,
+            start_slide_id: typeof row.start_slide_id === "string" ? row.start_slide_id : undefined,
+            end_slide_id: typeof row.end_slide_id === "string" ? row.end_slide_id : undefined
+          };
+        })
+        .filter((row) => row.op.length > 0)
+    : [];
+  return {
+    global_intensity_findings: asStringArray(root.global_intensity_findings),
+    narrative_rationale: asStringArray(root.narrative_rationale),
+    target_block_ids: asStringArray(root.target_block_ids),
+    operations
+  };
+}
+
+function normalizeV2DiseaseResearchSourceReport(value: unknown): V2DiseaseResearchSourceReportPreview {
+  const root = asRecord(value);
+  const sections = Array.isArray(root.sections)
+    ? root.sections
+        .map((entry) => {
+          const row = asRecord(entry);
+          const dominantSource: "curated" | "web" | "mixed" =
+            row.dominant_source === "web" || row.dominant_source === "mixed" ? row.dominant_source : "curated";
+          return {
+            section: typeof row.section === "string" ? row.section : "",
+            curated_citations: Number.isFinite(Number(row.curated_citations)) ? Math.max(0, Math.round(Number(row.curated_citations))) : 0,
+            web_citations: Number.isFinite(Number(row.web_citations)) ? Math.max(0, Math.round(Number(row.web_citations))) : 0,
+            dominant_source: dominantSource,
+            fallback_reason: typeof row.fallback_reason === "string" ? row.fallback_reason : undefined
+          };
+        })
+        .filter((row) => row.section.length > 0)
+    : [];
+  return {
+    topic: typeof root.topic === "string" ? root.topic : "",
+    sections
+  };
+}
+
 function regenTraceLoopFromName(name: string): number {
   const match = name.match(/block_regen_trace_loop(\d+)\.json$/i);
+  if (!match?.[1]) return -1;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : -1;
+}
+
+function qaHeatmapLoopFromName(name: string): number {
+  const match = name.match(/qa_block_heatmap_loop(\d+)\.json$/i);
   if (!match?.[1]) return -1;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : -1;
@@ -912,7 +1036,11 @@ export const __runViewerTestables = {
   normalizeV2NarrativeState,
   normalizeV2AuthoringContextManifest,
   normalizeV2BlockRegenTrace,
+  normalizeV2QaBlockHeatmap,
+  normalizeV2NarrativeIntensifierPass,
+  normalizeV2DiseaseResearchSourceReport,
   regenTraceLoopFromName,
+  qaHeatmapLoopFromName,
   extractKeyOrFallback,
   formatTime,
   parseIsoMs,
@@ -969,7 +1097,13 @@ export default function RunViewer() {
   const [v2NarrativeStatePreview, setV2NarrativeStatePreview] = useState<V2NarrativeStatePreview | null>(null);
   const [v2AuthoringContextManifestPreview, setV2AuthoringContextManifestPreview] = useState<V2AuthoringContextManifestPreview | null>(null);
   const [v2BlockRegenTracePreview, setV2BlockRegenTracePreview] = useState<V2BlockRegenTracePreview | null>(null);
+  const [v2QaBlockHeatmapPreview, setV2QaBlockHeatmapPreview] = useState<V2QaBlockHeatmapPreview | null>(null);
+  const [v2NarrativeIntensifierPreview, setV2NarrativeIntensifierPreview] =
+    useState<V2NarrativeIntensifierPassPreview | null>(null);
+  const [v2DiseaseResearchSourceReportPreview, setV2DiseaseResearchSourceReportPreview] =
+    useState<V2DiseaseResearchSourceReportPreview | null>(null);
   const [v2LatestRegenTraceName, setV2LatestRegenTraceName] = useState<string>("");
+  const [v2LatestQaHeatmapName, setV2LatestQaHeatmapName] = useState<string>("");
   const [v2InspectorTab, setV2InspectorTab] = useState<V2InspectorTab>("world");
   const [v2DrilldownBusy, setV2DrilldownBusy] = useState(false);
   const [v2DrilldownErr, setV2DrilldownErr] = useState<string | null>(null);
@@ -1248,10 +1382,16 @@ export default function RunViewer() {
     const hasStoryBeatsAlignment = artifacts.some((a) => a.name === "story_beats_alignment_report.json");
     const hasNarrativeState = artifacts.some((a) => a.name === "narrative_state_current.json");
     const hasAuthoringContextManifest = artifacts.some((a) => a.name === "deck_authoring_context_manifest.json");
+    const hasNarrativeIntensifier = artifacts.some((a) => a.name === "narrative_intensifier_pass.json");
+    const hasDiseaseResearchSourceReport = artifacts.some((a) => a.name === "disease_research_source_report.json");
     const latestRegenTraceName = artifacts
       .map((a) => a.name)
       .filter((name) => /block_regen_trace_loop\d+\.json$/i.test(name))
       .sort((a, b) => regenTraceLoopFromName(b) - regenTraceLoopFromName(a))[0] ?? null;
+    const latestQaHeatmapName = artifacts
+      .map((a) => a.name)
+      .filter((name) => /qa_block_heatmap_loop\d+\.json$/i.test(name))
+      .sort((a, b) => qaHeatmapLoopFromName(b) - qaHeatmapLoopFromName(a))[0] ?? null;
 
     if (!safeRunId || workflow !== "v2_micro_detectives" || !hasDeckSpec) {
       setV2DeckSpecPreview(null);
@@ -1268,7 +1408,11 @@ export default function RunViewer() {
       setV2NarrativeStatePreview(null);
       setV2AuthoringContextManifestPreview(null);
       setV2BlockRegenTracePreview(null);
+      setV2QaBlockHeatmapPreview(null);
+      setV2NarrativeIntensifierPreview(null);
+      setV2DiseaseResearchSourceReportPreview(null);
       setV2LatestRegenTraceName("");
+      setV2LatestQaHeatmapName("");
       setV2DrilldownErr(null);
       setV2DrilldownBusy(false);
       return;
@@ -1280,7 +1424,25 @@ export default function RunViewer() {
 
     void (async () => {
       try {
-        const [deckRaw, templateRaw, clueRaw, microWorldRaw, dramaRaw, setpieceRaw, packagingRaw, semanticRaw, qaRaw, stageProvenanceRaw, storyBeatsAlignmentRaw, narrativeStateRaw, authoringContextRaw, latestRegenTraceRaw] = await Promise.all([
+        const [
+          deckRaw,
+          templateRaw,
+          clueRaw,
+          microWorldRaw,
+          dramaRaw,
+          setpieceRaw,
+          packagingRaw,
+          semanticRaw,
+          qaRaw,
+          stageProvenanceRaw,
+          storyBeatsAlignmentRaw,
+          narrativeStateRaw,
+          authoringContextRaw,
+          latestRegenTraceRaw,
+          latestQaHeatmapRaw,
+          narrativeIntensifierRaw,
+          diseaseResearchSourceRaw
+        ] = await Promise.all([
           fetchArtifact(safeRunId, "deck_spec.json"),
           hasTemplateRegistry ? fetchArtifact(safeRunId, "v2_template_registry.json") : Promise.resolve(null),
           hasClueGraph ? fetchArtifact(safeRunId, "clue_graph.json") : Promise.resolve(null),
@@ -1301,7 +1463,10 @@ export default function RunViewer() {
           hasStoryBeatsAlignment ? fetchArtifact(safeRunId, "story_beats_alignment_report.json") : Promise.resolve(null),
           hasNarrativeState ? fetchArtifact(safeRunId, "narrative_state_current.json") : Promise.resolve(null),
           hasAuthoringContextManifest ? fetchArtifact(safeRunId, "deck_authoring_context_manifest.json") : Promise.resolve(null),
-          latestRegenTraceName ? fetchArtifact(safeRunId, latestRegenTraceName) : Promise.resolve(null)
+          latestRegenTraceName ? fetchArtifact(safeRunId, latestRegenTraceName) : Promise.resolve(null),
+          latestQaHeatmapName ? fetchArtifact(safeRunId, latestQaHeatmapName) : Promise.resolve(null),
+          hasNarrativeIntensifier ? fetchArtifact(safeRunId, "narrative_intensifier_pass.json") : Promise.resolve(null),
+          hasDiseaseResearchSourceReport ? fetchArtifact(safeRunId, "disease_research_source_report.json") : Promise.resolve(null)
         ]);
         if (cancelled) return;
 
@@ -1329,6 +1494,15 @@ export default function RunViewer() {
         const blockRegenTraceParsed = latestRegenTraceRaw
           ? normalizeV2BlockRegenTrace(parseJsonOrThrow(latestRegenTraceRaw.text))
           : null;
+        const qaBlockHeatmapParsed = latestQaHeatmapRaw
+          ? normalizeV2QaBlockHeatmap(parseJsonOrThrow(latestQaHeatmapRaw.text))
+          : null;
+        const narrativeIntensifierParsed = narrativeIntensifierRaw
+          ? normalizeV2NarrativeIntensifierPass(parseJsonOrThrow(narrativeIntensifierRaw.text))
+          : null;
+        const diseaseResearchSourceParsed = diseaseResearchSourceRaw
+          ? normalizeV2DiseaseResearchSourceReport(parseJsonOrThrow(diseaseResearchSourceRaw.text))
+          : null;
 
         setV2DeckSpecPreview(deckParsed);
         setV2TemplateRegistryPreview(templateParsed);
@@ -1344,7 +1518,11 @@ export default function RunViewer() {
         setV2NarrativeStatePreview(narrativeStateParsed);
         setV2AuthoringContextManifestPreview(authoringContextParsed);
         setV2BlockRegenTracePreview(blockRegenTraceParsed);
+        setV2QaBlockHeatmapPreview(qaBlockHeatmapParsed);
+        setV2NarrativeIntensifierPreview(narrativeIntensifierParsed);
+        setV2DiseaseResearchSourceReportPreview(diseaseResearchSourceParsed);
         setV2LatestRegenTraceName(latestRegenTraceName ?? "");
+        setV2LatestQaHeatmapName(latestQaHeatmapName ?? "");
         setV2DrilldownErr(null);
       } catch (e) {
         if (cancelled) return;
@@ -1362,7 +1540,11 @@ export default function RunViewer() {
         setV2NarrativeStatePreview(null);
         setV2AuthoringContextManifestPreview(null);
         setV2BlockRegenTracePreview(null);
+        setV2QaBlockHeatmapPreview(null);
+        setV2NarrativeIntensifierPreview(null);
+        setV2DiseaseResearchSourceReportPreview(null);
         setV2LatestRegenTraceName("");
+        setV2LatestQaHeatmapName("");
         setV2DrilldownErr(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setV2DrilldownBusy(false);
@@ -2457,6 +2639,135 @@ export default function RunViewer() {
                             </ul>
                           </details>
                         )}
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {workflow === "v2_micro_detectives" && (
+            <div className="panel runGateCard">
+              <div className="panelHeader">
+                <div style={{ fontWeight: 600 }}>V2 quality diagnostics</div>
+              </div>
+              <div className="panelBody">
+                {!v2QaBlockHeatmapPreview && !v2NarrativeIntensifierPreview && !v2DiseaseResearchSourceReportPreview && (
+                  <div className="subtle">No heatmap / intensifier / research-source diagnostics artifacts yet.</div>
+                )}
+                {(v2QaBlockHeatmapPreview || v2NarrativeIntensifierPreview || v2DiseaseResearchSourceReportPreview) && (
+                  <div className="summaryCardList">
+                    <div className="diagnosticPanelLead">Whole-deck weak-block targeting, story intensification, and curated-vs-web grounding coverage for the current run.</div>
+                    <div className="diagnosticOverviewGrid">
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">QA heatmap</div>
+                        <div className={`diagnosticOverviewValue ${v2QaBlockHeatmapPreview ? "statusOk" : "statusMuted"}`}>
+                          {v2LatestQaHeatmapName || "missing"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">intensifier</div>
+                        <div className={`diagnosticOverviewValue ${v2NarrativeIntensifierPreview ? "statusOk" : "statusMuted"}`}>
+                          {v2NarrativeIntensifierPreview ? "present" : "missing"}
+                        </div>
+                      </div>
+                      <div className="diagnosticOverviewCard">
+                        <div className="diagnosticOverviewLabel">research source mix</div>
+                        <div className={`diagnosticOverviewValue ${v2DiseaseResearchSourceReportPreview ? "statusOk" : "statusMuted"}`}>
+                          {v2DiseaseResearchSourceReportPreview ? "present" : "missing"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {v2QaBlockHeatmapPreview && (
+                      <details className="diagnosticDetails" open>
+                        <summary>QA block heatmap ({v2LatestQaHeatmapName || `loop ${v2QaBlockHeatmapPreview.loop}`})</summary>
+                        <div className="diagnosticKv">
+                          <div>loop</div>
+                          <div className="mono">{v2QaBlockHeatmapPreview.loop}</div>
+                          <div>blocks scored</div>
+                          <div className="mono">{v2QaBlockHeatmapPreview.blocks.length}</div>
+                        </div>
+                        <details className="diagnosticDetails">
+                          <summary>Worst blocks</summary>
+                          <div className="diagnosticKv">
+                            {v2QaBlockHeatmapPreview.blocks
+                              .slice()
+                              .sort((a, b) => b.severity_score - a.severity_score)
+                              .slice(0, 8)
+                              .map((row) => (
+                                <Fragment key={`heatmap-${row.block_id}`}>
+                                  <div>{row.block_id}</div>
+                                  <div className="mono">
+                                    {row.act_id} · sev {row.severity_score.toFixed(2)} · rep {formatRatioAsPercent(row.repeated_template_density)} ·
+                                    generic {formatRatioAsPercent(row.generic_language_rate)}
+                                  </div>
+                                </Fragment>
+                              ))}
+                          </div>
+                        </details>
+                      </details>
+                    )}
+
+                    {v2NarrativeIntensifierPreview && (
+                      <details className="diagnosticDetails" open>
+                        <summary>Narrative intensifier</summary>
+                        <div className="diagnosticKv">
+                          <div>target blocks</div>
+                          <div className="mono">{v2NarrativeIntensifierPreview.target_block_ids.length}</div>
+                          <div>operations</div>
+                          <div className="mono">{v2NarrativeIntensifierPreview.operations.length}</div>
+                          <div>findings</div>
+                          <div className="mono">{v2NarrativeIntensifierPreview.global_intensity_findings.length}</div>
+                        </div>
+                        <details className="diagnosticDetails">
+                          <summary>Global findings ({v2NarrativeIntensifierPreview.global_intensity_findings.length})</summary>
+                          <ul className="diagnosticList">
+                            {v2NarrativeIntensifierPreview.global_intensity_findings.map((finding, idx) => (
+                              <li key={`intensifier-finding-${idx}`}>{finding}</li>
+                            ))}
+                          </ul>
+                        </details>
+                        <details className="diagnosticDetails">
+                          <summary>Operations ({v2NarrativeIntensifierPreview.operations.length})</summary>
+                          <ul className="diagnosticList">
+                            {v2NarrativeIntensifierPreview.operations.slice(0, 10).map((op, idx) => (
+                              <li key={`intensifier-op-${idx}`}>
+                                {op.op}
+                                {op.slide_id ? ` · ${op.slide_id}` : ""}
+                                {op.start_slide_id || op.end_slide_id ? ` · ${op.start_slide_id ?? "-"}..${op.end_slide_id ?? "-"}` : ""}
+                                {op.reason ? ` · ${op.reason}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </details>
+                    )}
+
+                    {v2DiseaseResearchSourceReportPreview && (
+                      <details className="diagnosticDetails" open>
+                        <summary>Disease research source mix</summary>
+                        <div className="diagnosticKv">
+                          <div>topic</div>
+                          <div className="mono">{v2DiseaseResearchSourceReportPreview.topic || "-"}</div>
+                          <div>sections</div>
+                          <div className="mono">{v2DiseaseResearchSourceReportPreview.sections.length}</div>
+                        </div>
+                        <details className="diagnosticDetails">
+                          <summary>Section breakdown ({v2DiseaseResearchSourceReportPreview.sections.length})</summary>
+                          <div className="diagnosticKv">
+                            {v2DiseaseResearchSourceReportPreview.sections.slice(0, 12).map((section) => (
+                              <Fragment key={`source-report-${section.section}`}>
+                                <div>{section.section}</div>
+                                <div className="mono">
+                                  curated {section.curated_citations} · web {section.web_citations} · {section.dominant_source}
+                                  {section.fallback_reason ? ` · ${section.fallback_reason}` : ""}
+                                </div>
+                              </Fragment>
+                            ))}
+                          </div>
+                        </details>
                       </details>
                     )}
                   </div>

@@ -15,6 +15,7 @@ const makeV2StoryBlueprintAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "sto
 const makeV2ActOutlineAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "actOutlineAgent" })));
 const makeV2SlideBlockAuthorAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "slideBlockAuthorAgent" })));
 const makeV2DeckCohesionPassAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "deckCohesionPassAgent" })));
+const makeV2NarrativeIntensifierAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "narrativeIntensifierAgent" })));
 const makeV2PlotDirectorDeckSpecAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "plotDirectorAgent" })));
 const makeV2ReaderSimAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "readerSimAgent" })));
 const makeV2MedFactcheckAgentMock = vi.hoisted(() => vi.fn(() => ({ name: "medFactcheckAgent" })));
@@ -46,6 +47,7 @@ vi.mock("../src/pipeline/v2_micro_detectives/agents.js", () => ({
   makeV2ActOutlineAgent: makeV2ActOutlineAgentMock,
   makeV2SlideBlockAuthorAgent: makeV2SlideBlockAuthorAgentMock,
   makeV2DeckCohesionPassAgent: makeV2DeckCohesionPassAgentMock,
+  makeV2NarrativeIntensifierAgent: makeV2NarrativeIntensifierAgentMock,
   makeV2PlotDirectorDeckSpecAgent: makeV2PlotDirectorDeckSpecAgentMock,
   makeV2ReaderSimAgent: makeV2ReaderSimAgentMock,
   makeV2MedFactcheckAgent: makeV2MedFactcheckAgentMock
@@ -66,6 +68,22 @@ beforeEach(() => {
   setDefaultOpenAIKeyMock.mockReset();
   loadV2AssetsMock.mockClear();
   makeKbCompilerAgentMock.mockClear();
+  makeV2DiseaseResearchAgentMock.mockClear();
+  makeV2EpisodePitchAgentMock.mockClear();
+  makeV2TruthModelAgentMock.mockClear();
+  makeV2DifferentialCastAgentMock.mockClear();
+  makeV2ClueArchitectAgentMock.mockClear();
+  makeV2MicroWorldMapAgentMock.mockClear();
+  makeV2DramaPlanAgentMock.mockClear();
+  makeV2SetpiecePlanAgentMock.mockClear();
+  makeV2StoryBlueprintAgentMock.mockClear();
+  makeV2ActOutlineAgentMock.mockClear();
+  makeV2SlideBlockAuthorAgentMock.mockClear();
+  makeV2DeckCohesionPassAgentMock.mockClear();
+  makeV2NarrativeIntensifierAgentMock.mockClear();
+  makeV2PlotDirectorDeckSpecAgentMock.mockClear();
+  makeV2ReaderSimAgentMock.mockClear();
+  makeV2MedFactcheckAgentMock.mockClear();
   createStructuredRunnersMock.mockClear();
   runStructuredAgentOutputMock.mockReset();
   runStructuredAgentOutputMock.mockResolvedValue({ ok: true });
@@ -167,6 +185,24 @@ describe("v2 agent child process helpers", () => {
 
     expect(out).toEqual({ ok: true });
     expect(makeV2DeckCohesionPassAgentMock).toHaveBeenCalledTimes(1);
+    expect(runStructuredAgentOutputMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("runChildRequest dispatches to narrativeIntensifier agent key", async () => {
+    const mod = await loadModule();
+
+    const out = await mod.runChildRequest({
+      requestId: "r5",
+      runId: "run_test",
+      step: "C",
+      agentKey: "narrativeIntensifier",
+      prompt: "prompt",
+      maxTurns: 4,
+      timeoutMs: 10_000
+    });
+
+    expect(out).toEqual({ ok: true });
+    expect(makeV2NarrativeIntensifierAgentMock).toHaveBeenCalledTimes(1);
     expect(runStructuredAgentOutputMock).toHaveBeenCalledTimes(1);
   });
 });

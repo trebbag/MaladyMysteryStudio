@@ -177,14 +177,31 @@ export function generateDramaPlan(deck: DeckSpec, _truth: TruthModel): DramaPlan
         pair: "detective_deputy",
         starting_dynamic: "Fast-paced partnership with occasional inference friction.",
         friction_points: ["Competing hypotheses at midpoint", "Risk tolerance mismatch in Act III"],
+        named_recurring_tensions: ["certainty vs skepticism", "speed vs proof"],
         repair_moments: ["Shared evidence board reset", "Joint proof trap setup"],
+        relationship_change_by_act: acts.map((actId, idx) => ({
+          act_id: actId,
+          change_due_to_case:
+            idx === 0
+              ? "The case exposes a gap between fast intuition and careful verification."
+              : idx === 1
+                ? "Pressure turns that gap into open friction."
+                : idx === 2
+                  ? "The midpoint contradiction forces mutual accountability."
+                  : "Shared proof restores trust with clearer roles."
+        })),
         climax_resolution: "Unified differential logic before final diagnosis lock."
       },
       {
         pair: "aliens_patient",
         starting_dynamic: "Indirect trust mediated through clinical evidence.",
         friction_points: ["Patient trajectory worsens before diagnosis is locked"],
+        named_recurring_tensions: ["distance vs empathy", "explanation vs urgency"],
         repair_moments: ["Mechanism explained in plain language at resolution"],
+        relationship_change_by_act: acts.map((actId) => ({
+          act_id: actId,
+          change_due_to_case: `${actId} increases the urgency of patient-centered explanation.`
+        })),
         climax_resolution: "Team actions align to patient-centered, evidence-based plan."
       }
     ],
@@ -198,6 +215,26 @@ export function generateDramaPlan(deck: DeckSpec, _truth: TruthModel): DramaPlan
       act_id: actId,
       required_emotional_beats: ["Tension rise", "Evidence-based pivot"],
       required_choices: ["Choose next test/action", "Update differential explicitly"],
+      relationship_change_due_to_case:
+        actId === "ACT1"
+          ? "Establish the first disagreement about how quickly to lock onto a theory."
+          : actId === "ACT2"
+            ? "Escalate friction because the case punishes overconfidence."
+            : actId === "ACT3"
+              ? "Force honest reassessment after the false theory breaks."
+              : "Repair trust through shared proof and clear division of labor.",
+      act_specific_emotionally_costly_clue:
+        actId === "ACT2" || actId === "ACT3"
+          ? "A clue proves the team lost time or trust by pursuing the wrong inference."
+          : "A clue forces a consequential change in responsibility.",
+      must_pay_by_end_of_act:
+        actId === "ACT1"
+          ? ["Case acquisition debt", "False-theory lock-in debt"]
+          : actId === "ACT2"
+            ? ["Escalating hazard debt", "Relationship rupture debt"]
+            : actId === "ACT3"
+              ? ["False-theory collapse debt", "Emotionally costly clue debt"]
+              : ["Proof debt", "Callback debt"],
       notes: `${actId} must preserve story-forward pacing.`
     }))
   });
@@ -216,8 +253,11 @@ export function generateSetpiecePlan(deck: DeckSpec, microWorldMap: MicroWorldMa
         type: "transit_peril",
         location_zone_id: microWorldMap.zones[0]?.zone_id ?? coreZone,
         story_purpose: "Introduce hazards while establishing investigative objective.",
+        clue_obligation_paid: "Seed the first clue debt while making the false theory plausible.",
         medical_mechanism_anchor: "Early physiologic changes create unstable transit context.",
         visual_signature: "Rapid dive with evidence overlays appearing during movement.",
+        emotional_cost: "The team commits too quickly to the first neat explanation.",
+        relationship_shift: "Detective gains momentum while Deputy starts doubting the speed of the inference.",
         constraints: ["short safe-window", "checkpoint congestion"],
         outcome_turn: "First high-value clue acquired with collateral ambiguity.",
         citations: [cite]
@@ -228,8 +268,11 @@ export function generateSetpiecePlan(deck: DeckSpec, microWorldMap: MicroWorldMa
         type: "environmental_hazard",
         location_zone_id: coreZone,
         story_purpose: "Escalate stakes and force differential pruning.",
+        clue_obligation_paid: "Generate the contradiction that begins to strain the false theory.",
         medical_mechanism_anchor: "Pathophysiology amplifies local hazard density.",
         visual_signature: "Compression wave through tissue with reactive immune swarms.",
+        emotional_cost: "A clue arrives with a cost that makes the earlier confident read feel dangerous.",
+        relationship_shift: "Friction sharpens because one partner thinks the other missed the signal.",
         constraints: ["limited visibility", "false-positive clue trail"],
         outcome_turn: "Mimic narrative weakens after hazard-linked discriminator appears.",
         citations: [cite]
@@ -240,8 +283,11 @@ export function generateSetpiecePlan(deck: DeckSpec, microWorldMap: MicroWorldMa
         type: "proof_trap",
         location_zone_id: coreZone,
         story_purpose: "Recontextualize clues and support twist receipts.",
+        clue_obligation_paid: "Pay off the false-theory debt with explicit receipts.",
         medical_mechanism_anchor: "Mechanistic trigger explains earlier contradictions.",
         visual_signature: "Evidence board convergence with route and clue overlays.",
+        emotional_cost: "The contradiction exposes what the team got wrong and costs them confidence.",
+        relationship_shift: "The rupture peaks, then begins to turn toward repair as proof emerges.",
         constraints: ["single-attempt confirmation window"],
         outcome_turn: "True diagnosis locks with fair-play receipts.",
         citations: [cite]
@@ -252,8 +298,11 @@ export function generateSetpiecePlan(deck: DeckSpec, microWorldMap: MicroWorldMa
         type: "moral_confrontation",
         location_zone_id: coreZone,
         story_purpose: "Link diagnosis confirmation to action and aftermath.",
+        clue_obligation_paid: "Pay the final proof debt and callback debt.",
         medical_mechanism_anchor: "Treatment response validates causal model.",
         visual_signature: "Resolution tableau with before/after evidence overlays.",
+        emotional_cost: "The team must own the cost of delay while explaining the right path forward.",
+        relationship_shift: "Repair lands because proof and responsibility are shared out loud.",
         constraints: ["must communicate rationale clearly", "avoid overclaiming certainty"],
         outcome_turn: "Case resolves with explicit teach-back and differential closure.",
         citations: [cite]
@@ -265,6 +314,12 @@ export function generateSetpiecePlan(deck: DeckSpec, microWorldMap: MicroWorldMa
       act3_truth_bomb: true,
       act4_proof_or_showdown: true
     },
+    act_debts: [
+      { act_id: "ACT1", must_pay_by_end_of_act: ["Introduce the false-theory debt", "Seed the opener motif debt"] },
+      { act_id: "ACT2", must_pay_by_end_of_act: ["Escalate clue debt", "Intensify relationship debt"] },
+      { act_id: "ACT3", must_pay_by_end_of_act: ["Break the false theory", "Make the clue cost visible"] },
+      { act_id: "ACT4", must_pay_by_end_of_act: ["Land proof", "Pay callback debt"] }
+    ],
     notes: ["Keep setpieces story-dominant while preserving one major concept per main slide."]
   });
 }

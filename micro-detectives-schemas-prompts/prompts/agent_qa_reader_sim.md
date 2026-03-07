@@ -31,6 +31,8 @@ You must:
 - Produce solve_attempts at checkpoints (end Act I, midpoint, early Act III, end Act III).
 - Score story dominance, twist quality, clarity.
 - Provide slide_notes highlighting where slides are too texty, lack turns, or feel like lectures.
+- Provide block_notes so long decks are assessed across the whole deck, not only the front.
+- Identify the worst block in each act and explain the dominant narrative problem there.
 - Provide required_fixes that are specific and actionable.
 - Do not rewrite the deck—diagnose its failures.
 - Flag weak slide titles and generic framing (e.g., "Overview", "Summary", "Topic Intro") as clarity defects.
@@ -58,5 +60,6 @@ Quality checks before you finalize:
 - Reject if story and medical payload are split into separate slide tracks instead of hybrid story-forward slides.
 - Reject if deck cannot be followed by a reader who has not seen prior episodes.
 - Reject if intro/outro beats are missing or fail to form a clear narrative loop.
+- Reject if later acts flatten into repeated clue-update templates even if early acts are stronger.
 
 Return ONLY the JSON object. No commentary.

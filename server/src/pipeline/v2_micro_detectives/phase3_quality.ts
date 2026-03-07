@@ -5,6 +5,7 @@ import type {
   DifferentialCast,
   DeckSlideSpec,
   MedFactcheckReport,
+  QaBlockHeatmap,
   ReaderSimReport,
   RequiredFix,
   V2DeckSpecLintError,
@@ -380,6 +381,35 @@ function repeatedTemplateRate(values: string[]): number {
   return Math.max(0, Math.min(1, repeatedCount / values.length));
 }
 
+function parseSlideNumber(slideId: string): number | null {
+  const match = String(slideId).match(/^S(\d{2,3})$/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function distributedStringTargets(values: string[], limit: number): string[] {
+  const unique = [...new Set(values.filter((value) => String(value || "").trim().length > 0))];
+  if (unique.length <= limit) return unique;
+  const picks: string[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    const position = Math.round((index * (unique.length - 1)) / Math.max(1, limit - 1));
+    const value = unique[position];
+    if (value && !picks.includes(value)) picks.push(value);
+  }
+  return picks;
+}
+
+function readerBlockSlideTargets(report: ReaderSimReport, issueTypes?: string[]): string[] {
+  const allowed = issueTypes ? new Set(issueTypes) : null;
+  return distributedStringTargets(
+    report.block_notes
+      .filter((note) => !allowed || allowed.has(note.issue_type))
+      .flatMap((note) => note.slide_ids ?? []),
+    12
+  );
+}
+
 const FALSE_THEORY_BEATS = new Set<DeckSlideSpec["beat_type"]>(["false_theory_lock_in", "false_theory_collapse"]);
 const OUTRO_BEATS = new Set<DeckSlideSpec["beat_type"]>(["showdown", "proof", "aftermath"]);
 const CONFLICT_RE = /\b(conflict|clash|disagree|rupture|friction|argue)\b/i;
@@ -592,12 +622,13 @@ function buildNarrativeGrade(input: {
     });
   }
   if (signals.repeatedTitleRate > 0.22 || signals.repeatedHookRate > 0.22 || signals.repeatedStoryTemplateRate > 0.18) {
+    const readerTargets = readerBlockSlideTargets(readerSimReport, ["generic_language", "story_dominance_weak", "pacing_slow", "pacing_rushed"]);
     requiredFixes.push({
       fix_id: "NAR-GENERIC-LANGUAGE",
       type: "regenerate_section",
       priority: generationProfile === "quality" ? "must" : "should",
       description: "Reduce repeated title/hook/story templates and increase scene-specific language.",
-      targets: deckSpec.slides.slice(0, 12).map((slide) => slide.slide_id)
+      targets: readerTargets.length > 0 ? readerTargets : distributedStringTargets(deckSpec.slides.map((slide) => slide.slide_id), 12)
     });
   }
   if (clueGraph.twist_support_matrix.length === 0) {
@@ -610,12 +641,13 @@ function buildNarrativeGrade(input: {
     });
   }
   if (readerSimReport.overall_story_dominance_score_0_to_5 < storyDominanceInterventionThreshold) {
+    const readerTargets = readerBlockSlideTargets(readerSimReport, ["story_dominance_weak", "no_story_turn", "pacing_slow", "pacing_rushed"]);
     requiredFixes.push({
       fix_id: "NAR-READER-STORY-DOMINANCE",
       type: "increase_story_turn",
       priority: "must",
       description: "Reader simulation reported weak story dominance; increase consequence-driven turns.",
-      targets: deckSpec.slides.slice(0, 10).map((slide) => slide.slide_id)
+      targets: readerTargets.length > 0 ? readerTargets : distributedStringTargets(deckSpec.slides.map((slide) => slide.slide_id), 10)
     });
   }
 
@@ -697,7 +729,7 @@ export function buildSemanticRequiredFixes(
       type: "increase_story_turn",
       priority: "must",
       description: `Raise story-forward ratio to at least ${thresholds.minStoryForwardRatio.toFixed(2)} across main slides.`,
-      targets: metrics.storyForwardDeficitSlideIds.slice(0, 12)
+      targets: distributedStringTargets(metrics.storyForwardDeficitSlideIds, 12)
     });
   }
   if (metrics.hybridSlideQuality < thresholds.minHybridSlideQuality) {
@@ -706,7 +738,7 @@ export function buildSemanticRequiredFixes(
       type: "increase_story_turn",
       priority: "must",
       description: `Raise hybrid slide quality to at least ${thresholds.minHybridSlideQuality.toFixed(2)} by strengthening story-turn + medical payload coupling.`,
-      targets: metrics.hybridDeficitSlideIds.slice(0, 12)
+      targets: distributedStringTargets(metrics.hybridDeficitSlideIds, 12)
     });
   }
   if (metrics.citationGroundingCoverage < thresholds.minCitationGroundingCoverage) {
@@ -715,10 +747,82 @@ export function buildSemanticRequiredFixes(
       type: "medical_correction",
       priority: "must",
       description: `Raise citation grounding coverage to at least ${thresholds.minCitationGroundingCoverage.toFixed(2)} by adding dossier-backed citations.`,
-      targets: metrics.citationDeficitSlideIds.slice(0, 12)
+      targets: distributedStringTargets(metrics.citationDeficitSlideIds, 12)
     });
   }
   return fixes;
+}
+
+export function buildQaBlockHeatmap(input: {
+  deckSpec: DeckSpec;
+  blockPlans: Array<{ blockId: string; actId: "ACT1" | "ACT2" | "ACT3" | "ACT4"; start: number; end: number }>;
+  readerSimReport: ReaderSimReport;
+  semanticMetrics: SemanticAcceptanceMetrics;
+  loop: number;
+}): QaBlockHeatmap {
+  const readerBlockMap = new Map(
+    input.readerSimReport.block_notes.map((note) => [note.block_id, note] as const)
+  );
+  const readerWorstByAct = new Map(
+    input.readerSimReport.per_act_worst_blocks.map((row) => [row.act_id, row] as const)
+  );
+
+  const blocks = input.blockPlans.map((plan) => {
+    const slides = input.deckSpec.slides.filter((slide) => {
+      const slideNum = parseSlideNumber(slide.slide_id);
+      return slideNum !== null && slideNum >= plan.start && slideNum <= plan.end;
+    });
+    const titles = slides.map((slide) => String(slide.title ?? ""));
+    const hooks = slides.map((slide) => String(slide.hook ?? ""));
+    const storyTemplates = slides.map(
+      (slide) => `${slide.story_panel.goal}|${slide.story_panel.opposition}|${slide.story_panel.turn}|${slide.story_panel.decision}`
+    );
+    const blockReaderNote = readerBlockMap.get(plan.blockId);
+    const blockWorst = readerWorstByAct.get(plan.actId);
+    const storyForwardDeficits = slides.filter((slide) => !isStoryForwardSlide(slide)).length;
+    const hybridDeficits = slides.filter((slide) => !isHybridSlide(slide)).length;
+    const genericRate = Math.max(repeatedTemplateRate(titles), repeatedTemplateRate(hooks), repeatedTemplateRate(storyTemplates));
+    const repeatedDensity = Math.max(repeatedTemplateRate(hooks), repeatedTemplateRate(storyTemplates));
+    const clueDebtCount = slides.filter((slide) => {
+      return (
+        slide.beat_type === "false_theory_lock_in" ||
+        slide.beat_type === "false_theory_collapse" ||
+        slide.beat_type === "red_herring" ||
+        slide.beat_type === "twist"
+      );
+    }).length;
+    const readerSeverity = blockReaderNote?.severity === "must" ? 1.25 : blockReaderNote?.severity === "should" ? 0.7 : 0.2;
+    const severityScore = Math.max(
+      0,
+      Number(
+        (
+          repeatedDensity * 3 +
+          genericRate * 3 +
+          (slides.length > 0 ? storyForwardDeficits / slides.length : 0) * 2.5 +
+          (slides.length > 0 ? hybridDeficits / slides.length : 0) * 3 +
+          Math.min(2, clueDebtCount * 0.2) +
+          readerSeverity +
+          (blockWorst?.block_id === plan.blockId ? (blockWorst.severity_0_to_5 / 5) * 2 : 0)
+        ).toFixed(3)
+      )
+    );
+    return {
+      block_id: plan.blockId,
+      act_id: plan.actId,
+      severity_score: severityScore,
+      repeated_template_density: repeatedDensity,
+      generic_language_rate: genericRate,
+      story_forward_deficit_ratio: slides.length > 0 ? storyForwardDeficits / slides.length : 0,
+      hybrid_deficit_ratio: slides.length > 0 ? hybridDeficits / slides.length : 0,
+      clue_twist_debt_count: clueDebtCount
+    };
+  });
+
+  return {
+    schema_version: "1.0.0",
+    loop: input.loop,
+    blocks
+  };
 }
 
 export function buildCombinedQaReport(input: {

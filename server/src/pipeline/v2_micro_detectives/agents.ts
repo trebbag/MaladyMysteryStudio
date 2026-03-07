@@ -1,14 +1,15 @@
-import { Agent, webSearchTool } from "@openai/agents";
+import { Agent, fileSearchTool, webSearchTool } from "@openai/agents";
 import type { V2AssetBundle } from "./assets.js";
 import {
   ActOutlineSchema,
   ClueGraphSchema,
   DeckCohesionPassSchema,
   DeckSpecSchema,
-  SlideBlockSchema,
+  NarrativeIntensifierPassSchema,
+  SlideBlockAgentOutputSchema,
   StoryBlueprintSchema,
   DifferentialCastSchema,
-  DramaPlanSchema,
+  DramaPlanAgentOutputSchema,
   DiseaseDossierSchema,
   EpisodePitchSchema,
   MedFactcheckAgentOutputSchema,
@@ -29,6 +30,7 @@ export const readerSimSettings = { ...baseSettings, temperature: 0.35, maxOutput
 export const storyBlueprintSettings = { ...storySettings, temperature: 0.58, maxOutputTokens: 24000 };
 export const actOutlineSettings = { ...structureSettings, temperature: 0.35, maxOutputTokens: 16000 };
 export const plotDirectorSettings = { ...deckBlockSettings, temperature: 0.48, maxOutputTokens: 26000 };
+export const narrativeIntensifierSettings = { ...storySettings, temperature: 0.52, maxOutputTokens: 22000 };
 
 function instructionsFromAssets(assets: V2AssetBundle, promptFile: string): string {
   const globalPrompt = assets.promptFiles["00_global_system_prompt.md"] ?? "";
@@ -36,12 +38,20 @@ function instructionsFromAssets(assets: V2AssetBundle, promptFile: string): stri
   return [globalPrompt, rolePrompt].filter((part) => part.trim().length > 0).join("\n\n");
 }
 
-export function makeV2DiseaseResearchAgent(assets: V2AssetBundle) {
+export function makeV2DiseaseResearchAgent(assets: V2AssetBundle, vectorStoreId?: string) {
+  const effectiveVectorStoreId =
+    vectorStoreId?.trim() || process.env.KB_VECTOR_STORE_ID?.trim() || "";
+  const tools = effectiveVectorStoreId
+    ? [
+        fileSearchTool(effectiveVectorStoreId, { includeSearchResults: true, maxNumResults: 20 }),
+        webSearchTool({ searchContextSize: "high" })
+      ]
+    : [webSearchTool({ searchContextSize: "high" })];
   return new Agent({
     name: "V2 Disease Research Desk",
     model: baseModel,
-    modelSettings: { ...structureSettings, toolChoice: "required" },
-    tools: [webSearchTool({ searchContextSize: "high" })],
+    modelSettings: structureSettings,
+    tools,
     outputType: DiseaseDossierSchema,
     instructions: instructionsFromAssets(assets, "agent_disease_research_desk.md")
   });
@@ -119,7 +129,7 @@ export function makeV2DramaPlanAgent(assets: V2AssetBundle) {
     model: baseModel,
     modelSettings: storySettings,
     tools: [],
-    outputType: DramaPlanSchema,
+    outputType: DramaPlanAgentOutputSchema,
     instructions: instructionsFromAssets(assets, "agent_drama_architect.md")
   });
 }
@@ -163,7 +173,7 @@ export function makeV2SlideBlockAuthorAgent(assets: V2AssetBundle) {
     model: baseModel,
     modelSettings: deckBlockSettings,
     tools: [],
-    outputType: SlideBlockSchema,
+    outputType: SlideBlockAgentOutputSchema,
     instructions: instructionsFromAssets(assets, "agent_slide_block_author.md")
   });
 }
@@ -176,6 +186,17 @@ export function makeV2DeckCohesionPassAgent(assets: V2AssetBundle) {
     tools: [],
     outputType: DeckCohesionPassSchema,
     instructions: instructionsFromAssets(assets, "agent_plot_director_cohesion_pass.md")
+  });
+}
+
+export function makeV2NarrativeIntensifierAgent(assets: V2AssetBundle) {
+  return new Agent({
+    name: "V2 Narrative Intensifier",
+    model: baseModel,
+    modelSettings: narrativeIntensifierSettings,
+    tools: [],
+    outputType: NarrativeIntensifierPassSchema,
+    instructions: instructionsFromAssets(assets, "agent_narrative_intensifier.md")
   });
 }
 

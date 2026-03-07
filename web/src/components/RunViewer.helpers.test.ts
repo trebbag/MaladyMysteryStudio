@@ -186,9 +186,50 @@ describe("RunViewer helpers", () => {
     expect(regen.loop).toBe(2);
     expect(regen.regenerated_blocks).toEqual(["ACT2_B01"]);
 
+    const heatmap = __runViewerTestables.normalizeV2QaBlockHeatmap({
+      loop: 1,
+      blocks: [
+        {
+          block_id: "ACT3_B02",
+          act_id: "ACT3",
+          severity_score: 0.92,
+          repeated_template_density: 0.24,
+          generic_language_rate: 0.19,
+          story_forward_deficit_ratio: 0.22,
+          hybrid_deficit_ratio: 0.18,
+          clue_twist_debt_count: 3
+        }
+      ]
+    });
+    expect(heatmap.blocks[0]?.block_id).toBe("ACT3_B02");
+
+    const intensifier = __runViewerTestables.normalizeV2NarrativeIntensifierPass({
+      global_intensity_findings: ["Callback debt is underpaid."],
+      narrative_rationale: ["Act III needs sharper motif reuse."],
+      target_block_ids: ["ACT3_B02"],
+      operations: [{ op: "replace_window", start_slide_id: "S31", end_slide_id: "S36", reason: "raise stakes" }]
+    });
+    expect(intensifier.operations[0]?.op).toBe("replace_window");
+
+    const sourceReport = __runViewerTestables.normalizeV2DiseaseResearchSourceReport({
+      topic: "Community-acquired pneumonia in adults",
+      sections: [
+        {
+          section: "diagnosis_workup",
+          curated_citations: 4,
+          web_citations: 1,
+          dominant_source: "curated"
+        }
+      ]
+    });
+    expect(sourceReport.sections[0]?.dominant_source).toBe("curated");
+
     expect(__runViewerTestables.regenTraceLoopFromName("block_regen_trace_loop2.json")).toBe(2);
     expect(__runViewerTestables.regenTraceLoopFromName("block_regen_trace_loopX.json")).toBe(-1);
     expect(__runViewerTestables.regenTraceLoopFromName("not-a-trace.json")).toBe(-1);
+    expect(__runViewerTestables.qaHeatmapLoopFromName("qa_block_heatmap_loop2.json")).toBe(2);
+    expect(__runViewerTestables.qaHeatmapLoopFromName("qa_block_heatmap_loopX.json")).toBe(-1);
+    expect(__runViewerTestables.qaHeatmapLoopFromName("not-a-heatmap.json")).toBe(-1);
   });
 
   it("formats values and badge classes across edge cases", () => {
