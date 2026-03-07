@@ -11,7 +11,8 @@ function parseArgs(argv) {
     workflow: "v2_micro_detectives",
     generationProfile: "quality",
     minRuns: 3,
-    strictMinRuns: false
+    strictMinRuns: false,
+    includeE2E: false
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -47,6 +48,10 @@ function parseArgs(argv) {
     }
     if (arg === "--strict-min-runs") {
       out.strictMinRuns = true;
+      continue;
+    }
+    if (arg === "--include-e2e") {
+      out.includeE2E = true;
       continue;
     }
   }
@@ -110,6 +115,7 @@ async function collectRuns(options) {
     const workflow = String(runJson?.settings?.workflow || "legacy");
     const generationProfile = String(runJson?.settings?.generationProfile || "quality");
     const status = String(runJson?.status || "");
+    if (!options.includeE2E && String(runJson?.runId || runId).startsWith("e2e-")) continue;
     if (workflow !== options.workflow) continue;
     if (options.generationProfile && generationProfile !== options.generationProfile) continue;
     if (status !== "done") continue;
@@ -210,6 +216,7 @@ function buildMarkdown(report) {
   lines.push(`Generated: ${report.generatedAt}`);
   lines.push(`Workflow: ${report.filters.workflow}`);
   lines.push(`Generation profile: ${report.filters.generationProfile}`);
+  lines.push(`Included E2E runs: ${report.filters.includeE2E ? "yes" : "no"}`);
   lines.push("");
   lines.push("## Sample");
   lines.push("");
@@ -234,6 +241,9 @@ function buildMarkdown(report) {
   lines.push("");
   lines.push("- This report does not trigger model runs; it calibrates from persisted run artifacts in output/.");
   lines.push("- Re-run after each real-key pilot batch before updating production defaults.");
+  if (!report.filters.includeE2E) {
+    lines.push("- E2E/fake workflow runs are excluded by default so this report only reflects real pilot evidence.");
+  }
   if (!report.sampleAdequate) {
     lines.push("- Sample is below requested minimum; treat recommendations as provisional.");
   }
@@ -252,7 +262,8 @@ async function main() {
     filters: {
       outputRoot: options.outputRoot,
       workflow: options.workflow,
-      generationProfile: options.generationProfile
+      generationProfile: options.generationProfile,
+      includeE2E: options.includeE2E
     },
     sampleAdequate,
     minRunsRequired: options.minRuns,
@@ -291,4 +302,3 @@ main().catch((error) => {
   console.error(`calibrate_v2_quality_from_outputs failed: ${message}`);
   process.exitCode = 1;
 });
-
