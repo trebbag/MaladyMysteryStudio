@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-03-07T02:17:24.277Z",
+  "baseUrl": "http://localhost:5050",
+  "topic": "Community-acquired pneumonia in adults",
+  "audienceLevel": "PHYSICIAN_LEVEL",
+  "runId": "community-acquired-pneumonia-in-adults-6mjb13rl",
+  "pass": false,
+  "gateActions": [
+    "GATE_1_PITCH:approve",
+    "GATE_1_PITCH:resume"
+  ],
+  "gate3Regens": 0,
+  "missingArtifacts": [],
+  "markers": null,
+  "twist": null,
+  "provenance": null,
+  "artifactCount": 0,
+  "elapsedMs": 165150,
+  "errorMessage": "Run ended with status=error"
+}
