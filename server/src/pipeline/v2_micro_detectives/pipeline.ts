@@ -380,10 +380,11 @@ function estimateMainSlidesFromOutline(outline: Pick<ReturnType<typeof ActOutlin
 function preferredBlockSize(generationProfile: GenerationProfile, estimatedMainSlides = 0): number {
   if (generationProfile === "quality") {
     const raw = Number(process.env.MMS_V2_QUALITY_BLOCK_SIZE ?? Number.NaN);
-    if (Number.isFinite(raw)) return Math.max(8, Math.min(16, Math.round(raw)));
-    if (estimatedMainSlides >= 140) return 10;
-    if (estimatedMainSlides >= 96) return 9;
-    return 8;
+    if (Number.isFinite(raw)) return Math.max(8, Math.min(18, Math.round(raw)));
+    if (estimatedMainSlides >= 140) return 12;
+    if (estimatedMainSlides >= 96) return 11;
+    if (estimatedMainSlides >= 72) return 10;
+    return 9;
   }
   const raw = Number(process.env.MMS_V2_PILOT_BLOCK_SIZE ?? 16);
   if (!Number.isFinite(raw)) return 16;
@@ -1740,6 +1741,7 @@ export { inferOutlineActForPlan as __testOnlyInferOutlineActForPlan };
 export { resolveStructuralBlockIndexes as __testOnlyResolveStructuralBlockIndexes };
 export { compactMedicalSliceForBlock as __testOnlyCompactMedicalSliceForBlock };
 export { buildDiseaseResearchSourceReport as __testOnlyBuildDiseaseResearchSourceReport };
+export { preferredBlockSize as __testOnlyPreferredBlockSize };
 
 function normalizeMedFactcheckReport(
   report: MedFactcheckAgentOutput | MedFactcheckReport,

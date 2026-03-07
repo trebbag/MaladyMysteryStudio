@@ -9,6 +9,7 @@ import {
   __testOnlyBuildDiseaseResearchSourceReport,
   __testOnlyCompactMedicalSliceForBlock,
   __testOnlyInferOutlineActForPlan,
+  __testOnlyPreferredBlockSize,
   __testOnlyResolveQaLoopBudget,
   __testOnlyResolveStructuralBlockIndexes
 } from "../src/pipeline/v2_micro_detectives/pipeline.js";
@@ -66,6 +67,14 @@ describe("v2 pipeline helpers", () => {
     expect(__testOnlyResolveQaLoopBudget({ blockCount: 7 })).toBe(3);
     expect(__testOnlyResolveQaLoopBudget({ blockCount: 12 })).toBe(4);
     expect(__testOnlyResolveQaLoopBudget({ blockCount: 18 })).toBe(5);
+  });
+
+  it("uses larger quality-mode block sizes for medium and long decks to reduce total authoring calls", () => {
+    expect(__testOnlyPreferredBlockSize("quality", 40)).toBe(9);
+    expect(__testOnlyPreferredBlockSize("quality", 82)).toBe(10);
+    expect(__testOnlyPreferredBlockSize("quality", 110)).toBe(11);
+    expect(__testOnlyPreferredBlockSize("quality", 150)).toBe(12);
+    expect(__testOnlyPreferredBlockSize("pilot", 82)).toBe(16);
   });
 
   it("uses the block plan act id for compact medical/drama/setpiece context instead of slide-number heuristics", () => {
