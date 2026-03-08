@@ -5098,6 +5098,28 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}\n\n` +
             `DIFFERENTIAL CAST (json):\n${JSON.stringify(workingDifferential, null, 2)}\n\n` +
             `CLUE GRAPH (json):\n${JSON.stringify(workingClueGraph, null, 2)}`;
+          const readerCompactPrompt =
+            `DECK SPEC SUMMARY (json):\n${clipJsonForPrompt({
+              deck_meta: workingDeck.deck_meta,
+              acts: workingDeck.acts,
+              slides: workingDeck.slides.map((slide) => ({
+                slide_id: slide.slide_id,
+                act_id: slide.act_id,
+                beat_type: slide.beat_type,
+                title: slide.title,
+                hook: slide.hook,
+                delivery_mode: slide.medical_payload.delivery_mode,
+                major_concept_id: slide.medical_payload.major_concept_id,
+                story_panel: slide.story_panel,
+                citations: collectSlideCitationRefs(slide).slice(0, 3)
+              })),
+              appendix_slide_count: workingDeck.appendix_slides.length
+            }, 20_000)}\n\n` +
+            `TRUTH MODEL (json):\n${clipJsonForPrompt(truthModel, 6_000)}\n\n` +
+            `DIFFERENTIAL CAST (json):\n${clipJsonForPrompt(workingDifferential, 6_000)}\n\n` +
+            `CLUE GRAPH (json):\n${clipJsonForPrompt(workingClueGraph, 8_000)}`;
+          const readerSimTimeoutMs =
+            generationProfile === "quality" && attempt > 1 ? Math.max(cTimeoutMs, Math.round(cTimeoutMs * 1.25)) : cTimeoutMs;
           if (deterministicPlanning) {
             finalReader = ReaderSimReportSchema.parse(generateReaderSimReport(workingDeck, truthModel, workingClueGraph));
           } else if (fallbackForLowBudget("readerSim.preflight", Math.max(120_000, Math.round(cTimeoutMs * 0.9)))) {
@@ -5105,14 +5127,17 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           } else {
             try {
               finalReader = ReaderSimReportSchema.parse(
-                await runIsolatedAgentOutput({
+                await runIsolatedAgentWithCompactRetry({
                   step: "C",
                   agentKey: "readerSim",
                   agent: readerSimAgent,
                   prompt: readerPrompt,
+                  compactPrompt: readerCompactPrompt,
                   maxTurns: 8,
-                  timeoutMs: cTimeoutMs,
-                  signal: cSignal
+                  timeoutMs: readerSimTimeoutMs,
+                  signal: cSignal,
+                  compactRetryTimeoutMs: Math.max(240_000, Math.round(readerSimTimeoutMs * 1.1)),
+                  retryLabel: `[C] ReaderSim loop ${attempt}`
                 })
               );
             } catch (err) {
@@ -5140,6 +5165,24 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             `DECK SPEC (json):\n${JSON.stringify(workingDeck, null, 2)}\n\n` +
             `DISEASE DOSSIER (json):\n${JSON.stringify(diseaseDossier, null, 2)}\n\n` +
             `TRUTH MODEL (json):\n${JSON.stringify(truthModel, null, 2)}`;
+          const medFactCompactPrompt =
+            `DECK SPEC SUMMARY (json):\n${clipJsonForPrompt({
+              deck_meta: workingDeck.deck_meta,
+              acts: workingDeck.acts,
+              slides: workingDeck.slides.map((slide) => ({
+                slide_id: slide.slide_id,
+                act_id: slide.act_id,
+                beat_type: slide.beat_type,
+                title: slide.title,
+                major_concept_id: slide.medical_payload.major_concept_id,
+                supporting_details: slide.medical_payload.supporting_details,
+                citations: collectSlideCitationRefs(slide).slice(0, 4)
+              }))
+            }, 20_000)}\n\n` +
+            `DISEASE DOSSIER (json):\n${clipJsonForPrompt(diseaseDossier, 10_000)}\n\n` +
+            `TRUTH MODEL (json):\n${clipJsonForPrompt(truthModel, 6_000)}`;
+          const medFactTimeoutMs =
+            generationProfile === "quality" && attempt > 1 ? Math.max(cTimeoutMs, Math.round(cTimeoutMs * 1.15)) : cTimeoutMs;
           if (deterministicPlanning) {
             finalFactcheck = normalizeMedFactcheckReport(
               MedFactcheckReportSchema.parse(generateMedFactcheckReport(workingDeck, diseaseDossier)),
@@ -5156,14 +5199,17 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             try {
               finalFactcheck = normalizeMedFactcheckReport(
                 MedFactcheckAgentOutputSchema.parse(
-                  await runIsolatedAgentOutput({
+                  await runIsolatedAgentWithCompactRetry({
                     step: "C",
                     agentKey: "medFactcheck",
                     agent: medFactcheckAgent,
                     prompt: medFactPrompt,
+                    compactPrompt: medFactCompactPrompt,
                     maxTurns: 8,
-                    timeoutMs: cTimeoutMs,
-                    signal: cSignal
+                    timeoutMs: medFactTimeoutMs,
+                    signal: cSignal,
+                    compactRetryTimeoutMs: Math.max(210_000, Math.round(medFactTimeoutMs * 1.1)),
+                    retryLabel: `[C] MedFactcheck loop ${attempt}`
                   })
                 ),
                 workingDeck,

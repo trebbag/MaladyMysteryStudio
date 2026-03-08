@@ -495,6 +495,8 @@ describe("v2 real pipeline", () => {
       const microWorld = generateMicroWorldMap(deck, dossier, truth);
       const dramaPlan = generateDramaPlan(deck, truth);
       const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+      const storyBlueprint = buildStoryBlueprintFallback({ topic, clueObligations: clueGraph.clues.map((clue) => clue.clue_id) });
+      const actOutline = buildActOutlineFallback({ deck, storyBlueprint });
 
       const name = agent?.name ?? "";
       if (name === "KB Compiler") {
@@ -516,6 +518,15 @@ describe("v2 real pipeline", () => {
       if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
       if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
       if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+      if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+      if (name === "V2 Slide Block Author") {
+        const plan = parseBlockPlan(prompt);
+        return { finalOutput: makeSlideBlockForTest(plan, "clue", "REGEN") };
+      }
+      if (name === "V2 Narrative Intensifier") {
+        return { finalOutput: makeNarrativeIntensifierPass(deck) };
+      }
       if (name === "V2 Deck Cohesion Pass") {
         return {
           finalOutput: {
@@ -626,6 +637,8 @@ describe("v2 real pipeline", () => {
       const microWorld = generateMicroWorldMap(deck, dossier, truth);
       const dramaPlan = generateDramaPlan(deck, truth);
       const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+      const storyBlueprint = buildStoryBlueprintFallback({ topic, clueObligations: clueGraph.clues.map((clue) => clue.clue_id) });
+      const actOutline = buildActOutlineFallback({ deck, storyBlueprint });
 
       const name = agent?.name ?? "";
       if (name === "KB Compiler") {
@@ -647,6 +660,13 @@ describe("v2 real pipeline", () => {
       if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
       if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
       if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+      if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+      if (name === "V2 Slide Block Author") {
+        const plan = parseBlockPlan(prompt);
+        return { finalOutput: makeSlideBlockForTest(plan, "clue", "REGEN") };
+      }
+      if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(deck) };
       if (name === "V2 Deck Cohesion Pass") {
         return {
           finalOutput: {
@@ -921,6 +941,133 @@ describe("v2 real pipeline", () => {
     ) as { calls: Array<{ agentKey: string; status: string }> };
     const rows = durations.calls.filter((row) => row.agentKey === "microWorldMap");
     expect(rows.map((row) => row.status)).toEqual(["error", "ok"]);
+  });
+
+  it("retries ReaderSim once with a compact prompt after a timeout-like failure in quality mode", async () => {
+    let readerSimCalls = 0;
+    (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
+      const topic = parseTopic(prompt);
+      const deckLengthMain = parseDeckLength(prompt);
+      const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
+      const audienceLevel = parseAudience(prompt);
+      const base = {
+        topic,
+        audienceLevel,
+        deckLengthMain,
+        deckLengthConstraintEnabled,
+        kbContext: "## Medical / Clinical KB\n- deterministic test context"
+      } as const;
+      const dossier = generateDiseaseDossier(base);
+      const pitch = generateEpisodePitch(base, dossier);
+      const truth = generateTruthModel(base, dossier, pitch);
+      const deck = generateV2DeckSpec({ topic, deckLengthMain, deckLengthConstraintEnabled, audienceLevel });
+      const differential = generateDifferentialCast(deck, dossier, truth);
+      const clueGraph = generateClueGraph(deck, dossier, differential);
+      const microWorld = generateMicroWorldMap(deck, dossier, truth);
+      const dramaPlan = generateDramaPlan(deck, truth);
+      const setpiecePlan = generateSetpiecePlan(deck, microWorld, dossier);
+      const storyBlueprint = buildStoryBlueprintFallback({ topic, clueObligations: clueGraph.clues.map((clue) => clue.clue_id) });
+      const actOutline = buildActOutlineFallback({ deck, storyBlueprint });
+
+      const name = agent?.name ?? "";
+      if (name === "KB Compiler") {
+        return {
+          finalOutput: {
+            kb_context: "## Medical / Clinical KB\n- deterministic test context\n\n## Characters & Story Constraints\n- keep continuity\n\n## Visual Style / Shot Constraints\n- cinematic"
+          }
+        };
+      }
+      if (name === "V2 Disease Research Desk") return { finalOutput: dossier };
+      if (name === "V2 Episode Pitch Builder") return { finalOutput: pitch };
+      if (name === "V2 Truth Model Engineer") return { finalOutput: truth };
+      if (name === "V2 Differential Cast Director") return { finalOutput: differential };
+      if (name === "V2 Clue Architect") return { finalOutput: clueGraph };
+      if (name === "V2 Micro-World Mapper") return { finalOutput: microWorld };
+      if (name === "V2 Drama Architect") return { finalOutput: dramaPlan };
+      if (name === "V2 Setpiece Choreographer") return { finalOutput: setpiecePlan };
+      if (name === "V2 Story Blueprint Architect") return { finalOutput: storyBlueprint };
+      if (name === "V2 Act Outline Architect") return { finalOutput: actOutline };
+      if (name === "V2 Slide Block Author") {
+        const plan = parseBlockPlan(prompt);
+        return { finalOutput: makeSlideBlockForTest(plan, "clue", "REGEN") };
+      }
+      if (name === "V2 Narrative Intensifier") return { finalOutput: makeNarrativeIntensifierPass(deck) };
+      if (name === "V2 Deck Cohesion Pass") {
+        return {
+          finalOutput: {
+            schema_version: "1.0.0",
+            global_continuity_findings: ["Continuity pass completed."],
+            act_obligation_gaps: [],
+            must_fix_operations: [],
+            narrative_risk_flags: []
+          }
+        };
+      }
+      if (name === "V2 Reader Simulator") {
+        readerSimCalls += 1;
+        if (readerSimCalls === 1) throw new Error("Request was aborted.");
+        return { finalOutput: generateReaderSimReport(deck, truth, clueGraph) };
+      }
+      if (name === "V2 Medical Fact Checker") return { finalOutput: generateMedFactcheckReport(deck, dossier) };
+      if (name === "V2 Plot Director DeckSpec") return { finalOutput: deck };
+      return { finalOutput: { kb_context: "## Medical / Clinical KB\n- fallback" } };
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("ReaderSim retry", {
+      workflow: "v2_micro_detectives",
+      generationProfile: "quality",
+      adherenceMode: "strict",
+      audienceLevel: "PHYSICIAN_LEVEL",
+      deckLengthConstraintEnabled: false
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_2_TRUTH_LOCK",
+      status: "approve",
+      notes: "",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await runMicroDetectivesPipeline(
+      { runId: run.runId, topic: run.topic, settings: run.settings },
+      runs,
+      { signal: new AbortController().signal, startFrom: "C" }
+    ).catch(() => undefined);
+
+    expect(readerSimCalls).toBeGreaterThanOrEqual(2);
+    const durations = JSON.parse(
+      await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "agent_call_durations_C.json"), "utf8")
+    ) as { calls: Array<{ agentKey: string; status: string }> };
+    const rows = durations.calls.filter((row) => row.agentKey === "readerSim");
+    expect(rows.slice(0, 2).map((row) => row.status)).toEqual(["error", "ok"]);
   });
 
   it("backfills empty MicroWorld citation buckets before persisting the authored artifact", async () => {
