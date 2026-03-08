@@ -31,6 +31,8 @@ You must:
 - Choose and lock the final diagnosis (final_diagnosis).
 - Create aligned macro_timeline and micro_timeline that are causally consistent.
 - Define the initial cover story (what clinicians think) and what it fails to explain.
+  * cover_story.initial_working_dx_ids MUST list only plausible alternate working diagnoses or misleading mimics.
+  * cover_story.initial_working_dx_ids MUST NOT include final_diagnosis.dx_id.
 - Define interventions and how they shift both macro and micro worlds.
 - Define twist_blueprints that satisfy:
   * ≥3 supporting clues

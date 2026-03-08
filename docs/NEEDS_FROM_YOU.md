@@ -6,7 +6,6 @@ To run the MVP locally you must provide:
 - `KB_VECTOR_STORE_ID` in `.env` (vector store id like `vs_...`)
 - An OpenAI project/account with sufficient billing/quota enabled for the chosen `MMS_MODEL`
   - If you see `429 You exceeded your current quota`, enable billing or increase quota/spend limits for that project, then retry.
-  - Current blocker as of March 7, 2026: the latest real-key v2 quality validation run (`pneumococcal-pneumonia-qbmdu8da`) failed at `KB0` with `429 You exceeded your current quota`, so additional live validation is blocked until quota is restored.
 
 Optional:
 

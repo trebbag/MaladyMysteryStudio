@@ -385,6 +385,93 @@ describe("v2 real pipeline", () => {
     expect(status?.steps.C.status).toBe("queued");
   });
 
+  it("repairs truth-model cover story when the final diagnosis leaks into initial_working_dx_ids", async () => {
+    (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {
+      const topic = parseTopic(prompt);
+      const deckLengthMain = parseDeckLength(prompt);
+      const deckLengthConstraintEnabled = parseDeckLengthConstraintEnabled(prompt);
+      const audienceLevel = parseAudience(prompt);
+      const base = {
+        topic,
+        audienceLevel,
+        deckLengthMain,
+        deckLengthConstraintEnabled,
+        kbContext: "## Medical / Clinical KB\n- deterministic test context"
+      } as const;
+      const dossier = generateDiseaseDossier(base);
+      const pitch = generateEpisodePitch(base, dossier);
+      const truth = generateTruthModel(base, dossier, pitch);
+
+      const name = agent?.name ?? "";
+      if (name === "KB Compiler") {
+        return {
+          finalOutput: {
+            kb_context: "## Medical / Clinical KB\n- deterministic test context\n\n## Characters & Story Constraints\n- keep continuity\n\n## Visual Style / Shot Constraints\n- cinematic"
+          }
+        };
+      }
+      if (name === "V2 Disease Research Desk") return { finalOutput: dossier };
+      if (name === "V2 Episode Pitch Builder") return { finalOutput: pitch };
+      if (name === "V2 Truth Model Engineer") {
+        return {
+          finalOutput: {
+            ...truth,
+            cover_story: {
+              ...truth.cover_story,
+              initial_working_dx_ids: [truth.final_diagnosis.dx_id, ...truth.cover_story.initial_working_dx_ids]
+            }
+          }
+        };
+      }
+      return { finalOutput: {} };
+    });
+
+    const runs = new RunManager();
+    const run = await runs.createRun("Pneumococcal pneumonia", {
+      workflow: "v2_micro_detectives",
+      deckLengthMain: 30,
+      deckLengthConstraintEnabled: true,
+      audienceLevel: "COLLEGE_LEVEL",
+      adherenceMode: "strict"
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "KB0" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    await appendHumanReview(run.runId, {
+      schema_version: "1.0.0",
+      gate_id: "GATE_1_PITCH",
+      status: "approve",
+      notes: "ok",
+      requested_changes: [],
+      submitted_at: new Date().toISOString()
+    });
+
+    await expect(
+      runMicroDetectivesPipeline(
+        { runId: run.runId, topic: run.topic, settings: run.settings },
+        runs,
+        { signal: new AbortController().signal, startFrom: "B" }
+      )
+    ).rejects.toBeInstanceOf(PipelinePause);
+
+    const truthModel = JSON.parse(await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "truth_model.json"), "utf8"));
+    const truthValidation = JSON.parse(
+      await fs.readFile(path.join(runIntermediateDirAbs(run.runId), "truth_lock_validation.json"), "utf8")
+    );
+    const finalDxId = String(truthModel.final_diagnosis.dx_id).toUpperCase();
+    const coverStoryDxIds = truthModel.cover_story.initial_working_dx_ids.map((dxId: string) => String(dxId).toUpperCase());
+
+    expect(coverStoryDxIds).not.toContain(finalDxId);
+    expect(coverStoryDxIds.length).toBeGreaterThanOrEqual(2);
+    expect(truthValidation.pass).toBe(true);
+  });
+
   it("retries disease research once with a compact prompt after a transport abort in quality mode", async () => {
     let diseaseResearchCalls = 0;
     (agentsMock as unknown as MockAgentsModule).__setMockRunnerHandler((agent, prompt) => {

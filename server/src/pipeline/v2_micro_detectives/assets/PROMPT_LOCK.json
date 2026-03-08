@@ -1,13 +1,13 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-03-07T03:11:19.540Z",
+  "generated_at": "2026-03-08T00:52:20.741Z",
   "generated_by": "scripts/build_v2_asset_lock.mjs",
   "using_source_overlay": true,
   "assets": {
     "prompts": {
       "00_global_system_prompt.md": "eb701679e5b5dbab0f3eaabffddf31350e83c55660b2fd5e05531108d90c404a",
       "agent_act_outline.md": "ae04b46b237afe0eb9ee42d31be8bceb7ecbda3890206d4c44575c9c6d833b6f",
-      "agent_case_engineer_truth_model.md": "9adb51c2200b8f8e3010d19a9b4ddbaffc4b785d812ed18d7c08e41a64641939",
+      "agent_case_engineer_truth_model.md": "8992e2297240e0b55878f714e35dda76b97ae65ce6a4e61c570565ef8cf77aad",
       "agent_clue_architect.md": "1324bc8b40b049a1954062cb0693e68beef0b343d69f9b13e7c8012b532d5209",
       "agent_differential_cast_director.md": "9c03e82a99da5d269d59d295ddeebe357ce6dceb5342f9f65fd71be6d4bd6954",
       "agent_disease_research_desk.md": "e81f76b8893ef809ce91e2bdcd71edea45b64055b3fb12be06c32aa256d19728",

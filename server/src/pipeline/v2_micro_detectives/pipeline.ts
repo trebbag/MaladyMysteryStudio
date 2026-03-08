@@ -2024,6 +2024,54 @@ function validateTruthLockCitations(dossier: DiseaseDossier, truth: TruthModel):
   };
 }
 
+function normalizeTruthModelForTruthLock(truth: TruthModel): { truthModel: TruthModel; repairs: string[] } {
+  const repairs: string[] = [];
+  const finalDxId = String(truth.final_diagnosis.dx_id || "")
+    .trim()
+    .toUpperCase();
+  const seen = new Set<string>();
+  const filteredWorkingDxIds = truth.cover_story.initial_working_dx_ids
+    .map((dxId) => String(dxId || "").trim())
+    .filter((dxId) => dxId.length > 0)
+    .filter((dxId) => {
+      const normalized = dxId.toUpperCase();
+      if (normalized === finalDxId) {
+        repairs.push(`removed_final_dx_from_cover_story:${dxId}`);
+        return false;
+      }
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+
+  const baseAltToken = finalDxId.length > 0 ? finalDxId.replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "") : "DX-ALT";
+  let altIndex = 0;
+  while (filteredWorkingDxIds.length < 2) {
+    const candidate = `${baseAltToken}-ALT-${String.fromCharCode(65 + altIndex)}`;
+    altIndex += 1;
+    const normalized = candidate.toUpperCase();
+    if (normalized === finalDxId || seen.has(normalized)) continue;
+    filteredWorkingDxIds.push(candidate);
+    seen.add(normalized);
+    repairs.push(`inserted_cover_story_mimic:${candidate}`);
+  }
+
+  if (repairs.length === 0) {
+    return { truthModel: truth, repairs };
+  }
+
+  return {
+    truthModel: TruthModelSchema.parse({
+      ...truth,
+      cover_story: {
+        ...truth.cover_story,
+        initial_working_dx_ids: filteredWorkingDxIds
+      }
+    }),
+    repairs
+  };
+}
+
 function medIssueToFixType(type: MedFactcheckReport["issues"][number]["type"]): MedFactcheckReport["required_fixes"][number]["type"] {
   if (type === "contradiction_with_dossier") return "edit_differential";
   if (type === "unsupported_inference" || type === "wrong_test_interpretation") return "edit_slide";
@@ -3279,7 +3327,7 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
     const gate1Review = latestGateDecision(await readHumanReviewStore(runId), "GATE_1_PITCH");
     const gate1Feedback = gateFeedbackForPrompt(gate1Review);
 
-    const truthModel = shouldRun("B")
+    let truthModel = shouldRun("B")
       ? TruthModelSchema.parse(
           await runStep("B", async () => {
             const truthPrompt =
@@ -3317,12 +3365,31 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
               runs.log(runId, `TruthModel agent fallback activated (${msg}).`, "B");
               truth = TruthModelSchema.parse(generateTruthModelFallback(fallbackBase, diseaseDossier, episodePitch));
             }
+            const normalizedTruth = normalizeTruthModelForTruthLock(truth);
+            if (normalizedTruth.repairs.length > 0) {
+              runs.log(
+                runId,
+                `TruthModel normalized before truth-lock validation (${normalizedTruth.repairs.join(", ")}).`,
+                "B"
+              );
+            }
+            truth = normalizedTruth.truthModel;
             await writeIntermediateJson("B", "truth_model.json", truth);
             return truth;
           })
         )
       : TruthModelSchema.parse(await readJsonArtifact(runId, "truth_model.json"));
     if (!shouldRun("B")) runs.log(runId, "Reusing B artifacts", "B");
+    const normalizedTruth = normalizeTruthModelForTruthLock(truthModel);
+    truthModel = normalizedTruth.truthModel;
+    if (normalizedTruth.repairs.length > 0) {
+      runs.log(
+        runId,
+        `Normalized reused truth_model.json before truth-lock validation (${normalizedTruth.repairs.join(", ")}).`,
+        "B"
+      );
+      await writeIntermediateJson("B", "truth_model.json", truthModel);
+    }
 
     const truthLockValidation = validateTruthLockCitations(diseaseDossier, truthModel);
     await writeIntermediateJson("B", "truth_lock_validation.json", {
