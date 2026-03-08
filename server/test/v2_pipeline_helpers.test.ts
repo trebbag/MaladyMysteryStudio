@@ -4,6 +4,7 @@ import { generateV2DeckSpec } from "../src/pipeline/v2_micro_detectives/generato
 import { generateDiseaseDossier, generateEpisodePitch, generateMedFactcheckReport, generateTruthModel } from "../src/pipeline/v2_micro_detectives/phase2_generator.js";
 import { generateClueGraph, generateDifferentialCast, generateReaderSimReport } from "../src/pipeline/v2_micro_detectives/phase3_generator.js";
 import { generateDramaPlan, generateMicroWorldMap, generateSetpiecePlan } from "../src/pipeline/v2_micro_detectives/phase4_generator.js";
+import { normalizeDossierCitationIds } from "../src/pipeline/v2_micro_detectives/quality_polish.js";
 import {
   __testOnlyApplyDiseaseResearchGroundingChecks,
   __testOnlyBuildDiseaseResearchSourceReport,
@@ -11,7 +12,9 @@ import {
   __testOnlyInferOutlineActForPlan,
   __testOnlyPreferredBlockSize,
   __testOnlyResolveQaLoopBudget,
-  __testOnlyResolveStructuralBlockIndexes
+  __testOnlyResolveStructuralBlockIndexes,
+  __testOnlyStabilizeQualityDeckArtifacts,
+  __testOnlyStripInternalQualityResidue
 } from "../src/pipeline/v2_micro_detectives/pipeline.js";
 import { buildQaBlockHeatmap } from "../src/pipeline/v2_micro_detectives/phase3_quality.js";
 
@@ -216,6 +219,61 @@ describe("v2 pipeline helpers", () => {
     expect(report.sections[0]?.curated_citations).toBe(1);
     expect(report.sections[0]?.web_citations).toBe(0);
     expect(report.sections[0]?.dominant_source).toBe("curated");
+  });
+
+  it("strips internal QA residue and non-dossier citations from quality decks", () => {
+    const fixture = buildFixture("Residue cleanup");
+    fixture.dossier = normalizeDossierCitationIds(fixture.dossier, "Residue cleanup");
+    fixture.dossier.citations = [
+      {
+        citation_id: "CIT-REAL-01",
+        claim: "Authoritative dossier grounding for residue cleanup.",
+        locator: "turn0file99"
+      }
+    ];
+    const slide = fixture.deck.slides[0]!;
+    slide.hook = `${slide.hook} [Patched clue framing]`;
+    slide.speaker_notes.medical_reasoning =
+      `${slide.speaker_notes.medical_reasoning} Correction note: Replace CIT-KB-001 placeholder citations before finalization.`;
+    slide.speaker_notes.citations = [
+      {
+        citation_id: "CIT-KB-001",
+        claim: "[SCAFFOLD] Placeholder grounding",
+        locator: "kb_context.md"
+      },
+      fixture.dossier.sections[0]!.citations[0]!
+    ];
+    slide.medical_payload.dossier_citations = [
+      {
+        citation_id: "CIT-SPUTUM-01",
+        claim: "Invented citation",
+        locator: "fake"
+      }
+    ];
+
+    const cleaned = __testOnlyStabilizeQualityDeckArtifacts({
+      deck: fixture.deck,
+      topic: "Residue cleanup",
+      episodeTitle: "Residue cleanup episode",
+      generationProfile: "quality",
+      dossier: fixture.dossier
+    });
+    const cleanedSlide = cleaned.slides[0]!;
+
+    expect(cleanedSlide.hook).not.toMatch(/Patched clue framing/i);
+    expect(cleanedSlide.speaker_notes.medical_reasoning).not.toMatch(/Correction note:/i);
+    expect(cleanedSlide.speaker_notes.medical_reasoning).not.toMatch(/CIT-KB-001/i);
+    expect(cleanedSlide.medical_payload.dossier_citations.every((citation) => citation.citation_id !== "CIT-KB-001")).toBe(true);
+    expect(cleanedSlide.medical_payload.dossier_citations.every((citation) => citation.citation_id !== "CIT-SPUTUM-01")).toBe(true);
+    expect(cleanedSlide.speaker_notes.citations.every((citation) => citation.citation_id !== "CIT-KB-001")).toBe(true);
+  });
+
+  it("strips correction-note tails from deck text without destroying authored lead text", () => {
+    expect(
+      __testOnlyStripInternalQualityResidue(
+        "Anchored reasoning. Correction note: remove placeholder citations and scaffold text."
+      )
+    ).toBe("Anchored reasoning.");
   });
 
   it("promotes web-dominant research sections into med-factcheck issues for QA", () => {

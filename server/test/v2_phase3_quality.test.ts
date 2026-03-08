@@ -342,7 +342,7 @@ describe("v2 phase-3 quality helpers", () => {
 
     expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (add_twist_receipts)"))).toBe(true);
     expect(patched.patchNotes.some((note) => note.includes("deferred for structural regeneration (other)"))).toBe(false);
-    expect(patched.deck.slides[0]!.speaker_notes.medical_reasoning).toContain("Correction note");
+    expect(patched.deck.slides[0]!.speaker_notes.medical_reasoning).not.toContain("Correction note");
     expect(patched.deck.slides[0]!.medical_payload.major_concept_id).toBe("MC-PATCH-S01");
     if (patched.clueGraph.twist_support_matrix[0]) {
       expect(patched.clueGraph.twist_support_matrix[0]!.supporting_clue_ids.length).toBe(1);

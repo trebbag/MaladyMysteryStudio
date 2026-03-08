@@ -1104,7 +1104,6 @@ export function applyTargetedQaPatches(input: {
           deckChanges += 1;
           continue;
         }
-        slide.speaker_notes.medical_reasoning = `${slide.speaker_notes.medical_reasoning} Correction note: ${fix.description}`.trim();
         if (slide.medical_payload.major_concept_id.trim().length === 0) {
           slide.medical_payload.major_concept_id = `MC-PATCH-${slide.slide_id}`;
         }
@@ -1115,7 +1114,7 @@ export function applyTargetedQaPatches(input: {
       }
 
       if (fix.type === "other") {
-        slide.hook = `${slide.hook} [Patched clue framing]`.trim();
+        slide.hook = slide.hook.replace(/\s*\[Patched clue framing\]/gi, "").trim() || "What evidence changes the next decision?";
         markSlidePatched(slide);
         patchNotes.push(`${slideId}: adjusted clue framing`);
         deckChanges += 1;

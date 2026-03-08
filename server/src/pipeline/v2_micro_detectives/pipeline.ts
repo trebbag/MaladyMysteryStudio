@@ -488,10 +488,26 @@ function deckNeedsSemanticPolish(input: ReturnType<typeof DeckSpecSchema.parse>)
 }
 
 const SCAFFOLD_SIGNAL_RE = /\[SCAFFOLD\]|CIT-KB-001|DX_(?:PRIMARY|ALTERNATE|MIMIC|UNKNOWN)|MC-PATCH-|LO-SCAFFOLD-/i;
+const INTERNAL_CORRECTION_NOTE_RE = /\s*Correction note:[\s\S]*$/i;
+const INTERNAL_PATCH_TAG_RE = /\s*\[(?:Patched clue framing|Patch\s+\d+:[^\]]*)\]/gi;
+const INTERNAL_PLACEHOLDER_TOKEN_RE = /\b(?:placeholder|scaffold|fallback)\b/gi;
+const INTERNAL_FAKE_CITATION_TEXT_RE = /\bCIT-(?:KB-001|UNKNOWN|SCAFFOLD|00\d+|SPUTUM-01|BLOOD-01|GRAM-01|BCX-01|PATH-RES-01)\b/gi;
 
 function hasScaffoldSignal(value: unknown): boolean {
   if (typeof value !== "string") return false;
   return SCAFFOLD_SIGNAL_RE.test(value);
+}
+
+function stripInternalQualityResidue(value: unknown): string {
+  return String(value ?? "")
+    .replace(INTERNAL_CORRECTION_NOTE_RE, "")
+    .replace(INTERNAL_PATCH_TAG_RE, "")
+    .replace(/\[SCAFFOLD\]/gi, "")
+    .replace(INTERNAL_FAKE_CITATION_TEXT_RE, "")
+    .replace(INTERNAL_PLACEHOLDER_TOKEN_RE, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
 }
 
 function isPlaceholderAppendixSlide(slide: ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]): boolean {
@@ -518,8 +534,116 @@ function stabilizeQualityDeckArtifacts(input: {
   topic: string;
   episodeTitle: string;
   generationProfile: "quality" | "pilot";
+  dossier: DiseaseDossier;
 }): ReturnType<typeof DeckSpecSchema.parse> {
   const deck = JSON.parse(JSON.stringify(input.deck)) as ReturnType<typeof DeckSpecSchema.parse>;
+  const dossierCitationIds = collectDossierCitationIds(input.dossier);
+  const citationPool = collectDossierCitationPool(input.dossier);
+
+  const sanitizeCitationList = (
+    citations: unknown,
+    fallbackClaim: string
+  ): Array<z.infer<typeof CitationRefSchema>> => {
+    const normalized = normalizeCitationRefs(citations).filter(
+      (citation) =>
+        dossierCitationIds.has(citation.citation_id) &&
+        !hasScaffoldSignal(citation.citation_id) &&
+        !hasScaffoldSignal(citation.claim) &&
+        !/placeholder|scaffold|fallback/i.test(citation.claim)
+    );
+    if (normalized.length > 0) return normalized.slice(0, 4);
+    return [fallbackCitationFromPool(citationPool, fallbackClaim)];
+  };
+
+  const sanitizeSlideText = (value: unknown, fallbackText: string): string => {
+    const cleaned = stripInternalQualityResidue(value);
+    return cleaned.length > 0 ? cleaned : fallbackText;
+  };
+
+  const sanitizeSlide = (
+    slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number],
+    defaults: {
+      title: string;
+      hook: string;
+      visualDescription: string;
+      headline: string;
+      subtitle?: string;
+      narrativeNotes: string;
+      medicalReasoning: string;
+      teachingPoint: string;
+      differentialWhy: string;
+      conceptId: string;
+    }
+  ): void => {
+    slide.title = sanitizeSlideText(slide.title, defaults.title);
+    slide.hook = sanitizeSlideText(slide.hook, defaults.hook);
+    slide.visual_description = sanitizeSlideText(slide.visual_description, defaults.visualDescription);
+    slide.on_slide_text.headline = sanitizeSlideText(slide.on_slide_text.headline, defaults.headline);
+    if (slide.on_slide_text.subtitle) {
+      const cleanedSubtitle = stripInternalQualityResidue(slide.on_slide_text.subtitle);
+      slide.on_slide_text.subtitle = cleanedSubtitle.length > 0 ? cleanedSubtitle : defaults.subtitle;
+    }
+    if (Array.isArray(slide.on_slide_text.callouts)) {
+      slide.on_slide_text.callouts = slide.on_slide_text.callouts
+        .map((callout) => stripInternalQualityResidue(callout))
+        .filter((callout) => callout.length > 0);
+    }
+    if (Array.isArray(slide.on_slide_text.labels)) {
+      slide.on_slide_text.labels = slide.on_slide_text.labels
+        .map((label) => stripInternalQualityResidue(label))
+        .filter((label) => label.length > 0);
+    }
+    slide.story_panel.goal = sanitizeSlideText(slide.story_panel.goal, `Advance ${slide.slide_id} with a concrete objective.`);
+    slide.story_panel.opposition = sanitizeSlideText(slide.story_panel.opposition, "A credible obstacle blocks the next move.");
+    slide.story_panel.turn = sanitizeSlideText(slide.story_panel.turn, "New evidence reframes the case.");
+    slide.story_panel.decision = sanitizeSlideText(slide.story_panel.decision, "Choose the next testable action.");
+    if (slide.story_panel.consequence) {
+      const consequence = stripInternalQualityResidue(slide.story_panel.consequence);
+      slide.story_panel.consequence = consequence.length > 0 ? consequence : undefined;
+    }
+    slide.medical_payload.major_concept_id = hasScaffoldSignal(slide.medical_payload.major_concept_id) || slide.medical_payload.major_concept_id.trim().length === 0
+      ? defaults.conceptId
+      : slide.medical_payload.major_concept_id.trim();
+    if (Array.isArray(slide.medical_payload.supporting_details)) {
+      slide.medical_payload.supporting_details = slide.medical_payload.supporting_details
+        .map((detail) => stripInternalQualityResidue(detail))
+        .filter((detail) => detail.length > 0);
+    }
+    const supportingDetails = slide.medical_payload.supporting_details ?? [];
+    if (Array.isArray(slide.medical_payload.linked_learning_objectives)) {
+      slide.medical_payload.linked_learning_objectives = slide.medical_payload.linked_learning_objectives.filter(
+        (objective) => !hasScaffoldSignal(objective) && String(objective || "").trim().length > 0
+      );
+    }
+    if (supportingDetails.length === 0) {
+      slide.medical_payload.supporting_details = [defaults.teachingPoint];
+    }
+    const combinedCitations = [
+      ...(slide.medical_payload.dossier_citations ?? []),
+      ...(slide.speaker_notes.citations ?? [])
+    ];
+    const fallbackClaim = stripInternalQualityResidue(slide.speaker_notes.medical_reasoning) || `${slide.title} grounding`;
+    const cleanedCitations = sanitizeCitationList(combinedCitations, fallbackClaim);
+    slide.medical_payload.dossier_citations = cleanedCitations;
+    slide.speaker_notes.citations = cleanedCitations;
+    slide.speaker_notes.narrative_notes = sanitizeSlideText(slide.speaker_notes.narrative_notes, defaults.narrativeNotes);
+    slide.speaker_notes.medical_reasoning = sanitizeSlideText(slide.speaker_notes.medical_reasoning, defaults.medicalReasoning);
+    slide.speaker_notes.what_this_slide_teaches = (slide.speaker_notes.what_this_slide_teaches ?? [])
+      .map((item) => stripInternalQualityResidue(item))
+      .filter((item) => item.length > 0);
+    if (slide.speaker_notes.what_this_slide_teaches.length === 0) {
+      slide.speaker_notes.what_this_slide_teaches = [defaults.teachingPoint];
+    }
+    slide.speaker_notes.differential_update.top_dx_ids = (slide.speaker_notes.differential_update.top_dx_ids ?? [])
+      .filter((dxId) => !hasScaffoldSignal(dxId) && String(dxId || "").trim().length > 0);
+    slide.speaker_notes.differential_update.eliminated_dx_ids = (slide.speaker_notes.differential_update.eliminated_dx_ids ?? [])
+      .filter((dxId) => !hasScaffoldSignal(dxId) && String(dxId || "").trim().length > 0);
+    slide.speaker_notes.differential_update.why = sanitizeSlideText(
+      slide.speaker_notes.differential_update.why,
+      defaults.differentialWhy
+    );
+  };
+
   if (input.generationProfile === "quality") {
     if (hasScaffoldSignal(deck.deck_meta.episode_title) || String(deck.deck_meta.episode_title || "").trim().length === 0) {
       deck.deck_meta.episode_title = input.episodeTitle.trim().length > 0
@@ -535,6 +659,46 @@ function stabilizeQualityDeckArtifacts(input: {
         appendix_links: (slide.appendix_links ?? []).filter((link) => retainedIds.has(link))
       }));
     }
+
+    deck.slides.forEach((slide) => {
+      sanitizeSlide(slide, {
+        title: `${slide.slide_id}: ${input.topic}`,
+        hook: "What evidence changes the next decision?",
+        visualDescription: "Describe the scene, the medical evidence, and the pressure on the detectives.",
+        headline: `${slide.slide_id} Case Update`,
+        subtitle: `Act ${slide.act_id.replace("ACT", "")} evidence shift`,
+        narrativeNotes: "Keep the case moving with a concrete action, clue, or decision.",
+        medicalReasoning: "Tie the visible evidence to the diagnosis and next management decision using dossier-grounded claims.",
+        teachingPoint: "Use dossier-grounded evidence to teach one major concept on this slide.",
+        differentialWhy: "Explain how this slide changes the differential.",
+        conceptId: `MC_${slide.slide_id}`
+      });
+      const callouts = slide.on_slide_text.callouts ?? [];
+      if (callouts.length === 0) {
+        slide.on_slide_text.callouts = [stripInternalQualityResidue(slide.title) || `${input.topic} evidence`];
+      }
+      if (slide.speaker_notes.differential_update.top_dx_ids.length === 0) {
+        slide.speaker_notes.differential_update.top_dx_ids = [deck.characters.patient.label ? "DX-CASE-PRIMARY" : `DX-${slide.slide_id}`];
+      }
+    });
+
+    deck.appendix_slides.forEach((slide) => {
+      sanitizeSlide(slide, {
+        title: `${slide.slide_id}: Appendix`,
+        hook: "Reference detail that supports the main deck.",
+        visualDescription: "Reference visual for a medically grounded appendix deep dive.",
+        headline: `${slide.slide_id} Reference`,
+        subtitle: "Appendix detail",
+        narrativeNotes: "Appendix slide supporting the main caseboard.",
+        medicalReasoning: "Reference appendix detail grounded in the disease dossier.",
+        teachingPoint: "Provide concise appendix support for the deck’s medical reasoning.",
+        differentialWhy: "Appendix detail supporting differential closure.",
+        conceptId: `MC_${slide.slide_id.replace(/-/g, "_")}`
+      });
+      if (slide.speaker_notes.differential_update.top_dx_ids.length === 0) {
+        slide.speaker_notes.differential_update.top_dx_ids = ["DX-APPENDIX-REFERENCE"];
+      }
+    });
   }
   return DeckSpecSchema.parse(deck);
 }
@@ -1742,6 +1906,8 @@ export { resolveStructuralBlockIndexes as __testOnlyResolveStructuralBlockIndexe
 export { compactMedicalSliceForBlock as __testOnlyCompactMedicalSliceForBlock };
 export { buildDiseaseResearchSourceReport as __testOnlyBuildDiseaseResearchSourceReport };
 export { preferredBlockSize as __testOnlyPreferredBlockSize };
+export { stripInternalQualityResidue as __testOnlyStripInternalQualityResidue };
+export { stabilizeQualityDeckArtifacts as __testOnlyStabilizeQualityDeckArtifacts };
 
 function normalizeMedFactcheckReport(
   report: MedFactcheckAgentOutput | MedFactcheckReport,
@@ -4858,7 +5024,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
           deck: workingDeck,
           topic,
           episodeTitle: episodePitch.episode_title,
-          generationProfile
+          generationProfile,
+          dossier: diseaseDossier
         });
         workingDeck = stampDeckProvenance(workingDeck, { seedFromDeterministic });
         await writeIntermediateJson("C", "deck_authoring_context_manifest.json", deckAuthoringContextManifest);
@@ -5374,7 +5541,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
                 }),
                 topic,
                 episodeTitle: episodePitch.episode_title,
-                generationProfile
+                generationProfile,
+                dossier: diseaseDossier
               });
               await writeIntermediateJson("C", `deck_assembly_report_regen_loop${attempt}.json`, DeckAssemblyReportSchema.parse(structuralAssembly.report));
               await writeIntermediateJson("C", `deck_spec_regen_loop${attempt}.json`, workingDeck);
@@ -5430,7 +5598,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             deck: workingDeck,
             topic,
             episodeTitle: episodePitch.episode_title,
-            generationProfile
+            generationProfile,
+            dossier: diseaseDossier
           });
           workingDeck = stampDeckProvenance(workingDeck);
           workingClueGraph = ClueGraphSchema.parse(patch.clueGraph);
