@@ -170,7 +170,8 @@ describe("v2 pipeline helpers", () => {
           block_id: block.block_id,
           act_id: block.act_id,
           severity_score: block.severity_score,
-          repeated_template_density: block.repeated_template_density
+          repeated_template_density: block.repeated_template_density,
+          generic_language_rate: block.generic_language_rate
         }))
       }
     );
@@ -266,6 +267,61 @@ describe("v2 pipeline helpers", () => {
     expect(cleanedSlide.medical_payload.dossier_citations.every((citation) => citation.citation_id !== "CIT-KB-001")).toBe(true);
     expect(cleanedSlide.medical_payload.dossier_citations.every((citation) => citation.citation_id !== "CIT-SPUTUM-01")).toBe(true);
     expect(cleanedSlide.speaker_notes.citations.every((citation) => citation.citation_id !== "CIT-KB-001")).toBe(true);
+  });
+
+  it("retargets citations, softens unsupported language, and enforces visible word limits during quality stabilization", () => {
+    const fixture = buildFixture("Traceability cleanup");
+    fixture.dossier.citations.push({
+      citation_id: "CIT-DX-04",
+      claim: "Pneumococcal antigen detection can supplement CAP microbiology workup when appropriate.",
+      locator: "Microbiology workup"
+    });
+    fixture.dossier.citations.push({
+      citation_id: "CIT-TX-01",
+      claim: "Use oxygen targets with COPD caveats and monitoring.",
+      locator: "Oxygen support"
+    });
+    fixture.dossier.citations.push({
+      citation_id: "CIT-PLEURA-01",
+      claim: "Imaging reassesses pleural complications when the patient is not improving.",
+      locator: "Pleural complications"
+    });
+    const slide = fixture.deck.slides[0]!;
+    slide.on_slide_text.headline = "Alarm-Lit O2 microscope field with many extra words now";
+    slide.on_slide_text.subtitle = "Cultures/antigen now. No exceptions.";
+    slide.on_slide_text.callouts = [
+      "Target oxygenation now with a very long explanatory clause",
+      "Antigen adds corroboration lane",
+      "No significant effusion"
+    ];
+    slide.on_slide_text.labels = ["18 hours", "Small uncomplicated effusion", "extra_label"];
+    slide.visual_description = "A timer reads 18 hours while a clean pleural space is declared clear.";
+    slide.speaker_notes.medical_reasoning =
+      "SaO2 <93% or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory.";
+    slide.medical_payload.dossier_citations = [{ citation_id: "CIT-WRONG-01", claim: "Wrong citation", locator: "bad" }];
+    slide.speaker_notes.citations = [{ citation_id: "CIT-WRONG-01", claim: "Wrong citation", locator: "bad" }];
+
+    const cleaned = __testOnlyStabilizeQualityDeckArtifacts({
+      deck: fixture.deck,
+      topic: "Traceability cleanup",
+      episodeTitle: "Traceability cleanup episode",
+      generationProfile: "quality",
+      dossier: fixture.dossier
+    });
+    const cleanedSlide = cleaned.slides[0]!;
+    const visibleWords = [cleanedSlide.on_slide_text.headline, cleanedSlide.on_slide_text.subtitle ?? "", ...(cleanedSlide.on_slide_text.callouts ?? []), ...(cleanedSlide.on_slide_text.labels ?? [])]
+      .join(" ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+
+    expect(cleanedSlide.speaker_notes.medical_reasoning).not.toMatch(/ABG|<93%/i);
+    expect(cleanedSlide.on_slide_text.subtitle).toMatch(/Antigen only/i);
+    expect(cleanedSlide.visual_description).not.toMatch(/18 hours|pleural space is clear/i);
+    expect(cleanedSlide.medical_payload.dossier_citations.map((citation) => citation.citation_id)).toEqual(
+      expect.arrayContaining(["CIT-DX-04", "CIT-TX-01", "CIT-PLEURA-01"])
+    );
+    expect(visibleWords).toBeLessThanOrEqual(cleaned.deck_meta.max_words_on_slide);
   });
 
   it("strips correction-note tails from deck text without destroying authored lead text", () => {

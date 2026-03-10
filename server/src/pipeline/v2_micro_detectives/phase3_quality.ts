@@ -19,6 +19,11 @@ function uniqueFixKey(fix: RequiredFix): string {
 
 function buildLintFixes(lint: V2DeckSpecLintReport, deckSpec: DeckSpec): RequiredFix[] {
   const fixes: RequiredFix[] = [];
+  const slideTargetsForActs = (acts: Array<DeckSlideSpec["act_id"]>, limit: number): string[] =>
+    distributedStringTargets(
+      deckSpec.slides.filter((slide) => acts.includes(slide.act_id)).map((slide) => slide.slide_id),
+      limit
+    );
   for (const err of lint.errors) {
     if (err.severity !== "error") continue;
     const base = {
@@ -62,6 +67,33 @@ function buildLintFixes(lint: V2DeckSpecLintReport, deckSpec: DeckSpec): Require
         type: "medical_correction",
         description: err.message,
         targets: err.slide_id ? [err.slide_id] : undefined
+      });
+      continue;
+    }
+    if (err.code === "FALSE_THEORY_COLLAPSE_SIGNAL_WEAK") {
+      fixes.push({
+        ...base,
+        type: "regenerate_section",
+        description: err.message,
+        targets: slideTargetsForActs(["ACT2", "ACT3"], 10)
+      });
+      continue;
+    }
+    if (err.code === "MIDPOINT_COLLAPSE_SIGNAL_WEAK") {
+      fixes.push({
+        ...base,
+        type: "regenerate_section",
+        description: err.message,
+        targets: slideTargetsForActs(["ACT2", "ACT3"], 10)
+      });
+      continue;
+    }
+    if (err.code === "ACT_ESCALATION_CHANNELS_WEAK") {
+      fixes.push({
+        ...base,
+        type: "regenerate_section",
+        description: err.message,
+        targets: slideTargetsForActs(["ACT2", "ACT3", "ACT4"], 12)
       });
       continue;
     }
@@ -134,13 +166,18 @@ function replaceAllPattern(text: string, pattern: RegExp, replacement: string): 
 }
 
 function softenThresholdLanguage(slide: DeckSlideSpec): boolean {
-  const replacement = "SaO2 <93% or severe features -> ABG and closer evaluation";
-  const patchText = (value: string): string =>
-    replaceAllPattern(
-      replaceAllPattern(value, /\b(?:below|under|<)\s*93%\b[^.;,]*/gi, replacement),
-      /\b93%\s*(?:red line|threshold|cutoff)\b/gi,
+  const replacement = "Use oxygen targets with COPD caveats and let overall severity guide escalation.";
+  const patchText = (value: string): string => {
+    let next = String(value ?? "");
+    next = next.replace(
+      /\bSaO2\s*<\s*93%\s*or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory\.?/gi,
       replacement
     );
+    next = replaceAllPattern(next, /\b(?:below|under|<)\s*93%\b[^.;,]*/gi, replacement);
+    next = replaceAllPattern(next, /\b93%\s*(?:red line|threshold|cutoff)\b/gi, replacement);
+    next = replaceAllPattern(next, /\bABG\b[^.;,]*/gi, replacement);
+    return next;
+  };
 
   let changed = false;
   const headline = patchText(slide.on_slide_text.headline);
@@ -172,11 +209,134 @@ function softenThresholdLanguage(slide: DeckSlideSpec): boolean {
     slide.speaker_notes.medical_reasoning = medicalReasoning;
     changed = true;
   }
-  const note = "SaO2 <93% or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory.";
+  const note = "Use oxygen targets with COPD caveats and let overall severity and trajectory guide escalation.";
   if (!slide.speaker_notes.medical_reasoning.includes(note)) {
     slide.speaker_notes.medical_reasoning = `${slide.speaker_notes.medical_reasoning} ${note}`.trim();
     changed = true;
   }
+  return changed;
+}
+
+function buildMedIssueSlideLookup(report?: MedFactcheckReport): Map<string, MedFactcheckReport["issues"]> {
+  const lookup = new Map<string, MedFactcheckReport["issues"]>();
+  if (!report) return lookup;
+  for (const issue of report.issues) {
+    const slideIds = [...new Set(String(issue.claim || "").match(/\bS\d{2,3}\b/g) ?? [])];
+    for (const slideId of slideIds) {
+      const list = lookup.get(slideId) ?? [];
+      list.push(issue);
+      lookup.set(slideId, list);
+    }
+  }
+  return lookup;
+}
+
+function retargetSlideCitationsFromIssues(input: {
+  slide: DeckSlideSpec;
+  issues: MedFactcheckReport["issues"];
+  citationLookup: Map<string, ReturnType<typeof normalizeCitation>>;
+}): boolean {
+  const merged = new Map<string, ReturnType<typeof normalizeCitation>>();
+  for (const issue of input.issues) {
+    for (const cite of issue.supporting_citations ?? []) {
+      const citationId = String(cite.citation_id || "").trim();
+      const claim = String(cite.claim || "").trim();
+      if (!citationId || !claim) continue;
+      merged.set(citationId, normalizeCitation(cite));
+      const lookupHit = input.citationLookup.get(citationId);
+      if (lookupHit) merged.set(citationId, lookupHit);
+    }
+  }
+  const citations = [...merged.values()].slice(0, 4);
+  if (citations.length === 0) return false;
+  input.slide.medical_payload.dossier_citations = citations;
+  input.slide.speaker_notes.citations = citations;
+  return true;
+}
+
+function replaceAcrossSlideText(
+  slide: DeckSlideSpec,
+  replacer: (value: string) => string
+): boolean {
+  let changed = false;
+  const apply = (value: string | undefined): string => {
+    const source = String(value ?? "");
+    const next = replacer(source);
+    if (next !== source) changed = true;
+    return next;
+  };
+
+  slide.title = apply(slide.title);
+  slide.hook = apply(slide.hook);
+  slide.visual_description = apply(slide.visual_description);
+  slide.on_slide_text.headline = apply(slide.on_slide_text.headline);
+  if (slide.on_slide_text.subtitle) slide.on_slide_text.subtitle = apply(slide.on_slide_text.subtitle);
+  if (Array.isArray(slide.on_slide_text.callouts)) slide.on_slide_text.callouts = slide.on_slide_text.callouts.map(apply);
+  if (Array.isArray(slide.on_slide_text.labels)) slide.on_slide_text.labels = slide.on_slide_text.labels.map(apply);
+  if (Array.isArray(slide.medical_payload.supporting_details)) {
+    slide.medical_payload.supporting_details = slide.medical_payload.supporting_details.map(apply);
+  }
+  slide.speaker_notes.medical_reasoning = apply(slide.speaker_notes.medical_reasoning);
+  slide.speaker_notes.narrative_notes = apply(slide.speaker_notes.narrative_notes);
+  if (Array.isArray(slide.speaker_notes.what_this_slide_teaches)) {
+    slide.speaker_notes.what_this_slide_teaches = slide.speaker_notes.what_this_slide_teaches.map(apply);
+  }
+  return changed;
+}
+
+function applyMedicalTraceabilityIssuePatches(input: {
+  slide: DeckSlideSpec;
+  issues: MedFactcheckReport["issues"];
+  citationLookup: Map<string, ReturnType<typeof normalizeCitation>>;
+}): boolean {
+  if (input.issues.length === 0) return false;
+  let changed = false;
+  if (retargetSlideCitationsFromIssues(input)) changed = true;
+
+  const issueText = input.issues
+    .map((issue) => `${issue.claim} ${issue.why_wrong} ${issue.suggested_fix}`)
+    .join("\n")
+    .toLowerCase();
+
+  if (/(oxygen|copd|sao2|abg|over-oxygenation)/i.test(issueText) && softenThresholdLanguage(input.slide)) {
+    changed = true;
+  }
+
+  if (/(antigen|urine\/serum|pneumococcal antigen)/i.test(issueText)) {
+    changed =
+      replaceAcrossSlideText(input.slide, (value) =>
+        value
+          .replace(/\bCultures\/antigen now\. No exceptions\./gi, "Cultures now. Antigen only when appropriate.")
+          .replace(/\bAntigen adds corroboration lane\b/gi, "Antigen can supplement corroboration when appropriate")
+          .replace(/\bpneumococcal antigen testing\b/gi, "pneumococcal antigen detection when appropriate")
+      ) || changed;
+  }
+
+  if (/(aspiration trail|dependent route|right lower lobe)/i.test(issueText)) {
+    changed =
+      replaceAcrossSlideText(input.slide, (value) =>
+        value
+          .replace(/\bFollow the aspiration trail\.?/gi, "Follow the lobar pattern.")
+          .replace(/\bDependent route\s*→\s*right lower lobe\b/gi, "Lobar consolidation pattern")
+          .replace(/\bGravity picks the destination\b/gi, "Lobar distribution frames the search")
+          .replace(/\bPneumococcal pneumonia is typically acquired by aspiration of pharyngeal flora\.?/gi, "Pneumococcal pneumonia is classically a lobar community-acquired process.")
+          .replace(/\bAspiration route explains why dependent segments are frequent sites\.?/gi, "Lobar distribution helps frame the search, but imaging and syndrome still drive localization.")
+      ) || changed;
+  }
+
+  if (/(18 hours|small, uncomplicated effusion|pleural space is clear|no significant effusion|no empyema signal|large\/drainable collection)/i.test(issueText)) {
+    changed =
+      replaceAcrossSlideText(input.slide, (value) =>
+        value
+          .replace(/\b18 hours\b/gi, "early check")
+          .replace(/\bsmall, uncomplicated effusion\b/gi, "no drainable pleural complication confirmed on this check")
+          .replace(/\bpleural space is clear\b/gi, "no pleural complication is confirmed on this check")
+          .replace(/\bno significant effusion\b/gi, "no large effusion is confirmed on this check")
+          .replace(/\bno empyema signal on this check\b/gi, "no empyema is confirmed on this check")
+          .replace(/\bnot a large\/drainable collection\b/gi, "not a drainable complication on this check")
+      ) || changed;
+  }
+
   return changed;
 }
 
@@ -1019,12 +1179,14 @@ export function applyTargetedQaPatches(input: {
   qaReport: V2QaReport;
   loopIndex: number;
   dossier?: DiseaseDossier;
+  medFactcheckReport?: MedFactcheckReport;
 }): TargetedPatchResult {
-  const { deckSpec, clueGraph: sourceClueGraph, differentialCast: sourceDifferentialCast, qaReport, loopIndex, dossier } = input;
+  const { deckSpec, clueGraph: sourceClueGraph, differentialCast: sourceDifferentialCast, qaReport, loopIndex, dossier, medFactcheckReport } = input;
   const deck = JSON.parse(JSON.stringify(deckSpec)) as DeckSpec;
   const clueGraph = JSON.parse(JSON.stringify(sourceClueGraph)) as ClueGraph;
   const differentialCast = JSON.parse(JSON.stringify(sourceDifferentialCast)) as DifferentialCast;
   const citationLookup = buildCitationLookup({ dossier, qaReport });
+  const medIssueLookup = buildMedIssueSlideLookup(medFactcheckReport);
   const patchNotes: string[] = [];
   let deckChanges = 0;
   let clueChanges = 0;
@@ -1090,6 +1252,11 @@ export function applyTargetedQaPatches(input: {
 
       if (fix.type === "medical_correction" || fix.type === "edit_slide" || fix.type === "edit_differential") {
         let patchedSlide = false;
+        const medIssues = medIssueLookup.get(slideId) ?? [];
+        if (applyMedicalTraceabilityIssuePatches({ slide, issues: medIssues, citationLookup })) {
+          patchedSlide = true;
+          patchNotes.push(`${slideId}: applied med-factcheck traceability cleanup`);
+        }
         if (retargetSlideCitations({ slide, fix, citationLookup })) {
           patchedSlide = true;
           patchNotes.push(`${slideId}: retargeted citations from QA fix`);

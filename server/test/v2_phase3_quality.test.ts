@@ -349,6 +349,154 @@ describe("v2 phase-3 quality helpers", () => {
     }
   });
 
+  it("retargets dossier citations and softens unsupported medical claims from med-factcheck issues", () => {
+    const base = {
+      topic: "Pneumococcal pneumonia",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    dossier.citations.push({
+      citation_id: "CIT-DX-04",
+      claim: "Pneumococcal antigen detection can supplement CAP microbiology workup when appropriate.",
+      locator: "Microbiology workup"
+    });
+    dossier.citations.push({
+      citation_id: "CIT-TX-01",
+      claim: "Use oxygen targets with COPD caveats and monitoring.",
+      locator: "Oxygen support"
+    });
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const slide = deck.slides[0]!;
+    slide.on_slide_text.subtitle = "Cultures/antigen now. No exceptions.";
+    slide.speaker_notes.medical_reasoning =
+      "SaO2 <93% or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory.";
+    slide.medical_payload.dossier_citations = [{ citation_id: "CIT-WRONG-01", claim: "Wrong citation" }];
+    slide.speaker_notes.citations = [{ citation_id: "CIT-WRONG-01", claim: "Wrong citation" }];
+
+    const qa = {
+      schema_version: "1.0.0",
+      lint_pass: false,
+      lint_errors: [],
+      grader_scores: [],
+      accept: false,
+      required_fixes: [
+        {
+          fix_id: "FIX-MED-TRACE",
+          type: "medical_correction" as const,
+          priority: "must" as const,
+          description: "Replace unsupported oxygen/antigen claims with dossier-grounded wording.",
+          targets: [slide.slide_id]
+        }
+      ],
+      summary: "needs medical traceability cleanup",
+      citations_used: [{ citation_id: "CIT-DX-04", claim: "Antigen corroboration." }]
+    };
+
+    const medFactcheckReport = {
+      schema_version: "1.0",
+      pass: false,
+      issues: [
+        {
+          issue_id: "ISS-ANTIGEN",
+          severity: "critical" as const,
+          type: "unsupported_inference" as const,
+          claim: `Slide ${slide.slide_id}: ordering pneumococcal antigen testing without the correct dossier citation.`,
+          why_wrong: "Antigen ordering requires the correct dossier citation.",
+          suggested_fix: "Use antigen only when appropriate and cite CIT-DX-04.",
+          supporting_citations: [{ citation_id: "CIT-DX-04", claim: "Antigen corroboration.", locator: "Microbiology workup" }]
+        },
+        {
+          issue_id: "ISS-O2",
+          severity: "critical" as const,
+          type: "incorrect_fact" as const,
+          claim: `Slide ${slide.slide_id}: SaO2 <93% or severe features should trigger ABG and closer evaluation.`,
+          why_wrong: "That ABG threshold is not dossier-supported.",
+          suggested_fix: "Use oxygen targets with COPD caveats and monitoring.",
+          supporting_citations: [{ citation_id: "CIT-TX-01", claim: "Use oxygen targets with COPD caveats and monitoring.", locator: "Oxygen support" }]
+        }
+      ],
+      summary: "traceability issues",
+      required_fixes: qa.required_fixes
+    };
+
+    const patched = applyTargetedQaPatches({
+      deckSpec: deck,
+      clueGraph,
+      differentialCast: differential,
+      qaReport: qa,
+      loopIndex: 1,
+      dossier,
+      medFactcheckReport
+    });
+
+    expect(patched.deck.slides[0]!.speaker_notes.medical_reasoning).not.toMatch(/ABG|<93%/i);
+    expect(patched.deck.slides[0]!.on_slide_text.subtitle).toMatch(/Antigen only when appropriate/i);
+    expect(patched.deck.slides[0]!.medical_payload.dossier_citations.map((citation) => citation.citation_id)).toEqual(
+      expect.arrayContaining(["CIT-DX-04", "CIT-TX-01"])
+    );
+  });
+
+  it("routes false-theory, midpoint, and escalation lint failures into structural regeneration fixes", () => {
+    const base = {
+      topic: "Pneumonia",
+      audienceLevel: "COLLEGE_LEVEL" as const,
+      deckLengthMain: 30 as const,
+      kbContext: "## Medical / Clinical KB\n- source notes"
+    };
+    const dossier = generateDiseaseDossier(base);
+    const pitch = generateEpisodePitch(base, dossier);
+    const truth = generateTruthModel(base, dossier, pitch);
+    const deck = generateV2DeckSpec({ topic: base.topic, deckLengthMain: 30, audienceLevel: "COLLEGE_LEVEL" });
+    const differential = generateDifferentialCast(deck, dossier, truth);
+    const clueGraph = generateClueGraph(deck, dossier, differential);
+    const reader = generateReaderSimReport(deck, truth, clueGraph);
+    const med = generateMedFactcheckReport(deck, dossier);
+
+    const lint = {
+      workflow: "v2_micro_detectives" as const,
+      deckLengthConstraintEnabled: true,
+      expectedDeckLengthMain: 30 as const,
+      measuredDeckLengthMain: 30,
+      storyForwardRatio: 1,
+      storyForwardTargetRatio: 0.7,
+      pass: false,
+      errorCount: 3,
+      warningCount: 0,
+      errors: [
+        { code: "FALSE_THEORY_COLLAPSE_SIGNAL_WEAK", message: "False theory collapse is weak.", severity: "error" as const },
+        { code: "MIDPOINT_COLLAPSE_SIGNAL_WEAK", message: "Midpoint collapse is weak.", severity: "error" as const },
+        { code: "ACT_ESCALATION_CHANNELS_WEAK", message: "Pressure channels do not escalate enough.", severity: "error" as const }
+      ]
+    };
+
+    const qa = buildCombinedQaReport({
+      lintReport: lint,
+      readerSimReport: reader,
+      medFactcheckReport: med,
+      clueGraph,
+      deckSpec: deck
+    });
+
+    const structuralFixes = qa.required_fixes.filter((fix) => fix.type === "regenerate_section");
+    expect(structuralFixes.length).toBeGreaterThanOrEqual(3);
+    expect(
+      structuralFixes.some((fix) => /false theory collapse/i.test(fix.description))
+    ).toBe(true);
+    expect(
+      structuralFixes.some((fix) => /midpoint collapse/i.test(fix.description))
+    ).toBe(true);
+    expect(
+      structuralFixes.some((fix) => /pressure channels/i.test(fix.description))
+    ).toBe(true);
+    expect(structuralFixes.every((fix) => (fix.targets ?? []).some((target) => /^S\d{2,3}$/.test(target)))).toBe(true);
+  });
+
   it("rejects QA acceptance when red herrings lack payoff or twists miss receipts", () => {
     const base = {
       topic: "Myocarditis",

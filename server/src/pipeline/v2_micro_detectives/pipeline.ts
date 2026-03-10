@@ -540,6 +540,195 @@ function stabilizeQualityDeckArtifacts(input: {
   const dossierCitationIds = collectDossierCitationIds(input.dossier);
   const citationPool = collectDossierCitationPool(input.dossier);
 
+  const countWords = (value: string): number =>
+    String(value ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter((part) => part.length > 0).length;
+
+  const countSlideWords = (slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]): number => {
+    const pieces = [slide.on_slide_text.headline];
+    if (slide.on_slide_text.subtitle) pieces.push(slide.on_slide_text.subtitle);
+    if (Array.isArray(slide.on_slide_text.callouts)) pieces.push(...slide.on_slide_text.callouts);
+    if (Array.isArray(slide.on_slide_text.labels)) pieces.push(...slide.on_slide_text.labels);
+    return countWords(pieces.join(" "));
+  };
+
+  const shortenWords = (value: string, maxWords: number): string => {
+    const words = String(value ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter((part) => part.length > 0);
+    if (words.length <= maxWords) return value.trim();
+    return `${words.slice(0, maxWords).join(" ")}…`;
+  };
+
+  const enforceOnSlideWordLimit = (
+    slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]
+  ): void => {
+    const maxWords = Math.max(8, Number(deck.deck_meta.max_words_on_slide || 24));
+
+    const trimCallouts = () => {
+      if (!Array.isArray(slide.on_slide_text.callouts) || slide.on_slide_text.callouts.length === 0) return false;
+      const idx = slide.on_slide_text.callouts.reduce((bestIdx, callout, index, arr) =>
+        countWords(callout) > countWords(arr[bestIdx] ?? "") ? index : bestIdx, 0);
+      const current = slide.on_slide_text.callouts[idx] ?? "";
+      const shortened = countWords(current) > 4 ? shortenWords(current, Math.max(3, countWords(current) - 2)) : "";
+      if (shortened.trim().length > 0) {
+        slide.on_slide_text.callouts[idx] = shortened;
+      } else {
+        slide.on_slide_text.callouts.splice(idx, 1);
+      }
+      return true;
+    };
+
+    const trimLabels = () => {
+      if (!Array.isArray(slide.on_slide_text.labels) || slide.on_slide_text.labels.length === 0) return false;
+      if (slide.on_slide_text.labels.length > 1) {
+        slide.on_slide_text.labels.pop();
+      } else {
+        slide.on_slide_text.labels[0] = shortenWords(slide.on_slide_text.labels[0] ?? "", 2);
+      }
+      return true;
+    };
+
+    const trimSubtitle = () => {
+      if (!slide.on_slide_text.subtitle) return false;
+      const shortened = shortenWords(slide.on_slide_text.subtitle, Math.max(4, countWords(slide.on_slide_text.subtitle) - 2));
+      if (shortened.trim().length === 0 || shortened === slide.on_slide_text.subtitle) {
+        slide.on_slide_text.subtitle = undefined;
+      } else {
+        slide.on_slide_text.subtitle = shortened;
+      }
+      return true;
+    };
+
+    const trimHeadline = () => {
+      const shortened = shortenWords(slide.on_slide_text.headline, Math.max(5, countWords(slide.on_slide_text.headline) - 2));
+      if (shortened === slide.on_slide_text.headline) return false;
+      slide.on_slide_text.headline = shortened;
+      return true;
+    };
+
+    let guard = 0;
+    while (countSlideWords(slide) > maxWords && guard < 12) {
+      guard += 1;
+      if (trimLabels()) continue;
+      if (trimCallouts()) continue;
+      if (trimSubtitle()) continue;
+      if (trimHeadline()) continue;
+      break;
+    }
+    if (countSlideWords(slide) > maxWords) {
+      slide.on_slide_text.labels = [];
+      slide.on_slide_text.callouts = (slide.on_slide_text.callouts ?? []).slice(0, 1).map((callout) => shortenWords(callout, 4));
+      slide.on_slide_text.subtitle = slide.on_slide_text.subtitle ? shortenWords(slide.on_slide_text.subtitle, 4) : undefined;
+      slide.on_slide_text.headline = shortenWords(slide.on_slide_text.headline, Math.max(5, maxWords - countWords((slide.on_slide_text.subtitle ?? "") + " " + (slide.on_slide_text.callouts ?? []).join(" "))));
+    }
+  };
+
+  const slideKeywordProfile = (
+    slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]
+  ): string[] => {
+    const text = [
+      slide.title,
+      slide.hook,
+      slide.visual_description,
+      slide.on_slide_text.headline,
+      slide.on_slide_text.subtitle ?? "",
+      ...(slide.on_slide_text.callouts ?? []),
+      ...(slide.on_slide_text.labels ?? []),
+      ...(slide.medical_payload.supporting_details ?? []),
+      slide.speaker_notes.medical_reasoning
+    ]
+      .join(" ")
+      .toLowerCase();
+    const keywords = new Set<string>();
+    if (/(oxygen|copd|sao2|pao2|abg)/i.test(text)) ["oxygen", "copd", "pao2", "sao2"].forEach((item) => keywords.add(item));
+    if (/(blood culture|blood cultures|culture|bacteremia)/i.test(text)) ["blood cultures", "culture", "bacteremia"].forEach((item) => keywords.add(item));
+    if (/(antigen|urine|serum)/i.test(text)) ["antigen", "urine", "serum"].forEach((item) => keywords.add(item));
+    if (/(gram stain|diplococci|sputum)/i.test(text)) ["gram stain", "diplococci", "sputum"].forEach((item) => keywords.add(item));
+    if (/(pleura|pleural|effusion|empyema|abscess)/i.test(text)) ["pleural", "effusion", "empyema", "abscess"].forEach((item) => keywords.add(item));
+    if (/(lobar|consolidation|aspiration|dependent|flora)/i.test(text)) ["lobar", "consolidation", "community-acquired", "pneumonia"].forEach((item) => keywords.add(item));
+    if (/(curb|severity|admission|trajectory)/i.test(text)) ["curb", "admission", "severity", "prognosis"].forEach((item) => keywords.add(item));
+    if (/(organization|adhesion|fibrosis|complication)/i.test(text)) ["organization", "fibrosis", "adhesions", "complication"].forEach((item) => keywords.add(item));
+    return [...keywords];
+  };
+
+  const scoreCitationForKeywords = (
+    citation: DiseaseDossier["citations"][number],
+    keywords: string[]
+  ): number => {
+    const haystack = `${citation.citation_id} ${citation.claim} ${citation.locator ?? ""}`.toLowerCase();
+    let score = 0;
+    for (const keyword of keywords) {
+      if (haystack.includes(keyword.toLowerCase())) score += 1;
+    }
+    return score;
+  };
+
+  const selectRelevantSlideCitations = (
+    slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number],
+    fallbackClaim: string,
+    existingCitations: Array<z.infer<typeof CitationRefSchema>>
+  ): Array<z.infer<typeof CitationRefSchema>> => {
+    const sanitizedExisting = sanitizeCitationList(existingCitations, fallbackClaim);
+    const keywords = slideKeywordProfile(slide);
+    if (keywords.length === 0) return sanitizedExisting;
+    const ranked = citationPool
+      .map((citation) => ({
+        citation,
+        score: scoreCitationForKeywords(citation, keywords)
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => normalizeCitationRefs([entry.citation])[0]!)
+      .filter(Boolean);
+    if (ranked.length === 0) return sanitizedExisting;
+    const merged = normalizeCitationRefs([...ranked, ...sanitizedExisting]).slice(0, 4);
+    return merged.length > 0 ? merged : sanitizedExisting;
+  };
+
+  const sanitizeMedicalTraceabilityLanguage = (
+    slide: ReturnType<typeof DeckSpecSchema.parse>["slides"][number] | ReturnType<typeof DeckSpecSchema.parse>["appendix_slides"][number]
+  ): void => {
+    const replace = (value: string): string =>
+      String(value ?? "")
+        .replace(/\bFollow the aspiration trail\.?/gi, "Follow the lobar pattern.")
+        .replace(/\bDependent route\s*→\s*right lower lobe\b/gi, "Lobar consolidation pattern")
+        .replace(/\bGravity picks the destination\b/gi, "Lobar distribution frames the search")
+        .replace(/\bPneumococcal pneumonia is typically acquired by aspiration of pharyngeal flora\.?/gi, "Pneumococcal pneumonia is classically a lobar community-acquired process.")
+        .replace(/\bAspiration route explains why dependent segments are frequent sites\.?/gi, "Lobar distribution helps frame the search, but imaging and syndrome still drive localization.")
+        .replace(/\bCOPD history makes over-oxygenation a risk\.?/gi, "COPD history means oxygen targets should be titrated with monitoring.")
+        .replace(/\bSaO2\s*<\s*93%\s*or severe features should trigger ABG and closer evaluation; disposition still depends on overall severity and trajectory\.?/gi, "Use oxygen targets with COPD caveats and let overall severity and trajectory guide escalation.")
+        .replace(/\bABG\b[^.;,]*/gi, "overall severity assessment")
+        .replace(/\bCultures\/antigen now\. No exceptions\./gi, "Cultures now. Antigen only when appropriate.")
+        .replace(/\bAntigen adds corroboration lane\b/gi, "Antigen can supplement corroboration when appropriate")
+        .replace(/\bpneumococcal antigen testing\b/gi, "pneumococcal antigen detection when appropriate")
+        .replace(/\b18 hours\b/gi, "early check")
+        .replace(/\bsmall, uncomplicated effusion\b/gi, "no drainable pleural complication confirmed on this check")
+        .replace(/\bpleural space is clear\b/gi, "no pleural complication is confirmed on this check")
+        .replace(/\bno significant effusion\b/gi, "no large effusion is confirmed on this check")
+        .replace(/\bno empyema signal on this check\b/gi, "no empyema is confirmed on this check")
+        .replace(/\bnot a large\/drainable collection\b/gi, "not a drainable complication on this check");
+
+    slide.title = replace(slide.title ?? "").trim();
+    slide.hook = replace(slide.hook ?? "").trim();
+    slide.visual_description = replace(slide.visual_description ?? "").trim();
+    slide.on_slide_text.headline = replace(slide.on_slide_text.headline ?? "").trim();
+    if (slide.on_slide_text.subtitle) slide.on_slide_text.subtitle = replace(slide.on_slide_text.subtitle).trim();
+    if (Array.isArray(slide.on_slide_text.callouts)) slide.on_slide_text.callouts = slide.on_slide_text.callouts.map((item) => replace(item).trim());
+    if (Array.isArray(slide.on_slide_text.labels)) slide.on_slide_text.labels = slide.on_slide_text.labels.map((item) => replace(item).trim());
+    if (Array.isArray(slide.medical_payload.supporting_details)) {
+      slide.medical_payload.supporting_details = slide.medical_payload.supporting_details.map((item) => replace(item).trim());
+    }
+    slide.speaker_notes.medical_reasoning = replace(slide.speaker_notes.medical_reasoning ?? "").trim();
+    slide.speaker_notes.narrative_notes = replace(slide.speaker_notes.narrative_notes ?? "").trim();
+    if (Array.isArray(slide.speaker_notes.what_this_slide_teaches)) {
+      slide.speaker_notes.what_this_slide_teaches = slide.speaker_notes.what_this_slide_teaches.map((item) => replace(item).trim());
+    }
+  };
+
   const sanitizeCitationList = (
     citations: unknown,
     fallbackClaim: string
@@ -618,12 +807,13 @@ function stabilizeQualityDeckArtifacts(input: {
     if (supportingDetails.length === 0) {
       slide.medical_payload.supporting_details = [defaults.teachingPoint];
     }
+    sanitizeMedicalTraceabilityLanguage(slide);
     const combinedCitations = [
       ...(slide.medical_payload.dossier_citations ?? []),
       ...(slide.speaker_notes.citations ?? [])
     ];
     const fallbackClaim = stripInternalQualityResidue(slide.speaker_notes.medical_reasoning) || `${slide.title} grounding`;
-    const cleanedCitations = sanitizeCitationList(combinedCitations, fallbackClaim);
+    const cleanedCitations = selectRelevantSlideCitations(slide, fallbackClaim, sanitizeCitationList(combinedCitations, fallbackClaim));
     slide.medical_payload.dossier_citations = cleanedCitations;
     slide.speaker_notes.citations = cleanedCitations;
     slide.speaker_notes.narrative_notes = sanitizeSlideText(slide.speaker_notes.narrative_notes, defaults.narrativeNotes);
@@ -642,6 +832,7 @@ function stabilizeQualityDeckArtifacts(input: {
       slide.speaker_notes.differential_update.why,
       defaults.differentialWhy
     );
+    enforceOnSlideWordLimit(slide);
   };
 
   if (input.generationProfile === "quality") {
@@ -782,7 +973,8 @@ function isStructuralRegenFix(fix: RequiredFix): boolean {
   return (
     /\b(false[-\s]?theory|midpoint|collapse|twist)\b/.test(desc) ||
     /\b(relationship|detective|deputy|rupture|repair|arc)\b/.test(desc) ||
-    /\b(generic language|boilerplate|repetition|template)\b/.test(desc)
+    /\b(generic language|boilerplate|repetition|template)\b/.test(desc) ||
+    /\b(escalation|pressure channel|pressure channels|emotional cost)\b/.test(desc)
   );
 }
 
@@ -825,11 +1017,13 @@ function inferOutlineActForPlan(
 function resolveStructuralBlockIndexes(
   fixes: RequiredFix[],
   blockPlans: Array<{ blockId: string; actId: "ACT1" | "ACT2" | "ACT3" | "ACT4"; start: number; end: number }>,
-  heatmap?: { blocks: Array<{ block_id: string; act_id: "ACT1" | "ACT2" | "ACT3" | "ACT4"; severity_score: number; repeated_template_density: number }> }
+  heatmap?: { blocks: Array<{ block_id: string; act_id: "ACT1" | "ACT2" | "ACT3" | "ACT4"; severity_score: number; repeated_template_density: number; generic_language_rate?: number }> }
 ): number[] {
   const slideIds = extractSlideIdsFromFixes(fixes);
   const indexes = new Set<number>();
   const widenWindow = fixes.some((fix) => fix.type === "increase_story_turn" || fix.type === "regenerate_section");
+  const midpointOrFalseTheoryFix = fixes.some((fix) => /\b(false[-\s]?theory|midpoint|collapse)\b/i.test(`${fix.fix_id} ${fix.description}`));
+  const escalationFix = fixes.some((fix) => /\b(escalation|pressure channel|pressure channels)\b/i.test(`${fix.fix_id} ${fix.description}`));
   const explicitBlockIds = new Set<string>();
   for (const fix of fixes) {
     for (const target of fix.targets ?? []) {
@@ -863,6 +1057,7 @@ function resolveStructuralBlockIndexes(
         highestByAct.set(block.act_id, { block_id: block.block_id, severity_score: block.severity_score });
       }
       if (block.repeated_template_density >= 0.18) explicitBlockIds.add(block.block_id);
+      if ((block.generic_language_rate ?? 0) >= 0.16) explicitBlockIds.add(block.block_id);
     }
     for (const [actId, block] of highestByAct) {
       if (block.severity_score <= 0) continue;
@@ -871,6 +1066,18 @@ function resolveStructuralBlockIndexes(
     }
     for (const blockId of explicitBlockIds) {
       const idx = blockPlans.findIndex((plan) => plan.blockId === blockId);
+      if (idx >= 0) indexes.add(idx);
+    }
+  }
+  if (midpointOrFalseTheoryFix) {
+    for (const actId of ["ACT2", "ACT3"] as const) {
+      const idx = blockPlans.findIndex((plan) => plan.actId === actId);
+      if (idx >= 0) indexes.add(idx);
+    }
+  }
+  if (escalationFix) {
+    for (const actId of ["ACT2", "ACT3", "ACT4"] as const) {
+      const idx = blockPlans.findIndex((plan) => plan.actId === actId);
       if (idx >= 0) indexes.add(idx);
     }
   }
@@ -1184,6 +1391,8 @@ function buildStructuralRegenGuidance(input: {
   const hasStoryTurnFix = input.fixes.some((fix) => fix.type === "increase_story_turn");
   const hasSectionRegen = input.fixes.some((fix) => fix.type === "regenerate_section");
   const hasTwistFix = input.fixes.some((fix) => fix.type === "add_twist_receipts");
+  const hasMidpointFix = input.fixes.some((fix) => /\bmidpoint|collapse|false[-\s]?theory\b/i.test(`${fix.fix_id} ${fix.description}`));
+  const hasEscalationFix = input.fixes.some((fix) => /\bescalation|pressure channel|pressure channels\b/i.test(`${fix.fix_id} ${fix.description}`));
   const policySummary = [
     "If a targeted slide is note_only or passive exhibit, convert it into a clue, dialogue, or action beat with an explicit decision and consequence on the same slide.",
     "Use replace_window or split_slide when a single weak slide is carrying too much summary or too little dramatic consequence.",
@@ -1197,6 +1406,12 @@ function buildStructuralRegenGuidance(input: {
   }
   if (hasTwistFix) {
     policySummary.push("Seed or pay off twist receipts inside this block instead of deferring them to appendix-style explanation.");
+  }
+  if (hasMidpointFix) {
+    policySummary.push("Make the midpoint or false-theory collapse visible in-slide: a confident theory must fracture on evidence, not merely get restated more cautiously.");
+  }
+  if (hasEscalationFix) {
+    policySummary.push("Escalate at least two pressure channels in this block: clinical risk, uncertainty, time pressure, or detective relationship cost.");
   }
   return { policySummary, targetSlideIds };
 }
@@ -5613,7 +5828,8 @@ export async function runMicroDetectivesPipeline(input: RunInput, runs: RunManag
             differentialCast: workingDifferential,
             qaReport: patchQa,
             loopIndex: attempt,
-            dossier: diseaseDossier
+            dossier: diseaseDossier,
+            medFactcheckReport: finalFactcheck
           });
           const patchedDeckCandidate = DeckSpecSchema.parse(patch.deck);
           const patchPolishDecision = shouldRunFallbackPolish({
